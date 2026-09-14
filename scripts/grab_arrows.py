@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import ctypes
 import numpy as np
 import cv2
@@ -46,6 +47,7 @@ CONF_WH    = 0.35
 CONF_ARROW = 0.5
 
 ARROW_TAB_INDEX = 6   # warehouse tab #7 (0-indexed)
+BANK_TAB_COUNT  = 6   # tabs 0-5 are regular banks; tab 6 is reserved for arrows
 
 _tmpl_inv = cv2.imread(INVENTORY_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_wh  = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
@@ -195,7 +197,7 @@ def _right_click_arrow_in_inventory(retries=8, delay=0.5):
                 pyautogui.keyDown('alt')
                 time.sleep(0.1)
                 pyautogui.moveTo(x, y, duration=0.05)
-                pyautogui.click()
+                # pyautogui.click()
                 time.sleep(0.1)
                 pyautogui.keyUp('alt')
                 print(f'  [ARROWS] Alt+clicked arrow @ ({x},{y})')
@@ -223,6 +225,9 @@ def ensure_arrows():
 
     time.sleep(0.3)
     _right_click_arrow_in_inventory()
+
+    time.sleep(0.3)
+    _click_warehouse_tab(random.randrange(BANK_TAB_COUNT))
 
 
 if __name__ == '__main__':
