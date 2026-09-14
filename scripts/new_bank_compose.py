@@ -181,15 +181,17 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     time.sleep(WAIT)
 
     _click_image(COMPOSE_PATH)
-    time.sleep(2)
+    time.sleep(1)
     _click_image(COMPOSE_PATH)
     time.sleep(WAIT)
 
     _click_image(DEPOSIT_PATH)
-    time.sleep(2)
+    time.sleep(1)
     _click_image(DEPOSIT_PATH)
     time.sleep(WAIT)
 
+    _click_image(CLOSE_VIP_PATH)
+    time.sleep(1)
     _click_image(CLOSE_VIP_PATH)
 
 
