@@ -81,9 +81,9 @@ def _main():
     while True:
         print(f'[DESKTOP] Processing {current + 1}/{ACCOUNT_NUMBERS}')
         if not handle_revive():
+            run_new_bank_compose()
             stash_items()
             handle_revive()
-            run_new_bank_compose()
 
             now = time.time()
             if now - _last_arrows_check.get(current, start_time) >= ARROWS_INTERVAL:
