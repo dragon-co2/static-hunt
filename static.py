@@ -20,8 +20,7 @@ from pynput import keyboard as pynput_kb
 from pyvda import get_virtual_desktops
 
 from stash2 import stash_items
-from bank_compose import run_compose
-from ingame_autohunt import ingame_autohun_off, ingame_autohun_on
+from new_bank_compose import run_new_bank_compose
 from revive import handle_revive
 from grab_arrows import ensure_arrows
 
@@ -89,6 +88,8 @@ def _main():
             if now - _last_arrows_check.get(current, start_time) >= ARROWS_INTERVAL:
                 ensure_arrows()
                 _last_arrows_check[current] = now
+
+            run_new_bank_compose()
 
         time.sleep(INTERVAL)
 
