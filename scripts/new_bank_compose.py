@@ -2,7 +2,6 @@ import os
 import time
 import random
 import ctypes
-import ctypes.wintypes
 import numpy as np
 import cv2
 import mss
@@ -41,7 +40,6 @@ WH_ROWS     = 4
 CONF_WH    = 0.35
 CONF_EMPTY = 0.8
 CLICK_MULTIPLIER = 1  # extra clicks over the detected item count, e.g. 1.5 = +50%
-MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
 WAREHOUSE_MIN_ITEMS = 10  # only withdraw + run the vip flow if the warehouse has at least this many items
 
 WAIT = 0.4  # seconds between steps
@@ -51,25 +49,7 @@ _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
 
 
 def _focus_game_window():
-    found_hwnd = ctypes.c_void_p(0)
-
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
-    def _cb(hwnd, _):
-        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-        buf = ctypes.create_unicode_buffer(length + 1)
-        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-        if MEM_WINDOW.lower() in buf.value.lower():
-            found_hwnd.value = hwnd
-            return False
-        return True
-
-    ctypes.windll.user32.EnumWindows(_cb, 0)
-    if found_hwnd.value:
-        ctypes.windll.user32.ShowWindow(found_hwnd.value, 9)  # SW_RESTORE
-        ctypes.windll.user32.SetForegroundWindow(found_hwnd.value)
-        time.sleep(0.2)
-        return True
-    return False
+    return True
 
 
 def _find(gray, template, threshold):
@@ -201,8 +181,12 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     time.sleep(WAIT)
 
     _click_image(COMPOSE_PATH)
+    time.sleep(2)
+    _click_image(COMPOSE_PATH)
     time.sleep(WAIT)
 
+    _click_image(DEPOSIT_PATH)
+    time.sleep(2)
     _click_image(DEPOSIT_PATH)
     time.sleep(WAIT)
 
