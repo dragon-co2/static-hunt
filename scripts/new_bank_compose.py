@@ -42,7 +42,7 @@ CONF_WH    = 0.35
 CONF_EMPTY = 0.8
 CLICK_MULTIPLIER = 1  # extra clicks over the detected item count, e.g. 1.5 = +50%
 MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
-WAREHOUSE_MIN_ITEMS = 5  # only withdraw + run the vip flow if the warehouse has at least this many items
+WAREHOUSE_MIN_ITEMS = 10  # only withdraw + run the vip flow if the warehouse has at least this many items
 
 WAIT = 0.4  # seconds between steps
 
