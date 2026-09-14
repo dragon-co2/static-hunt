@@ -83,13 +83,13 @@ def _main():
         if not handle_revive():
             stash_items()
             handle_revive()
+            run_new_bank_compose()
 
             now = time.time()
             if now - _last_arrows_check.get(current, start_time) >= ARROWS_INTERVAL:
                 ensure_arrows()
                 _last_arrows_check[current] = now
 
-            run_new_bank_compose()
 
         time.sleep(INTERVAL)
 

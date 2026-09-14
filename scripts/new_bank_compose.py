@@ -39,7 +39,7 @@ WH_ROWS     = 4
 
 CONF_WH    = 0.35
 CONF_EMPTY = 0.8
-CLICK_MULTIPLIER = 1  # extra clicks over the detected item count, e.g. 1.5 = +50%
+CLICK_MULTIPLIER = 2  # extra clicks over the detected item count, e.g. 1.5 = +50%
 WAREHOUSE_MIN_ITEMS = 10  # only withdraw + run the vip flow if the warehouse has at least this many items
 
 WAIT = 0.4  # seconds between steps
