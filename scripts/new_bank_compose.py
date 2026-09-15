@@ -24,6 +24,7 @@ pyautogui.PAUSE = 0
 _DIR = os.path.join(app_root(), 'reference_images')
 WAREHOUSE_TITLE_PATH = os.path.join(_DIR, 'warehouse_title.jpg')
 EMPTYCELL_PATH       = os.path.join(_DIR, 'emptycell.jpg')
+ARROW_PATH           = os.path.join(_DIR, 'arrow.jpg')
 VIP_BTN_PATH         = os.path.join(_DIR, 'vip_btn.png')
 VIP_MENU_PATH        = os.path.join(_DIR, 'vip_menu.jpg')
 COMPOSE_PATH         = os.path.join(_DIR, 'compose.jpg')
@@ -39,6 +40,7 @@ WH_ROWS     = 4
 
 CONF_WH    = 0.35
 CONF_EMPTY = 0.8
+CONF_ARROW = 0.5
 CLICK_MULTIPLIER = 2  # extra clicks over the detected item count, e.g. 1.5 = +50%
 WAREHOUSE_MIN_ITEMS = 10  # only withdraw + run the vip flow if the warehouse has at least this many items
 
@@ -46,6 +48,7 @@ WAIT = 0.4  # seconds between steps
 
 _tmpl_wh    = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_arrow = cv2.imread(ARROW_PATH, cv2.IMREAD_GRAYSCALE)
 
 
 def _focus_game_window():
@@ -65,11 +68,23 @@ def _find(gray, template, threshold):
     return None
 
 
+def _is_arrow(cell_gray):
+    if _tmpl_arrow is None:
+        return False
+    th, tw = _tmpl_arrow.shape[:2]
+    if cell_gray.shape[0] < th or cell_gray.shape[1] < tw:
+        return False
+    res = cv2.matchTemplate(cell_gray, _tmpl_arrow, cv2.TM_CCOEFF_NORMED)
+    return cv2.minMaxLoc(res)[1] >= CONF_ARROW
+
+
 def _count_warehouse_items(gray, wh_panel):
-    """Counts non-empty cells in the warehouse grid."""
+    """Counts non-empty cells in the warehouse grid, and separately the arrow cells among them.
+    Arrow cells are ignored entirely — not counted as items, and not touched by the withdraw step."""
     px, py, _, _ = wh_panel
     ox, oy = px + WH_OFFSET_X, py + WH_OFFSET_Y
     count = 0
+    arrow_count = 0
     for r in range(WH_ROWS):
         for c in range(WH_COLS):
             x1 = ox + c * WH_SLOT_W
@@ -79,8 +94,11 @@ def _count_warehouse_items(gray, wh_panel):
                 res = cv2.matchTemplate(crop, _tmpl_empty, cv2.TM_CCOEFF_NORMED)
                 if cv2.minMaxLoc(res)[1] >= CONF_EMPTY:
                     continue
+            if _is_arrow(crop):
+                arrow_count += 1
+                continue
             count += 1
-    return count
+    return count, arrow_count
 
 
 def _best_match_score(path):
@@ -139,12 +157,14 @@ def _warehouse_state():
     with mss.MSS() as sct:
         gray = cv2.cvtColor(np.array(sct.grab(sct.monitors[0])), cv2.COLOR_BGRA2GRAY)
     wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
-    item_count = _count_warehouse_items(gray, wh_panel) if wh_panel else 0
-    return wh_panel, item_count
+    item_count, arrow_count = _count_warehouse_items(gray, wh_panel) if wh_panel else (0, 0)
+    return wh_panel, item_count, arrow_count
 
 
 def _withdraw_items(wh_panel, item_count):
-    """Clicks warehouse cells to pull items into the bag — same CLICK_MULTIPLIER logic as bank_compose.py."""
+    """Clicks warehouse cells to pull items into the bag — same CLICK_MULTIPLIER logic as bank_compose.py.
+    Before each click it checks the target cell for arrow.jpg and skips it if found — arrows are
+    never withdrawn, they're just left in place."""
     times = round(item_count * CLICK_MULTIPLIER)
     print(f'  [WITHDRAW] {item_count} item(s) in warehouse — clicking {times} times (x{CLICK_MULTIPLIER})')
     if times == 0:
@@ -152,22 +172,40 @@ def _withdraw_items(wh_panel, item_count):
 
     px, py, _, _ = wh_panel
     _focus_game_window()
-    for i in range(times):
+    clicked = 0
+    attempts = 0
+    max_attempts = times * 4  # bail out if a cell keeps landing on an arrow
+    while clicked < times and attempts < max_attempts:
+        attempts += 1
         r, c = random.choice([(0, 0), (0, 1)])
-        x = px + WH_OFFSET_X + c * WH_SLOT_W + WH_SLOT_W // 2
-        y = py + WH_OFFSET_Y + r * WH_SLOT_H + WH_SLOT_H // 2
+        x1 = px + WH_OFFSET_X + c * WH_SLOT_W
+        y1 = py + WH_OFFSET_Y + r * WH_SLOT_H
+        x, y = x1 + WH_SLOT_W // 2, y1 + WH_SLOT_H // 2
+
+        with mss.MSS() as sct:
+            raw = np.array(sct.grab(sct.monitors[0]))
+        gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+        crop = gray[y1:y1 + WH_SLOT_H, x1:x1 + WH_SLOT_W]
+        if _is_arrow(crop):
+            print(f'  [WITHDRAW] arrow at cell(r{r},c{c}) — skipping')
+            continue
+
         pyautogui.moveTo(x, y, duration=0.15)
         time.sleep(0.1)
         pyautogui.mouseDown()
         time.sleep(0.08)
         pyautogui.mouseUp()
-        print(f'  [WITHDRAW] cell(r{r},c{c}) @ ({x},{y})  {i + 1}/{times}')
+        clicked += 1
+        print(f'  [WITHDRAW] cell(r{r},c{c}) @ ({x},{y})  {clicked}/{times}')
     return True
 
 
 def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
-    wh_panel, item_count = _warehouse_state()
-    print(f'  [CHECK] {item_count} item(s) in warehouse')
+    wh_panel, item_count, arrow_count = _warehouse_state()
+    print(f'  [CHECK] {item_count} item(s) in warehouse ({arrow_count} arrow(s) ignored)')
+    if wh_panel and item_count == 0 and arrow_count > 0:
+        print('  [CHECK] Only arrows in warehouse — skipping.')
+        return
     if not wh_panel or item_count < min_items:
         print(f'  [CHECK] Fewer than {min_items} — skipping.')
         return

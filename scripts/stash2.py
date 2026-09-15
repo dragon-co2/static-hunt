@@ -49,7 +49,7 @@ CONF_EMPTY  = 0.95
 
 ALT_HOLD     = 0.1   # seconds Alt is held before/after the click
 TAB_DELAY    = 0.2   # seconds after clicking a tab, before the alt+click
-STASH_DELAY  = 0.3   # seconds between each item moved
+STASH_DELAY  = 0.5   # seconds between each item moved
 
 _tmpl_inv   = cv2.imread(INVENTORY_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_wh    = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
@@ -122,39 +122,43 @@ def _click_random_tab(wh_panel):
     return tab_idx
 
 
-def _alt_click(x, y):
-    """Alt+click — the game's shortcut to instantly send an inventory item to the active warehouse tab."""
-    pyautogui.keyDown('alt')
-    time.sleep(ALT_HOLD)
+def _click(x, y):
+    """Click while Alt is already held down (see stash_items) — the game's shortcut to
+    instantly send an inventory item to the active warehouse tab."""
     pyautogui.moveTo(x, y, duration=0.05)
     pyautogui.click()
-    time.sleep(ALT_HOLD)
-    pyautogui.keyUp('alt')
 
 
 def stash_items(wait_if_dead=None):
     """Drains the inventory into the warehouse via Alt+click, shuffling to a random
-    warehouse tab before every single item so they spread out instead of piling up."""
+    warehouse tab before every single item so they spread out instead of piling up.
+    Alt is held down for the entire run rather than toggled per click."""
     moved = 0
-    while True:
-        if wait_if_dead:
-            wait_if_dead()
+    pyautogui.keyDown('alt')
+    time.sleep(ALT_HOLD)
+    try:
+        while True:
+            if wait_if_dead:
+                wait_if_dead()
 
-        gray, inv_panel, wh_panel = _find_panels()
-        if not inv_panel or not wh_panel:
-            print('[STASH2] Panel(s) not visible — aborting')
-            return
+            gray, inv_panel, wh_panel = _find_panels()
+            if not inv_panel or not wh_panel:
+                print('[STASH2] Panel(s) not visible — aborting')
+                return
 
-        item = _next_inv_item(gray, inv_panel)
-        if not item:
-            print(f'[STASH2] Done — {moved} item(s) moved')
-            return
+            item = _next_inv_item(gray, inv_panel)
+            if not item:
+                print(f'[STASH2] Done — {moved} item(s) moved')
+                return
 
-        tab_idx = _click_random_tab(wh_panel)
-        _alt_click(*item)
-        moved += 1
-        print(f'  [STASH2] Moved {moved}: inv{item} -> tab{tab_idx}')
-        time.sleep(STASH_DELAY)
+            tab_idx = _click_random_tab(wh_panel)
+            _click(*item)
+            moved += 1
+            print(f'  [STASH2] Moved {moved}: inv{item} -> tab{tab_idx}')
+            time.sleep(STASH_DELAY)
+    finally:
+        time.sleep(ALT_HOLD)
+        pyautogui.keyUp('alt')
 
 
 if __name__ == '__main__':
