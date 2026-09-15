@@ -22,30 +22,22 @@ _DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
 _tmpl_inv    = cv2.imread(os.path.join(_DIR, 'inventory_title.jpg'), cv2.IMREAD_GRAYSCALE)
 _tmpl_dialog = cv2.imread(os.path.join(_DIR, 'compose_items.jpg'),  cv2.IMREAD_GRAYSCALE)
 
-from dragon_settings import get_settings
-_S = get_settings('compose', {
-    'DIALOG_MAIN_OFF': (68, 80), 'DIALOG_MINOR_OFF': (200, 80), 'DIALOG_COMPOSE_OFF': (167, 260),
-    'CONF_INV': 0.3, 'INV_OFFSET_X': 18, 'INV_OFFSET_Y': 10,
-    'INV_SLOT_W': 43, 'INV_SLOT_H': 43, 'INV_COLS': 5, 'INV_ROWS': 8,
-    'WAIT': 0.7,
-})
-
 # Fixed offsets from the compose dialog's top-left corner.
 # Tune if clicks land wrong — the print line shows dialog@(dx,dy) so you can verify.
-DIALOG_MAIN_OFF    = tuple(_S['DIALOG_MAIN_OFF'])     # center of the left (Main) slot
-DIALOG_MINOR_OFF   = tuple(_S['DIALOG_MINOR_OFF'])    # center of the right (Minor) slot
-DIALOG_COMPOSE_OFF = tuple(_S['DIALOG_COMPOSE_OFF'])  # center of the Compose button
+DIALOG_MAIN_OFF    = (68,  80)   # center of the left (Main) slot
+DIALOG_MINOR_OFF   = (200, 80)   # center of the right (Minor) slot
+DIALOG_COMPOSE_OFF = (167, 260)  # center of the Compose button
 
 # ── Inventory grid ─────────────────────────────────────────────────────────────
-CONF_INV     = _S['CONF_INV']
-INV_OFFSET_X = _S['INV_OFFSET_X']
-INV_OFFSET_Y = _S['INV_OFFSET_Y']
-INV_SLOT_W   = _S['INV_SLOT_W']
-INV_SLOT_H   = _S['INV_SLOT_H']
-INV_COLS     = _S['INV_COLS']
-INV_ROWS     = _S['INV_ROWS']
+CONF_INV     = 0.3
+INV_OFFSET_X = 18
+INV_OFFSET_Y = 10
+INV_SLOT_W   = 43
+INV_SLOT_H   = 43
+INV_COLS     = 5
+INV_ROWS     = 8
 
-WAIT = _S['WAIT']  # seconds between steps
+WAIT = 0.7  # seconds between steps
 
 # ── Badge configs ──────────────────────────────────────────────────────────────
 def _load_badge(name, threshold, color):

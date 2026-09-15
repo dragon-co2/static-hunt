@@ -1,0 +1,155 @@
+{
+  "auto_left_click": {
+    "CLICK_INTERVAL": 0.1
+  },
+  "fly": {
+    "CONFIDENCE": 0.9
+  },
+  "revive": {
+    "REVIVE_WAIT": 1,
+    "REVIVE_RETRY": 1.0
+  },
+  "repaire": {
+    "WH_CLOSE_OFF": [
+      326,
+      13
+    ],
+    "VIP_BTN_POS": [
+      652,
+      984
+    ],
+    "CONF_WH": 0.5,
+    "WAIT": 0.5,
+    "RETRIES": 15
+  },
+  "compose": {
+    "DIALOG_MAIN_OFF": [
+      68,
+      80
+    ],
+    "DIALOG_MINOR_OFF": [
+      200,
+      80
+    ],
+    "DIALOG_COMPOSE_OFF": [
+      167,
+      260
+    ],
+    "CONF_INV": 0.3,
+    "INV_OFFSET_X": 18,
+    "INV_OFFSET_Y": 10,
+    "INV_SLOT_W": 43,
+    "INV_SLOT_H": 43,
+    "INV_COLS": 5,
+    "INV_ROWS": 8,
+    "WAIT": 0.7
+  },
+  "bank_compose": {
+    "WH_OFFSET_X": 120,
+    "WH_OFFSET_Y": 40,
+    "WH_SLOT_W": 43,
+    "WH_SLOT_H": 43,
+    "WH_COLS": 5,
+    "WH_ROWS": 4,
+    "WH_TAB_X": 5,
+    "WH_TAB_Y": 26,
+    "WH_TAB_W": 110,
+    "WH_TAB_H": 31,
+    "WH_TAB_COUNT": 7,
+    "CONF_WH": 0.35,
+    "CONF_EMPTY": 0.9,
+    "CLICK_MULTIPLIER": 1.5,
+    "VIS": 1,
+    "CYCLES": 7,
+    "WAREHOUSE_MIN_ITEMS": 20,
+    "CONF_INV": 0.3,
+    "CONF_DIALOG": 0.6,
+    "INV_OFFSET_X": 18,
+    "INV_OFFSET_Y": 10,
+    "INV_SLOT_W": 43,
+    "INV_SLOT_H": 43,
+    "INV_COLS": 5,
+    "INV_ROWS": 8,
+    "DIALOG_MAIN_OFF": [
+      68,
+      80
+    ],
+    "DIALOG_MINOR_OFF": [
+      200,
+      80
+    ],
+    "DIALOG_COMPOSE_OFF": [
+      167,
+      260
+    ],
+    "DIALOG_CANCEL_OFF": [
+      244,
+      260
+    ],
+    "WAIT": 0.4,
+    "DRAGONBALL_NEED": 10
+  },
+  "new_bank_compose": {
+    "WH_OFFSET_X": 128,
+    "WH_OFFSET_Y": 46,
+    "WH_SLOT_W": 43,
+    "WH_SLOT_H": 43,
+    "WH_COLS": 5,
+    "WH_ROWS": 4,
+    "CONF_WH": 0.35,
+    "CONF_EMPTY": 0.8,
+    "CONF_ARROW": 0.5,
+    "CLICK_MULTIPLIER": 2,
+    "WAREHOUSE_MIN_ITEMS": 10,
+    "WAIT": 0.4
+  },
+  "grab_arrows": {
+    "INV_OFFSET_X": 18,
+    "INV_OFFSET_Y": 10,
+    "INV_SLOT_W": 43,
+    "INV_SLOT_H": 43,
+    "INV_COLS": 5,
+    "INV_ROWS": 8,
+    "WH_OFFSET_X": 120,
+    "WH_OFFSET_Y": 40,
+    "WH_SLOT_W": 43,
+    "WH_SLOT_H": 43,
+    "WH_COLS": 5,
+    "WH_ROWS": 4,
+    "WH_TAB_X": 5,
+    "WH_TAB_Y": 26,
+    "WH_TAB_W": 110,
+    "WH_TAB_H": 31,
+    "WH_TAB_COUNT": 7,
+    "CONF_INV": 0.3,
+    "CONF_WH": 0.35,
+    "CONF_ARROW": 0.5,
+    "ARROW_TAB_INDEX": 6,
+    "BANK_TAB_COUNT": 6
+  },
+  "stash2": {
+    "INV_OFFSET_X": 18,
+    "INV_OFFSET_Y": 10,
+    "INV_SLOT_W": 43,
+    "INV_SLOT_H": 43,
+    "INV_COLS": 5,
+    "INV_ROWS": 8,
+    "WH_OFFSET_X": 120,
+    "WH_OFFSET_Y": 40,
+    "WH_SLOT_W": 43,
+    "WH_SLOT_H": 43,
+    "WH_COLS": 5,
+    "WH_ROWS": 4,
+    "WH_TAB_X": 5,
+    "WH_TAB_Y": 26,
+    "WH_TAB_W": 110,
+    "WH_TAB_H": 31,
+    "WH_TAB_COUNT": 6,
+    "CONF": 0.3,
+    "CONF_WH": 0.3,
+    "CONF_EMPTY": 0.95,
+    "ALT_HOLD": 0.1,
+    "TAB_DELAY": 0.2,
+    "STASH_DELAY": 0.5
+  }
+}

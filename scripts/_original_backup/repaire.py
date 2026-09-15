@@ -24,21 +24,12 @@ YES_PATH             = os.path.join(_DIR, 'yes.png')
 CLOSE_STATUS_PATH    = os.path.join(_DIR, 'closeStatus.png')
 WH_BTN_PATH          = os.path.join(_DIR, 'wh_btn.png')
 
-from dragon_settings import get_settings
-_S = get_settings('repaire', {
-    'WH_CLOSE_OFF': (326, 13),
-    'VIP_BTN_POS':  (652, 984),
-    'CONF_WH':      0.5,
-    'WAIT':         0.5,
-    'RETRIES':      15,
-})
+WH_CLOSE_OFF = (326, 13)   # X button, relative to the warehouse panel's top-left
+VIP_BTN_POS  = (652, 984)  # VIP button — fixed HUD position, doesn't move, no need to search for it
 
-WH_CLOSE_OFF = tuple(_S['WH_CLOSE_OFF'])   # X button, relative to the warehouse panel's top-left
-VIP_BTN_POS  = tuple(_S['VIP_BTN_POS'])    # VIP button — fixed HUD position, doesn't move, no need to search for it
-
-CONF_WH  = _S['CONF_WH']
-WAIT     = _S['WAIT']       # seconds between steps
-RETRIES  = _S['RETRIES']    # attempts (1s apart) to wait for each UI element to appear
+CONF_WH  = 0.5
+WAIT     = 0.5   # seconds between steps
+RETRIES  = 15    # attempts (1s apart) to wait for each UI element to appear
 
 MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
 
