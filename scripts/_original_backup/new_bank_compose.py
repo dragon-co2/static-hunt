@@ -31,29 +31,20 @@ COMPOSE_PATH         = os.path.join(_DIR, 'compose.jpg')
 DEPOSIT_PATH         = os.path.join(_DIR, 'deposit.jpg')
 CLOSE_VIP_PATH       = os.path.join(_DIR, 'close_vip.jpg')
 
-from dragon_settings import get_settings
-_S = get_settings('new_bank_compose', {
-    'WH_OFFSET_X': 128, 'WH_OFFSET_Y': 46, 'WH_SLOT_W': 43, 'WH_SLOT_H': 43,
-    'WH_COLS': 5, 'WH_ROWS': 4,
-    'CONF_WH': 0.35, 'CONF_EMPTY': 0.8, 'CONF_ARROW': 0.5,
-    'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 10,
-    'WAIT': 0.4,
-})
+WH_OFFSET_X = 128
+WH_OFFSET_Y = 46
+WH_SLOT_W   = 43
+WH_SLOT_H   = 43
+WH_COLS     = 5
+WH_ROWS     = 4
 
-WH_OFFSET_X = _S['WH_OFFSET_X']
-WH_OFFSET_Y = _S['WH_OFFSET_Y']
-WH_SLOT_W   = _S['WH_SLOT_W']
-WH_SLOT_H   = _S['WH_SLOT_H']
-WH_COLS     = _S['WH_COLS']
-WH_ROWS     = _S['WH_ROWS']
+CONF_WH    = 0.35
+CONF_EMPTY = 0.8
+CONF_ARROW = 0.5
+CLICK_MULTIPLIER = 2  # extra clicks over the detected item count, e.g. 1.5 = +50%
+WAREHOUSE_MIN_ITEMS = 10  # only withdraw + run the vip flow if the warehouse has at least this many items
 
-CONF_WH    = _S['CONF_WH']
-CONF_EMPTY = _S['CONF_EMPTY']
-CONF_ARROW = _S['CONF_ARROW']
-CLICK_MULTIPLIER = _S['CLICK_MULTIPLIER']  # extra clicks over the detected item count, e.g. 1.5 = +50%
-WAREHOUSE_MIN_ITEMS = _S['WAREHOUSE_MIN_ITEMS']  # only withdraw + run the vip flow if the warehouse has at least this many items
-
-WAIT = _S['WAIT']  # seconds between steps
+WAIT = 0.4  # seconds between steps
 
 _tmpl_wh    = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)

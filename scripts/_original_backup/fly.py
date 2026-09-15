@@ -14,10 +14,7 @@ pyautogui.PAUSE    = 0
 _DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'reference_images')
 FLY_PATH = os.path.join(_DIR, 'fly.jpg')
 
-from dragon_settings import get_settings
-_S = get_settings('fly', {'CONFIDENCE': 0.9})
-
-CONFIDENCE = _S['CONFIDENCE']
+CONFIDENCE = 0.9
 
 
 def _locate(path, confidence=CONFIDENCE):

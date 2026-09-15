@@ -1,0 +1,1028 @@
+{
+  "auto_left_click": {
+    "__title__": "Auto Left Click",
+    "CLICK_INTERVAL": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.1,
+      "desc": "Delay between each click while held"
+    }
+  },
+  "fly": {
+    "__title__": "Fly",
+    "CONFIDENCE": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.9,
+      "desc": "Confidence for detecting the image on screen"
+    }
+  },
+  "revive": {
+    "__title__": "Revive",
+    "REVIVE_WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 1,
+      "desc": "Delay after death before the revive button becomes clickable"
+    },
+    "REVIVE_RETRY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 1.0,
+      "desc": "Delay between re-checks once the wait is over"
+    }
+  },
+  "repaire": {
+    "__title__": "Repair",
+    "WH_CLOSE_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        326,
+        13
+      ],
+      "desc": "Close button coordinate relative to the warehouse panel's top-left corner"
+    },
+    "VIP_BTN_POS": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        652,
+        984
+      ],
+      "desc": "Fixed on-screen coordinate of the VIP button"
+    },
+    "CONF_WH": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.5,
+      "desc": "Confidence for detecting the warehouse panel"
+    },
+    "WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.5,
+      "desc": "Delay between steps"
+    },
+    "RETRIES": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 15,
+      "desc": "Number of attempts before giving up and clicking the best guess"
+    }
+  },
+  "compose": {
+    "__title__": "Compose",
+    "DIALOG_MAIN_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        68,
+        80
+      ],
+      "desc": "Main slot coordinate in the compose dialog"
+    },
+    "DIALOG_MINOR_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        200,
+        80
+      ],
+      "desc": "Minor slot coordinate in the compose dialog"
+    },
+    "DIALOG_COMPOSE_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        167,
+        260
+      ],
+      "desc": "Compose button coordinate in the dialog"
+    },
+    "CONF_INV": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.3,
+      "desc": "Confidence for detecting the inventory panel"
+    },
+    "INV_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 18,
+      "desc": "First-slot X offset (px) in the inventory grid"
+    },
+    "INV_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "First-slot Y offset (px) in the inventory grid"
+    },
+    "INV_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the inventory grid"
+    },
+    "INV_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the inventory grid"
+    },
+    "INV_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the inventory grid"
+    },
+    "INV_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 8,
+      "desc": "Number of rows in the inventory grid"
+    },
+    "WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.7,
+      "desc": "Delay between steps"
+    }
+  },
+  "bank_compose": {
+    "__title__": "Bank Compose",
+    "WH_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 120,
+      "desc": "First-slot X offset (px) in the warehouse grid"
+    },
+    "WH_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 40,
+      "desc": "First-slot Y offset (px) in the warehouse grid"
+    },
+    "WH_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the warehouse grid"
+    },
+    "WH_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the warehouse grid"
+    },
+    "WH_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the warehouse grid"
+    },
+    "WH_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 4,
+      "desc": "Number of rows in the warehouse grid"
+    },
+    "WH_TAB_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 5,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 26,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 110,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 31,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_COUNT": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 7,
+      "desc": "Number of warehouse tabs"
+    },
+    "CONF_WH": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.35,
+      "desc": "Confidence for detecting the warehouse panel"
+    },
+    "CONF_EMPTY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.9,
+      "desc": "Confidence for detecting an empty slot"
+    },
+    "CLICK_MULTIPLIER": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.1,
+      "unit": "x",
+      "default": 1.5,
+      "desc": "Multiplier for extra clicks beyond the detected item count (1.5 = +50%)"
+    },
+    "VIS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 1,
+      "desc": "Enable the visual overlay (0 = off, 1 = on)"
+    },
+    "CYCLES": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 7,
+      "desc": "Number of cycles to repeat"
+    },
+    "WAREHOUSE_MIN_ITEMS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 20,
+      "desc": "Minimum warehouse items required before starting"
+    },
+    "CONF_INV": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.3,
+      "desc": "Confidence for detecting the inventory panel"
+    },
+    "CONF_DIALOG": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.6,
+      "desc": "Confidence for detecting the compose dialog"
+    },
+    "INV_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 18,
+      "desc": "First-slot X offset (px) in the inventory grid"
+    },
+    "INV_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "First-slot Y offset (px) in the inventory grid"
+    },
+    "INV_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the inventory grid"
+    },
+    "INV_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the inventory grid"
+    },
+    "INV_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the inventory grid"
+    },
+    "INV_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 8,
+      "desc": "Number of rows in the inventory grid"
+    },
+    "DIALOG_MAIN_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        68,
+        80
+      ],
+      "desc": "Main slot coordinate in the compose dialog"
+    },
+    "DIALOG_MINOR_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        200,
+        80
+      ],
+      "desc": "Minor slot coordinate in the compose dialog"
+    },
+    "DIALOG_COMPOSE_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        167,
+        260
+      ],
+      "desc": "Compose button coordinate in the dialog"
+    },
+    "DIALOG_CANCEL_OFF": {
+      "type": "point",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": [
+        244,
+        260
+      ],
+      "desc": "Cancel button coordinate in the dialog"
+    },
+    "WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.4,
+      "desc": "Delay between steps"
+    },
+    "DRAGONBALL_NEED": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 10,
+      "desc": "Minimum dragonballs needed before converting them to a scroll"
+    }
+  },
+  "new_bank_compose": {
+    "__title__": "New Bank Compose",
+    "WH_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 128,
+      "desc": "First-slot X offset (px) in the warehouse grid"
+    },
+    "WH_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 46,
+      "desc": "First-slot Y offset (px) in the warehouse grid"
+    },
+    "WH_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the warehouse grid"
+    },
+    "WH_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the warehouse grid"
+    },
+    "WH_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the warehouse grid"
+    },
+    "WH_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 4,
+      "desc": "Number of rows in the warehouse grid"
+    },
+    "CONF_WH": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.35,
+      "desc": "Confidence for detecting the warehouse panel"
+    },
+    "CONF_EMPTY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.8,
+      "desc": "Confidence for detecting an empty slot"
+    },
+    "CONF_ARROW": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.5,
+      "desc": "Confidence for detecting the arrow icon"
+    },
+    "CLICK_MULTIPLIER": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.1,
+      "unit": "x",
+      "default": 2,
+      "desc": "Multiplier for extra clicks beyond the detected item count (1.5 = +50%)"
+    },
+    "WAREHOUSE_MIN_ITEMS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 10,
+      "desc": "Minimum warehouse items required before starting"
+    },
+    "WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.4,
+      "desc": "Delay between steps"
+    }
+  },
+  "grab_arrows": {
+    "__title__": "Grab Arrows",
+    "INV_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 18,
+      "desc": "First-slot X offset (px) in the inventory grid"
+    },
+    "INV_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "First-slot Y offset (px) in the inventory grid"
+    },
+    "INV_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the inventory grid"
+    },
+    "INV_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the inventory grid"
+    },
+    "INV_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the inventory grid"
+    },
+    "INV_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 8,
+      "desc": "Number of rows in the inventory grid"
+    },
+    "WH_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 120,
+      "desc": "First-slot X offset (px) in the warehouse grid"
+    },
+    "WH_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 40,
+      "desc": "First-slot Y offset (px) in the warehouse grid"
+    },
+    "WH_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the warehouse grid"
+    },
+    "WH_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the warehouse grid"
+    },
+    "WH_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the warehouse grid"
+    },
+    "WH_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 4,
+      "desc": "Number of rows in the warehouse grid"
+    },
+    "WH_TAB_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 5,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 26,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 110,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 31,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_COUNT": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 7,
+      "desc": "Number of warehouse tabs"
+    },
+    "CONF_INV": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.3,
+      "desc": "Confidence for detecting the inventory panel"
+    },
+    "CONF_WH": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.35,
+      "desc": "Confidence for detecting the warehouse panel"
+    },
+    "CONF_ARROW": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.5,
+      "desc": "Confidence for detecting the arrow icon"
+    },
+    "ARROW_TAB_INDEX": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 6,
+      "desc": "Warehouse tab index reserved for arrows (0-based)"
+    },
+    "BANK_TAB_COUNT": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 6,
+      "desc": "Number of regular bank tabs (excluding the arrow tab)"
+    }
+  },
+  "stash2": {
+    "__title__": "Stash 2",
+    "INV_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 18,
+      "desc": "First-slot X offset (px) in the inventory grid"
+    },
+    "INV_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "First-slot Y offset (px) in the inventory grid"
+    },
+    "INV_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the inventory grid"
+    },
+    "INV_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the inventory grid"
+    },
+    "INV_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the inventory grid"
+    },
+    "INV_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 8,
+      "desc": "Number of rows in the inventory grid"
+    },
+    "WH_OFFSET_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 120,
+      "desc": "First-slot X offset (px) in the warehouse grid"
+    },
+    "WH_OFFSET_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 40,
+      "desc": "First-slot Y offset (px) in the warehouse grid"
+    },
+    "WH_SLOT_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot width (px) in the warehouse grid"
+    },
+    "WH_SLOT_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 43,
+      "desc": "Slot height (px) in the warehouse grid"
+    },
+    "WH_COLS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 5,
+      "desc": "Number of columns in the warehouse grid"
+    },
+    "WH_ROWS": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 4,
+      "desc": "Number of rows in the warehouse grid"
+    },
+    "WH_TAB_X": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 5,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_Y": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 26,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_W": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 110,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_H": {
+      "type": "int",
+      "min": 0,
+      "max": 3000,
+      "step": 1,
+      "unit": "px",
+      "default": 31,
+      "desc": "Warehouse tab position/size (px)"
+    },
+    "WH_TAB_COUNT": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 6,
+      "desc": "Number of warehouse tabs"
+    },
+    "CONF": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.3,
+      "desc": "General detection confidence"
+    },
+    "CONF_WH": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.3,
+      "desc": "Confidence for detecting the warehouse panel"
+    },
+    "CONF_EMPTY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.95,
+      "desc": "Confidence for detecting an empty slot"
+    },
+    "ALT_HOLD": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.1,
+      "desc": "How long Alt is held before/after the click"
+    },
+    "TAB_DELAY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.2,
+      "desc": "Delay after clicking a tab, before the alt+click"
+    },
+    "STASH_DELAY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.5,
+      "desc": "Delay between moving each item"
+    }
+  }
+}
