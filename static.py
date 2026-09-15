@@ -22,7 +22,7 @@ from pyvda import get_virtual_desktops
 from stash2 import stash_items
 from new_bank_compose import run_new_bank_compose
 from revive import handle_revive
-from grab_arrows import ensure_arrows
+from grab_arrows import ensure_arrows, init_bank_tab
 
 
 try:
@@ -78,10 +78,18 @@ def _main():
     direction = 1
     start_time = time.time()
 
+    _initialized = set()   # accounts already tab-initialized during the first loop
+
     while True:
         print(f'[DESKTOP] Processing {current + 1}/{ACCOUNT_NUMBERS}')
         if not handle_revive():
             handle_revive()
+
+            if current not in _initialized:
+                print('  [INIT] First pass on this account — clicking a bank tab to exit the arrows tab')
+                init_bank_tab()
+                _initialized.add(current)
+
             run_new_bank_compose()
             stash_items()
 

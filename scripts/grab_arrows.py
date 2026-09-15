@@ -220,6 +220,15 @@ def _right_click_arrow_in_inventory(retries=8, delay=0.5):
     return False
 
 
+def init_bank_tab(tab_idx=None):
+    """Clicks one of the 6 regular bank tabs (0-5) — used once per account on the first
+    loop to initialize the warehouse view, in case it was left on the arrows tab (tab 7)
+    from a previous run."""
+    if tab_idx is None:
+        tab_idx = random.randrange(BANK_TAB_COUNT)
+    return _click_warehouse_tab(tab_idx)
+
+
 def ensure_arrows():
     """If the inventory has no arrows at all, opens warehouse tab 7, clicks the arrow
     stack to grab one, then right-clicks it in the inventory to equip it."""
