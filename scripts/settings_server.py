@@ -1,20 +1,28 @@
 """
-Local settings server for the dragon-co2 automation scripts.
+Local settings app for the dragon-co2 automation scripts.
 
-Serves settings_ui.html and a tiny JSON API on 127.0.0.1 so the settings
-page can read/write the user's override file. Uses only the Python
-standard library -- no extra packages required.
+Runs a tiny local HTTP API (standard library only) that serves
+settings_ui.html and reads/writes the user's override file, then opens
+that page in its own standalone app window (via pywebview) instead of a
+browser tab -- no address bar, no tabs, just the settings UI. If
+pywebview isn't installed yet, this tries to install it automatically;
+if that also fails (no internet, no permissions, ...), it falls back to
+opening the page in your default browser instead, so it always works
+either way.
 
 Run:  python settings_server.py
 (or double-click it, if .py files are associated with python.exe)
 
-It opens your default browser automatically. Close the terminal window
-(or press Ctrl+C in it) to stop the server.
+Closing the window (or Ctrl+C in the terminal, in browser-fallback mode)
+stops the local server.
 """
 import json
 import os
 import socket
+import subprocess
 import sys
+import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -25,6 +33,11 @@ HTML_PATH = os.path.join(_BASE, 'settings_ui.html')
 
 HOST = '127.0.0.1'
 PORT_RANGE = range(8765, 8775)  # try a few ports in case one is busy
+
+WINDOW_TITLE = 'Dragon CO2 Settings'
+WINDOW_WIDTH = 1440
+WINDOW_HEIGHT = 900
+WINDOW_MIN_SIZE = (1000, 700)
 
 
 def load_schema():
@@ -168,27 +181,77 @@ def find_port():
     return 0  # let the OS pick one
 
 
-def main():
+def start_server():
     port = find_port()
     server = ThreadingHTTPServer((HOST, port), Handler)
     actual_port = server.server_address[1]
     url = f'http://{HOST}:{actual_port}/'
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, url
 
-    print('Dragon CO2 settings server')
+
+def try_get_webview():
+    """Returns the `webview` module, installing pywebview on the fly if it
+    isn't present yet. Returns None if it's unavailable and couldn't be
+    installed (no internet, no permissions, ...) -- the caller then falls
+    back to opening the page in the default browser instead."""
+    try:
+        import webview
+        return webview
+    except ImportError:
+        pass
+
+    print('pywebview is not installed -- attempting to install it now '
+          '(pip install pywebview) so the settings page can open in its '
+          'own window instead of a browser tab...')
+    try:
+        subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--quiet', 'pywebview'])
+        import webview
+        return webview
+    except Exception as e:
+        print(f'Could not install pywebview automatically ({e}).')
+        print('Run "pip install pywebview" yourself and re-run this script '
+              'for a standalone window next time. Opening in your browser instead.')
+        return None
+
+
+def main():
+    server, url = start_server()
+
+    print('Dragon CO2 settings app')
     print(f'  Override file: {ds.override_path()}')
     print(f'  Schema file:   {ds.SCHEMA_PATH}')
-    print(f'  Open:          {url}')
-    print('  Press Ctrl+C to stop.')
+    print(f'  Local URL:     {url}')
 
+    webview = try_get_webview()
+
+    if webview is not None:
+        print('  Opening in its own window...')
+        webview.create_window(
+            WINDOW_TITLE, url,
+            width=WINDOW_WIDTH, height=WINDOW_HEIGHT,
+            min_size=WINDOW_MIN_SIZE, resizable=True,
+        )
+        try:
+            webview.start()
+        finally:
+            server.shutdown()
+        return
+
+    # Fallback: no pywebview available -- open in the default browser and
+    # keep the server alive until the user hits Ctrl+C.
+    print('  Opening in your default browser. Press Ctrl+C here to stop.')
     try:
         webbrowser.open(url)
     except Exception:
         pass
-
     try:
-        server.serve_forever()
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         print('\nStopping...')
+    finally:
         server.shutdown()
 
 

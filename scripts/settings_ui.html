@@ -16,9 +16,10 @@
     --modified: #f59e0b;
     --danger: #dc2626;
     --danger-soft: #fdeaea;
-    --radius: 10px;
+    --radius: 15px;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    --header-h: 108px; /* fallback; JS measures the real header height on load */
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -40,7 +41,8 @@
     font-family: var(--font);
     background: var(--bg);
     color: var(--text);
-    font-size: 14px;
+    font-size: 21px;             /* 150% of the original 14px base */
+    line-height: 1.45;
   }
   header#topbar {
     position: sticky;
@@ -49,38 +51,38 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
-    padding: 14px 20px;
+    gap: 24px;
+    padding: 21px 30px;
     background: var(--panel);
     border-bottom: 1px solid var(--border);
     flex-wrap: wrap;
   }
   .title-block h1 {
     margin: 0;
-    font-size: 18px;
+    font-size: 27px;
     font-weight: 600;
   }
   .title-block h1 span { font-weight: 400; color: var(--muted); }
   .subtitle {
-    margin-top: 2px;
-    font-size: 12px;
+    margin-top: 3px;
+    font-size: 15px;
     color: var(--muted);
     font-family: var(--mono);
   }
-  .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   input[type="search"] {
-    padding: 8px 12px;
+    padding: 12px 18px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
     background: var(--bg);
     color: var(--text);
-    font-size: 13px;
-    width: 220px;
+    font-size: 18px;
+    width: 300px;
   }
   button {
     font-family: var(--font);
-    font-size: 13px;
-    padding: 8px 14px;
+    font-size: 18px;
+    padding: 12px 21px;
     border-radius: var(--radius);
     border: 1px solid var(--border);
     background: var(--panel);
@@ -94,12 +96,12 @@
 
   #layout { display: flex; align-items: flex-start; }
   nav#sidebar {
-    width: 220px;
+    width: 320px;
     flex: none;
-    padding: 12px;
+    padding: 18px;
     position: sticky;
-    top: 61px;
-    height: calc(100vh - 61px);
+    top: var(--header-h);
+    height: calc(100vh - var(--header-h));
     overflow-y: auto;
     border-right: 1px solid var(--border);
   }
@@ -107,101 +109,112 @@
     display: block;
     width: 100%;
     text-align: left;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
     border: none;
     background: transparent;
-    padding: 9px 12px;
-    border-radius: 8px;
+    padding: 14px 18px;
+    border-radius: 12px;
     color: var(--text);
+    font-size: 18px;
   }
   nav#sidebar button:hover { background: var(--bg); }
   nav#sidebar button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
   nav#sidebar button .count {
     float: right;
-    font-size: 11px;
+    font-size: 14px;
     color: var(--muted);
   }
   nav#sidebar button.active .count { color: var(--accent); }
 
-  main#content { flex: 1; padding: 20px; max-width: 900px; }
+  main#content { flex: 1; padding: 30px; max-width: 1200px; }
   .script-panel { display: none; }
   .script-panel.active { display: block; }
-  .script-panel h2 { margin: 0 0 4px; font-size: 16px; }
-  .script-panel .script-sub { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .script-panel h2 { margin: 0 0 6px; font-size: 24px; }
+  .script-panel .script-sub { color: var(--muted); font-size: 16px; margin-bottom: 24px; }
 
   .field {
     display: grid;
-    grid-template-columns: 1fr 320px 64px;
-    gap: 12px;
+    grid-template-columns: 1fr 440px 100px;
+    gap: 18px;
     align-items: center;
-    padding: 12px 14px;
+    padding: 18px 21px;
     background: var(--panel);
     border: 1px solid var(--border);
-    border-left: 3px solid transparent;
-    border-radius: 8px;
-    margin-bottom: 8px;
+    border-left: 4px solid transparent;
+    border-radius: 12px;
+    margin-bottom: 12px;
   }
   .field.modified { border-left-color: var(--modified); }
   .field-info .field-name {
     font-family: var(--mono);
     font-weight: 600;
-    font-size: 13px;
+    font-size: 20px;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 12px;
+    flex-wrap: wrap;
   }
   .field-info .badge {
     font-family: var(--font);
-    font-size: 10px;
+    font-size: 14px;
     font-weight: 600;
     color: var(--modified);
     border: 1px solid var(--modified);
     border-radius: 999px;
-    padding: 1px 7px;
+    padding: 2px 11px;
   }
-  .field-info .field-desc { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .field-info .field-desc { color: var(--muted); font-size: 17px; margin-top: 8px; line-height: 1.5; }
 
-  .field-control { display: flex; flex-direction: column; gap: 6px; }
-  .axis-row { display: flex; align-items: center; gap: 8px; }
-  .axis-label { width: 14px; font-size: 11px; color: var(--muted); font-family: var(--mono); }
-  .axis-row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .field-control { display: flex; flex-direction: column; gap: 9px; }
+  .axis-row { display: flex; align-items: center; gap: 12px; }
+  .axis-label { width: 21px; font-size: 16px; color: var(--muted); font-family: var(--mono); }
+
+  .axis-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 9px;
+    cursor: pointer;
+  }
+  .axis-row input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
+  .axis-row input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; }
+
   .axis-row input[type="number"] {
-    width: 72px;
-    padding: 5px 6px;
+    width: 108px;
+    padding: 8px 10px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 9px;
     background: var(--bg);
     color: var(--text);
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 18px;
   }
-  .unit { font-size: 11px; color: var(--muted); width: 18px; }
+  .unit { font-size: 16px; color: var(--muted); width: 27px; }
 
   .field .reset-btn {
-    padding: 6px 8px;
-    font-size: 11px;
+    padding: 9px 12px;
+    font-size: 16px;
     justify-self: end;
   }
 
   #toast {
     position: fixed;
-    bottom: 20px;
+    bottom: 30px;
     left: 50%;
     transform: translateX(-50%) translateY(20px);
     background: var(--text);
     color: var(--bg);
-    padding: 10px 18px;
+    padding: 15px 27px;
     border-radius: 999px;
-    font-size: 13px;
+    font-size: 19px;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.2s ease, transform 0.2s ease;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
-  .empty-hint { color: var(--muted); font-size: 13px; padding: 20px; }
+  .empty-hint { color: var(--muted); font-size: 19px; padding: 30px; }
 
-  @media (max-width: 720px) {
+  @media (max-width: 900px) {
     #layout { flex-direction: column; }
     nav#sidebar { width: 100%; height: auto; position: static; border-right: none; border-bottom: 1px solid var(--border); }
     .field { grid-template-columns: 1fr; }
@@ -235,7 +248,7 @@
 
 let schema = {};
 let overrides = {};
-let state = {};      // state[script][name] = value (number, or [x, y] for points)
+let state = {};      // state[script][name] = value (number, or [x, y] for a point-type field)
 let dirty = false;
 let activeScript = null;
 
@@ -246,6 +259,12 @@ const $overridePath = document.getElementById('override-path');
 const $btnSave = document.getElementById('btn-save');
 const $btnResetAll = document.getElementById('btn-reset-all');
 const $toast = document.getElementById('toast');
+const $topbar = document.getElementById('topbar');
+
+function syncHeaderHeight() {
+  document.documentElement.style.setProperty('--header-h', $topbar.offsetHeight + 'px');
+}
+window.addEventListener('resize', syncHeaderHeight);
 
 function showToast(msg) {
   $toast.textContent = msg;
@@ -339,10 +358,12 @@ function makeAxisRow(script, name, axisIndex, axisLabel, meta) {
   const row = document.createElement('div');
   row.className = 'axis-row';
 
-  const label = document.createElement('span');
-  label.className = 'axis-label';
-  label.textContent = axisLabel;
-  row.appendChild(label);
+  if (axisLabel) {
+    const label = document.createElement('span');
+    label.className = 'axis-label';
+    label.textContent = axisLabel;
+    row.appendChild(label);
+  }
 
   const value = axisIndex === null ? state[script][name] : state[script][name][axisIndex];
 
@@ -589,6 +610,7 @@ async function boot() {
   renderContent();
   const firstScript = Object.keys(schema)[0];
   selectScript(firstScript);
+  syncHeaderHeight();
 }
 
 boot().catch(err => {
