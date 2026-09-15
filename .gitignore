@@ -4,3 +4,4 @@ __pycache__/
 build_tmp/
 
 app_icon.ico
+.gitignore
