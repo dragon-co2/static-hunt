@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 build_tmp/
 
+app_icon.ico

@@ -44,7 +44,7 @@ if errorlevel 1 goto :fail
 
 echo.
 echo [2/2] Building run.exe ...
-"!PYTHON_EXE!" -m PyInstaller --noconfirm --clean --onefile --uac-admin --name run --distpath . --workpath build_tmp --specpath build_tmp run.py
+"!PYTHON_EXE!" -m PyInstaller --noconfirm --clean --onefile --uac-admin --icon=%~dp0app_icon.ico --name run --distpath . --workpath build_tmp --specpath build_tmp run.py
 if errorlevel 1 goto :fail
 
 echo.

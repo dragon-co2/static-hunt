@@ -209,6 +209,7 @@ def main():
             # harmless to pre-approve since this is our own folder.
             subprocess.run([git_exe, "config", "--global", "--add", "safe.directory", BASE_DIR])
             try:
+                run([git_exe, "log", "--onefile", "-1"])
                 run([git_exe, "pull", "--ff-only"])
             except subprocess.CalledProcessError as e:
                 print(f"  (git pull failed, continuing with the code already on disk: {e})")
