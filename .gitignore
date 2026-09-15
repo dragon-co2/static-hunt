@@ -1,7 +1,7 @@
-apps/
 __pycache__/
 *.pyc
 build_tmp/
 
 app_icon.ico
 build.bat
+run.exe

@@ -195,6 +195,70 @@ def run(cmd):
     subprocess.run(cmd, check=True, cwd=BASE_DIR)
 
 
+def _same_file_bytes(path_a, path_b):
+    """True if both files exist and are byte-for-byte identical."""
+    try:
+        if os.path.getsize(path_a) != os.path.getsize(path_b):
+            return False
+        with open(path_a, "rb") as fa, open(path_b, "rb") as fb:
+            return fa.read() == fb.read()
+    except OSError:
+        return False
+
+
+def try_self_update():
+    """If `git pull` just brought down a newer run_release.exe, swap it in
+    for the run.exe that is currently executing and relaunch.
+
+    run.exe can't overwrite itself while it's running (Windows keeps the
+    running exe's file locked), so instead: the new build is copied to a
+    temp folder, a tiny plain-text .bat helper is written (a .bat has no
+    lock problem, so it never needs updating itself), this process exits
+    to release the lock, and the .bat waits for that, then moves the new
+    exe into place and starts it again.
+
+    Only matters for the compiled exe - running `python run.py` directly
+    has no lock to worry about, so this is a no-op in that case.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+
+    release_path = os.path.join(BASE_DIR, "run_release.exe")
+    current_path = sys.executable
+
+    if not os.path.isfile(release_path):
+        return
+    if _same_file_bytes(release_path, current_path):
+        return
+
+    print("\n[update] A new run.exe build was pulled - restarting to apply it...")
+
+    tmp_dir = tempfile.mkdtemp(prefix="dragon_update_")
+    staged_new_exe = os.path.join(tmp_dir, "run_new.exe")
+    shutil.copy2(release_path, staged_new_exe)
+
+    pid = os.getpid()
+    bat_path = os.path.join(tmp_dir, "apply_update.bat")
+    bat_content = (
+        "@echo off\n"
+        ":wait\n"
+        f'tasklist /fi "PID eq {pid}" | find "{pid}" >nul\n'
+        "if not errorlevel 1 (\n"
+        "    timeout /t 1 /nobreak >nul\n"
+        "    goto wait\n"
+        ")\n"
+        f'copy /y "{staged_new_exe}" "{current_path}" >nul\n'
+        f'start "" "{current_path}"\n'
+        f'rmdir /s /q "{tmp_dir}" 2>nul\n'
+    )
+    with open(bat_path, "w", encoding="utf-8", newline="\r\n") as f:
+        f.write(bat_content)
+
+    detached = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(["cmd", "/c", bat_path], creationflags=detached, cwd=tmp_dir)
+    sys.exit(0)
+
+
 def main():
     os.chdir(BASE_DIR)
     python_exe = ensure_python()
@@ -209,6 +273,7 @@ def main():
             # harmless to pre-approve since this is our own folder.
             subprocess.run([git_exe, "config", "--global", "--add", "safe.directory", BASE_DIR])
             try:
+                run([git_exe, "reset", "--hard"])
                 run([git_exe, "log", "--oneline", "-1"])
                 run([git_exe, "pull", "--ff-only"])
             except subprocess.CalledProcessError as e:
@@ -220,6 +285,8 @@ def main():
         # zipped version of this folder), not a git checkout. Nothing to
         # pull from, and no reason to bother installing git for that person.
         print("  no .git folder here - this looks like a standalone copy, skipping.")
+
+    try_self_update()
 
     print("\n[2/3] Installing/updating requirements.txt ...")
     run([python_exe, "-m", "pip", "install", "--upgrade", "pip"])

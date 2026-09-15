@@ -44,15 +44,24 @@ if errorlevel 1 goto :fail
 
 echo.
 echo [2/2] Building run.exe ...
-"!PYTHON_EXE!" -m PyInstaller --noconfirm --clean --onefile --uac-admin --icon=%~dp0app_icon.ico --name run --distpath . --workpath build_tmp --specpath build_tmp run.py
+"!PYTHON_EXE!" -m PyInstaller --noconfirm --clean --onefile --uac-admin --icon=%~dp0app_icon.ico --name run_release --distpath . --workpath build_tmp --specpath build_tmp run.py
 if errorlevel 1 goto :fail
+
+if not exist "%~dp0run.exe" (
+    echo.
+    echo Creating initial run.exe from run_release.exe ...
+    copy /y "%~dp0run_release.exe" "%~dp0run.exe" >nul
+)
 
 echo.
 echo ===============================================
-echo   Done - run.exe is right here in this folder.
-echo   Double-click it, it will ask for Administrator.
-echo   It checks/installs Python, updates the code and
-echo   requirements, then starts static.py.
+echo   Done.
+echo   run_release.exe was built just now - it is what
+echo   gets committed to git and pulled by other machines.
+echo   run.exe is the one people actually double-click; it
+echo   is NOT tracked by git, and it updates itself to match
+echo   run_release.exe automatically the next time it runs
+echo   after a git pull - no manual copy needed after today.
 echo.
 echo   You only need to re-run build.bat if you change
 echo   run.py itself. Changes to static.py or anything
