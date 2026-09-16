@@ -35,7 +35,7 @@ from dragon_settings import get_settings
 _S = get_settings('new_bank_compose', {
     'WH_OFFSET_X': 128, 'WH_OFFSET_Y': 46, 'WH_SLOT_W': 43, 'WH_SLOT_H': 43,
     'WH_COLS': 5, 'WH_ROWS': 4,
-    'CONF_WH': 0.35, 'CONF_EMPTY': 0.8, 'CONF_ARROW': 0.5,
+    'CONF_WH': 0.5, 'CONF_EMPTY': 0.8, 'CONF_ARROW': 0.5,
     'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_CLOSE_VIP': 0.8,
     'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 10,
     'WAIT': 0.4,
