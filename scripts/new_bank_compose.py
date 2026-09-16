@@ -36,6 +36,7 @@ _S = get_settings('new_bank_compose', {
     'WH_OFFSET_X': 128, 'WH_OFFSET_Y': 46, 'WH_SLOT_W': 43, 'WH_SLOT_H': 43,
     'WH_COLS': 5, 'WH_ROWS': 4,
     'CONF_WH': 0.35, 'CONF_EMPTY': 0.8, 'CONF_ARROW': 0.5,
+    'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_CLOSE_VIP': 0.8,
     'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 10,
     'WAIT': 0.4,
 })
@@ -50,6 +51,10 @@ WH_ROWS     = _S['WH_ROWS']
 CONF_WH    = _S['CONF_WH']
 CONF_EMPTY = _S['CONF_EMPTY']
 CONF_ARROW = _S['CONF_ARROW']
+CONF_VIP_BTN   = _S['CONF_VIP_BTN']
+CONF_COMPOSE   = _S['CONF_COMPOSE']
+CONF_DEPOSIT   = _S['CONF_DEPOSIT']
+CONF_CLOSE_VIP = _S['CONF_CLOSE_VIP']
 CLICK_MULTIPLIER = _S['CLICK_MULTIPLIER']  # extra clicks over the detected item count, e.g. 1.5 = +50%
 WAREHOUSE_MIN_ITEMS = _S['WAREHOUSE_MIN_ITEMS']  # only withdraw + run the vip flow if the warehouse has at least this many items
 
@@ -222,52 +227,74 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     _withdraw_items(wh_panel, item_count)
     time.sleep(WAIT)
 
-    if not _click_verify(VIP_BTN_PATH, lambda: _is_visible(VIP_MENU_PATH), confidence=0.5):
+    if not _click_verify(VIP_BTN_PATH, lambda: _is_visible(VIP_MENU_PATH), confidence=CONF_VIP_BTN):
         print('[SEQ] VIP menu never opened.')
         return
     time.sleep(WAIT)
 
 
-    _click_image(COMPOSE_PATH)
+    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
     time.sleep(0.1)
-    _click_image(COMPOSE_PATH)
+    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
     time.sleep(0.1)
-    _click_image(COMPOSE_PATH)
+    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
     time.sleep(0.1)
-    _click_image(COMPOSE_PATH)
+    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
     time.sleep(0.1)
-    _click_image(COMPOSE_PATH)
+    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
     time.sleep(0.3)
 
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
-    _click_image(DEPOSIT_PATH)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
+    time.sleep(0.1)
+    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.3)
 
-    _click_image(CLOSE_VIP_PATH)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
     time.sleep(0.1)
-    _click_image(CLOSE_VIP_PATH)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
     time.sleep(0.1)
-    _click_image(CLOSE_VIP_PATH)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
     time.sleep(0.1)
-    _click_image(CLOSE_VIP_PATH)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
     time.sleep(0.1)
-    _click_image(CLOSE_VIP_PATH)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    time.sleep(0.1)
+    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    
     time.sleep(0.3)
 
 

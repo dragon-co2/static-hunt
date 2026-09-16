@@ -226,6 +226,42 @@
       "default": 0.5,
       "desc": "How closely a slot must match the arrow icon before it's recognized as an arrow stack. Lower it if arrows aren't being detected; raise it if other items get mistaken for arrows."
     },
+    "CONF_VIP_BTN": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.5,
+      "desc": "How closely the screen must match the VIP button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
+    },
+    "CONF_COMPOSE": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.8,
+      "desc": "How closely the screen must match the compose button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
+    },
+    "CONF_DEPOSIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.8,
+      "desc": "How closely the screen must match the deposit button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
+    },
+    "CONF_CLOSE_VIP": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.8,
+      "desc": "How closely the screen must match the close-VIP button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
+    },
     "CLICK_MULTIPLIER": {
       "type": "float",
       "min": 0.0,
