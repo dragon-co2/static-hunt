@@ -4,5 +4,4 @@ build_tmp/
 
 app_icon.ico
 build.bat
-
-make_zip.bat
+run.exe
