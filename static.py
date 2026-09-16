@@ -23,7 +23,6 @@ from stash2 import stash_items
 from new_bank_compose import run_new_bank_compose
 from revive import handle_revive
 from grab_arrows import ensure_arrows, init_bank_tab
-from deposit_click import handle_deposit
 
 
 try:
@@ -83,8 +82,6 @@ def _main():
 
     while True:
         print(f'[DESKTOP] Processing {current + 1}/{ACCOUNT_NUMBERS}')
-        handle_deposit()
-
         if not handle_revive():
             handle_revive()
 
@@ -93,15 +90,15 @@ def _main():
                 init_bank_tab()
                 _initialized.add(current)
 
-            # run_new_bank_compose()
-            # stash_items()
+            run_new_bank_compose()
+            stash_items()
 
             now = time.time()
             if now - _last_arrows_check.get(current, start_time) >= ARROWS_INTERVAL:
                 ensure_arrows()
                 _last_arrows_check[current] = now
 
-        handle_deposit()
+
         time.sleep(INTERVAL)
 
         next_idx = current + direction
