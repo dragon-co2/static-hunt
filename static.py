@@ -101,7 +101,7 @@ def _main():
                 ensure_arrows()
                 _last_arrows_check[current] = now
 
-
+        handle_deposit()
         time.sleep(INTERVAL)
 
         next_idx = current + direction
