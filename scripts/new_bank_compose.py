@@ -244,8 +244,9 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
     time.sleep(0.3)
 
+
     _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
-    time.sleep(0.1)
+    time.sleep(0.1) 
     _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.1)
     _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
