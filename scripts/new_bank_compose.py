@@ -37,7 +37,7 @@ _S = get_settings('new_bank_compose', {
     'WH_COLS': 5, 'WH_ROWS': 4,
     'CONF_WH': 0.5, 'CONF_EMPTY': 0.8, 'CONF_ARROW': 0.5,
     'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_CLOSE_VIP': 0.8,
-    'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 10,
+    'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 3,
     'WAIT': 0.4,
 })
 
