@@ -60,9 +60,30 @@ WAREHOUSE_MIN_ITEMS = _S['WAREHOUSE_MIN_ITEMS']  # only withdraw + run the vip f
 
 WAIT = _S['WAIT']  # seconds between steps
 
-_tmpl_wh    = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
-_tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
-_tmpl_arrow = cv2.imread(ARROW_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_wh       = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_empty    = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_arrow    = cv2.imread(ARROW_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_vip_menu = cv2.imread(VIP_MENU_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_close    = cv2.imread(CLOSE_VIP_PATH, cv2.IMREAD_GRAYSCALE)
+
+
+def _locate_close_offset():
+    """Finds where the close (X) button sits inside the vip_menu.jpg reference image, so the
+    close click can be aimed by offset from the (reliably-detected) panel instead of searching
+    for close_vip.jpg directly on screen — that's a tiny, lossy-JPEG icon that's easy to miss."""
+    if _tmpl_vip_menu is None or _tmpl_close is None:
+        return None
+    mh, mw = _tmpl_vip_menu.shape[:2]
+    ch, cw = _tmpl_close.shape[:2]
+    if mh < ch or mw < cw:
+        return None
+    res = cv2.matchTemplate(_tmpl_vip_menu, _tmpl_close, cv2.TM_CCOEFF_NORMED)
+    _, val, _, loc = cv2.minMaxLoc(res)
+    print(f'  [INIT] close (X) offset within vip_menu.jpg: {loc}  (match={val:.2f})')
+    return (loc[0], loc[1], cw, ch)
+
+
+_CLOSE_OFFSET = _locate_close_offset()
 
 
 def _focus_game_window():
@@ -167,6 +188,57 @@ def _click_verify(path, verify_fn, retries=5, delay=0.5, confidence=0.8):
     return False
 
 
+def _find_vip_menu(gray):
+    return _find(gray, _tmpl_vip_menu, threshold=CONF_CLOSE_VIP)
+
+
+def _is_vip_menu_open():
+    with mss.MSS() as sct:
+        raw = np.array(sct.grab(sct.monitors[0]))
+    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    return _find_vip_menu(gray) is not None
+
+
+def _click_close_vip():
+    """Locates the vip_menu panel (a big, reliable match) and clicks the close (X) button at its
+    known offset within that panel, instead of searching for close_vip.jpg on screen directly."""
+    if _CLOSE_OFFSET is None:
+        print('  [CLICK] close (X) offset unavailable — falling back to close_vip.jpg lookup')
+        return _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+
+    with mss.MSS() as sct:
+        raw = np.array(sct.grab(sct.monitors[0]))
+    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    panel = _find_vip_menu(gray)
+    if not panel:
+        print('  [CLICK] vip_menu.jpg not found — cannot locate close (X)')
+        return False
+
+    px, py, _, _ = panel
+    ox, oy, ow, oh = _CLOSE_OFFSET
+    x, y = px + ox + ow // 2, py + oy + oh // 2
+    _focus_game_window()
+    pyautogui.moveTo(x, y, duration=0.15)
+    time.sleep(0.1)
+    pyautogui.mouseDown()
+    time.sleep(0.08)
+    pyautogui.mouseUp()
+    print(f'  [CLICK] close (X) via vip_menu offset @ ({x},{y})')
+    return True
+
+
+def _click_fn_verify(click_fn, verify_fn, retries=5, delay=0.5):
+    """Like _click_verify, but for a click that isn't a plain locateOnScreen(path) lookup."""
+    for attempt in range(retries):
+        click_fn()
+        time.sleep(delay)
+        if verify_fn():
+            return True
+        print(f'  [CHECK] close click not confirmed — retrying ({attempt + 1}/{retries})')
+    print('  [CHECK] close click still not confirmed after retries.')
+    return False
+
+
 def _warehouse_state():
     with mss.MSS() as sct:
         gray = cv2.cvtColor(np.array(sct.grab(sct.monitors[0])), cv2.COLOR_BGRA2GRAY)
@@ -266,7 +338,7 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.3)
 
-    if not _click_verify(CLOSE_VIP_PATH, lambda: not _is_visible(VIP_MENU_PATH), confidence=CONF_CLOSE_VIP):
+    if not _click_fn_verify(_click_close_vip, lambda: not _is_vip_menu_open()):
         print('[SEQ] VIP menu never closed.')
     time.sleep(0.5)
 
