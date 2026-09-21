@@ -267,9 +267,13 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     time.sleep(0.3)
 
     pyautogui.press('esc')
-    time.sleep(1)
+    time.sleep(0.5)
     pyautogui.press('esc')
-    time.sleep(1)
+    time.sleep(0.5)
+    pyautogui.press('esc')
+    time.sleep(0.5)
+    pyautogui.press('esc')
+    time.sleep(0.5)
 
 
 
