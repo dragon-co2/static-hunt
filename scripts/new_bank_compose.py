@@ -266,37 +266,10 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.3)
 
-    _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
+    if not _click_verify(CLOSE_VIP_PATH, lambda: not _is_visible(VIP_MENU_PATH, confidence=CONF_VIP_BTN), confidence=CONF_CLOSE_VIP):
+        print('[SEQ] VIP menu never closed.')
     time.sleep(0.5)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.5)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.5)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    # time.sleep(0.1)
-    # _click_image(CLOSE_VIP_PATH, confidence=CONF_CLOSE_VIP)
-    
-    time.sleep(0.3)
+
 
 
 
