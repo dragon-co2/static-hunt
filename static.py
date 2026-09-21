@@ -38,7 +38,7 @@ ACCOUNT_NUMBERS = len(get_virtual_desktops())   # number of accounts/desktops to
 SWITCH_DELAY = 0.5   # seconds to let the desktop-switch animation finish
 INTERVAL     = 3    # seconds between each switch
 
-ARROWS_INTERVAL = 1400   # seconds between grab_arrows runs, per account
+ARROWS_INTERVAL = 1000   # seconds between grab_arrows runs, per account
 
 _last_arrows_check = {}
 
