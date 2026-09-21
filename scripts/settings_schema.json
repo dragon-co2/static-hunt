@@ -274,10 +274,10 @@
     "WAREHOUSE_MIN_ITEMS": {
       "type": "int",
       "min": 0,
-      "max": 200,
+      "max": 10,
       "step": 1,
       "unit": "",
-      "default": 10,
+      "default": 3,
       "desc": "The minimum number of items that must be sitting in the warehouse before this script bothers starting its routine at all. Raise it to only run on bigger batches; lower it to run even when there are just a few items."
     },
     "WAIT": {
