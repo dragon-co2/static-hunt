@@ -266,14 +266,15 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     # _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.3)
 
-    pyautogui.press('esc')
+    pyautogui.keyDown('esc')
+    time.sleep(0.05)
+    pyautogui.keyUp('esc')
     time.sleep(0.5)
-    pyautogui.press('esc')
+    pyautogui.keyDown('esc')
+    time.sleep(0.05)
+    pyautogui.keyUp('esc')
     time.sleep(0.5)
-    pyautogui.press('esc')
-    time.sleep(0.5)
-    pyautogui.press('esc')
-    time.sleep(0.5)
+
 
 
 
