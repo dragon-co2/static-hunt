@@ -37,7 +37,7 @@ _S = get_settings('new_bank_compose', {
     'WH_COLS': 5, 'WH_ROWS': 4,
     'CONF_WH': 0.5, 'CONF_EMPTY': 0.8, 'CONF_ARROW': 0.5,
     'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_CLOSE_VIP': 0.8,
-    'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 3,
+    'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 10,
     'WAIT': 0.4,
 })
 
@@ -266,7 +266,7 @@ def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
     _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
     time.sleep(0.3)
 
-    if not _click_verify(CLOSE_VIP_PATH, lambda: not _is_visible(VIP_MENU_PATH, confidence=CONF_VIP_BTN), confidence=CONF_CLOSE_VIP):
+    if not _click_verify(CLOSE_VIP_PATH, lambda: not _is_visible(VIP_MENU_PATH), confidence=CONF_CLOSE_VIP):
         print('[SEQ] VIP menu never closed.')
     time.sleep(0.5)
 
