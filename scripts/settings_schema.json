@@ -1,188 +1,28 @@
 {
-  "auto_left_click": {
-    "__title__": "Auto Left Click",
-    "CLICK_INTERVAL": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.1,
-      "desc": "How long the script waits between each repeated click while the click-and-hold hotkey is held down. Lower it to click faster; raise it to click slower and more gently."
+  "static": {
+    "__title__": "General",
+    "FIRST_RUN_REPAIR": {
+      "type": "bool",
+      "default": true,
+      "desc": "Repair gear during each desktop's first-visit setup when static.py starts. Turn off to skip it; repair still runs every REPAIR_INTERVAL seconds."
     },
-    "RIGHT_CLICK_INTERVAL": {
-      "type": "float",
-      "min": 0.0,
-      "max": 0.3,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.1,
-      "desc": "How long the script waits between each repeated right click while Ctrl+` is held down. Lower it to click faster; raise it to click slower."
-    }
-  },
-  "revive": {
-    "__title__": "Revive",
-    "REVIVE_WAIT": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 1,
-      "desc": "How long the script waits, in seconds, after you die before it even tries clicking Revive -- the button isn't clickable immediately after death. Raise it if the button is still being clicked too early and failing."
-    },
-    "REVIVE_RETRY": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 1.0,
-      "desc": "Once the initial wait is over, how often (in seconds) the script re-checks whether the Revive button has become clickable yet. Lower it to react faster once it is."
-    }
-  },
-  "repaire": {
-    "__title__": "Repair",
-    "CONF_WH": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.5,
-      "desc": "How closely the screen must match the reference image of the warehouse panel before the script considers the warehouse detected/open. Lower this if the script fails to notice the warehouse even though it's clearly open; raise it if the script mistakenly thinks the warehouse is open when it isn't."
-    },
-    "REPAIR_OFF": {
-      "type": "point",
-      "min": -500,
-      "max": 500,
-      "step": 1,
-      "unit": "px",
-      "default": [160, -109],
-      "desc": "Where the Repair button is, measured from the center of the Body button (X right, Y down; negative Y = above). Used when repair.png can't be matched because the character covers it. Adjust if the click misses the hammer."
-    },
-    "CONF_REPAIR_NEAR": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.5,
-      "desc": "How closely the spot at Body + REPAIR_OFF must match repair.png to count as the Repair button showing after clicking Body. Kept low because the character often half-covers it; raise it if the Body step passes when it shouldn't."
-    },
-    "WAIT": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.5,
-      "desc": "How long the script pauses, in seconds, between each step of its sequence. Lower it to speed the script up if your game and PC respond quickly; raise it if steps start failing because the game's UI hasn't caught up yet."
-    },
-    "RETRIES": {
+    "ARROWS_INTERVAL": {
       "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 15,
-      "desc": "How many times the script checks for a UI element to appear before giving up and clicking its best guess anyway. Raise it if elements sometimes take a while to show up on your PC; lower it to fail faster and move on to the next step sooner."
-    }
-  },
-  "new_bank_compose": {
-    "__title__": "New Bank Compose",
-    "CONF_VIP_BTN": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.5,
-      "desc": "How closely the screen must match the VIP button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
-    },
-    "CONF_COMPOSE": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.8,
-      "desc": "How closely the screen must match the compose button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
-    },
-    "CONF_DEPOSIT": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.8,
-      "desc": "How closely the screen must match the deposit button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
-    },
-    "CONF_EMPTY": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.8,
-      "desc": "How closely an inventory slot must match the 'empty cell' reference image before it's treated as empty (the script clicks the first empty slot as its last step). Lower it if no empty slot is found; raise it if it clicks a slot that has an item."
-    },
-    "WAIT": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
+      "min": 10,
+      "max": 7200,
+      "step": 10,
       "unit": "s",
-      "default": 0.4,
-      "desc": "How long the script pauses, in seconds, between each step of its sequence. Lower it to speed the script up if your game and PC respond quickly; raise it if steps start failing because the game's UI hasn't caught up yet."
-    }
-  },
-  "grab_arrows": {
-    "__title__": "Grab Arrows",
-    "WH_TAB_COUNT": {
+      "default": 1000,
+      "desc": "Seconds between grab-arrows passes. When it runs out, every desktop checks its arrows the next time the loop reaches it."
+    },
+    "REPAIR_INTERVAL": {
       "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 7,
-      "desc": "How many warehouse tabs this script cycles through. Set this to match how many tabs you actually use for it."
-    },
-    "CONF_INV": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.3,
-      "desc": "How closely the screen must match the reference image of the inventory panel before the script considers the inventory detected/open. Lower this if inventory detection keeps failing; raise it if it falsely detects the inventory when it's actually closed."
-    },
-    "CONF_WH": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.35,
-      "desc": "How closely the screen must match the reference image of the warehouse panel before the script considers the warehouse detected/open. Lower this if the script fails to notice the warehouse even though it's clearly open; raise it if the script mistakenly thinks the warehouse is open when it isn't."
-    },
-    "CONF_ARROW": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.5,
-      "desc": "How closely a slot must match the arrow icon before it's recognized as an arrow stack. Lower it if arrows aren't being detected; raise it if other items get mistaken for arrows."
-    },
-    "BANK_TAB_COUNT": {
-      "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 6,
-      "desc": "How many of your warehouse tabs are treated as regular item tabs, separate from the arrow tab. Adjust this if your own tab setup differs."
+      "min": 10,
+      "max": 7200,
+      "step": 10,
+      "unit": "s",
+      "default": 2000,
+      "desc": "Seconds between repair passes. When it runs out, every desktop runs the repair the next time the loop reaches it."
     }
   },
   "overlay": {

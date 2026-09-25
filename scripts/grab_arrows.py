@@ -22,43 +22,33 @@ INVENTORY_TITLE_PATH = os.path.join(_DIR, 'inventory_title.jpg')
 WAREHOUSE_TITLE_PATH = os.path.join(_DIR, 'warehouse_title.jpg')
 ARROW_PATH           = os.path.join(_DIR, 'arrow.jpg')
 
-from dragon_settings import get_settings
-_S = get_settings('grab_arrows', {
-    'INV_OFFSET_X': 18, 'INV_OFFSET_Y': 10, 'INV_SLOT_W': 43, 'INV_SLOT_H': 43,
-    'INV_COLS': 5, 'INV_ROWS': 8,
-    'WH_OFFSET_X': 120, 'WH_OFFSET_Y': 40, 'WH_SLOT_W': 43, 'WH_SLOT_H': 43,
-    'WH_COLS': 5, 'WH_ROWS': 4,
-    'WH_TAB_X': 5, 'WH_TAB_Y': 26, 'WH_TAB_W': 110, 'WH_TAB_H': 31, 'WH_TAB_COUNT': 7,
-    'CONF_INV': 0.3, 'CONF_WH': 0.35, 'CONF_ARROW': 0.5,
-    'BANK_TAB_COUNT': 6,
-})
 
-INV_OFFSET_X = _S['INV_OFFSET_X']
-INV_OFFSET_Y = _S['INV_OFFSET_Y']
-INV_SLOT_W   = _S['INV_SLOT_W']
-INV_SLOT_H   = _S['INV_SLOT_H']
-INV_COLS     = _S['INV_COLS']
-INV_ROWS     = _S['INV_ROWS']
+INV_OFFSET_X = 18
+INV_OFFSET_Y = 10
+INV_SLOT_W   = 43
+INV_SLOT_H   = 43
+INV_COLS     = 5
+INV_ROWS     = 8
 
-WH_OFFSET_X  = _S['WH_OFFSET_X']
-WH_OFFSET_Y  = _S['WH_OFFSET_Y']
-WH_SLOT_W    = _S['WH_SLOT_W']
-WH_SLOT_H    = _S['WH_SLOT_H']
-WH_COLS      = _S['WH_COLS']
-WH_ROWS      = _S['WH_ROWS']
+WH_OFFSET_X = 120
+WH_OFFSET_Y = 40
+WH_SLOT_W   = 43
+WH_SLOT_H   = 43
+WH_COLS     = 5
+WH_ROWS     = 4
 
-WH_TAB_X     = _S['WH_TAB_X']
-WH_TAB_Y     = _S['WH_TAB_Y']
-WH_TAB_W     = _S['WH_TAB_W']
-WH_TAB_H     = _S['WH_TAB_H']
-WH_TAB_COUNT = _S['WH_TAB_COUNT']
+WH_TAB_X     = 5
+WH_TAB_Y     = 26
+WH_TAB_W     = 110
+WH_TAB_H     = 31
+WH_TAB_COUNT = 7
 
-CONF_INV   = _S['CONF_INV']
-CONF_WH    = _S['CONF_WH']
-CONF_ARROW = _S['CONF_ARROW']
+CONF_INV   = 0.3
+CONF_WH    = 0.35
+CONF_ARROW = 0.5
 
-BANK_TAB_COUNT  = _S['BANK_TAB_COUNT']   # tabs 0-5 are regular banks (used by init_bank_tab)
-TRIALS          = 5                      # attempts per step before giving up on validating it
+BANK_TAB_COUNT = 6  # tabs 0-5 are regular banks (used by init_bank_tab)
+TRIALS         = 5  # attempts per step before giving up on validating it
 
 _tmpl_inv = cv2.imread(INVENTORY_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_wh  = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)

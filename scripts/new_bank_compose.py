@@ -28,19 +28,14 @@ COMPOSE_PATH         = os.path.join(_DIR, 'compose.jpg')
 DEPOSIT_PATH         = os.path.join(_DIR, 'deposit.jpg')
 EMPTYCELL_PATH       = os.path.join(_DIR, 'emptycell.jpg')
 
-from dragon_settings import get_settings
-_S = get_settings('new_bank_compose', {
-    'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_EMPTY': 0.8,
-    'WAIT': 0.4,
-})
 
-CONF_VIP_BTN   = _S['CONF_VIP_BTN']
-CONF_COMPOSE   = _S['CONF_COMPOSE']
-CONF_DEPOSIT   = _S['CONF_DEPOSIT']
-CONF_EMPTY     = _S['CONF_EMPTY']
+CONF_VIP_BTN = 0.5
+CONF_COMPOSE = 0.8
+CONF_DEPOSIT = 0.8
+CONF_EMPTY   = 0.8
 
-WAIT = _S['WAIT']  # seconds between steps
-TRIALS = 20         # attempts per step before giving up on validating it
+WAIT   = 0.4  # seconds between steps
+TRIALS = 20   # attempts per step before giving up on validating it
 
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
 

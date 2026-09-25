@@ -16,11 +16,9 @@ pyautogui.PAUSE    = 0
 _DIR = os.path.join(app_root(), 'reference_images')
 REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
-from dragon_settings import get_settings
-_S = get_settings('revive', {'REVIVE_WAIT': 1, 'REVIVE_RETRY': 1.0})
 
-REVIVE_WAIT  = _S['REVIVE_WAIT']    # seconds to wait after death before the revive button becomes clickable
-REVIVE_RETRY = _S['REVIVE_RETRY']   # seconds between re-checks once the wait is over
+REVIVE_WAIT  = 1    # seconds to wait after death before the revive button becomes clickable
+REVIVE_RETRY = 1.0  # seconds between re-checks once the wait is over
 
 
 def _locate(path, confidence=0.9):

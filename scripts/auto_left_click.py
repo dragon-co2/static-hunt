@@ -12,11 +12,9 @@ except Exception:
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE    = 0
 
-from dragon_settings import get_settings
-_S = get_settings('auto_left_click', {'CLICK_INTERVAL': 0.1, 'RIGHT_CLICK_INTERVAL': 0.1})
 
-CLICK_INTERVAL       = _S['CLICK_INTERVAL']        # seconds between each left click while held
-RIGHT_CLICK_INTERVAL = _S['RIGHT_CLICK_INTERVAL']  # seconds between each right click while Ctrl+` is held
+CLICK_INTERVAL       = 0.1  # seconds between each left click while held
+RIGHT_CLICK_INTERVAL = 0.1  # seconds between each right click while Ctrl+` is held
 
 BACKTICK_VK = 0xC0  # VK_OEM_3 — the ` / ~ key, physically above Tab and left of 1
 

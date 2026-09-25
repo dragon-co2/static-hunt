@@ -23,26 +23,17 @@ REPAIR_PATH          = os.path.join(_DIR, 'repair.png')
 YES_PATH             = os.path.join(_DIR, 'yes.png')
 CLOSE_STATUS_PATH    = os.path.join(_DIR, 'closeStatus.png')
 
-from dragon_settings import get_settings
-_S = get_settings('repaire', {
-    'WH_CLOSE_OFF': (337, 17),
-    'REPAIR_OFF':   (160, -109),
-    'CONF_REPAIR_NEAR': 0.5,
-    'CONF_WH':      0.5,
-    'WAIT':         0.5,
-    'RETRIES':      15,
-})
 
-WH_CLOSE_OFF = tuple(_S['WH_CLOSE_OFF'])   # X button, relative to the warehouse panel's top-left
-REPAIR_OFF   = tuple(_S['REPAIR_OFF'])     # Repair button center, relative to the Body button's center
-CONF_REPAIR_NEAR = _S['CONF_REPAIR_NEAR']  # looser match for repair.png at its expected spot (it's often half-covered)
+WH_CLOSE_OFF     = (337, 17)    # X button, relative to the warehouse panel's top-left
+REPAIR_OFF       = (160, -109)  # Repair button center, relative to the Body button's center
+CONF_REPAIR_NEAR = 0.5          # looser match for repair.png at its expected spot (it's often half-covered)
 
-CONF_WH  = _S['CONF_WH']
-WAIT     = _S['WAIT']       # seconds between steps
-RETRIES  = _S['RETRIES']    # attempts (1s apart) to wait for each UI element to appear
-TRIALS   = 20                # attempts per step before giving up on validating it
-ALT_P_HOLD = 1.0            # seconds to hold Alt+P down when opening the remote warehouse
-CLICK_HOLD = 0.1            # seconds to hold the left mouse button down on every click
+CONF_WH    = 0.5
+WAIT       = 0.5  # seconds between steps
+RETRIES    = 15   # attempts (1s apart) to wait for each UI element to appear
+TRIALS     = 20   # attempts per step before giving up on validating it
+ALT_P_HOLD = 1.0  # seconds to hold Alt+P down when opening the remote warehouse
+CLICK_HOLD = 0.1  # seconds to hold the left mouse button down on every click
 
 MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
 

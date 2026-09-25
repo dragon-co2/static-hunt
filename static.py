@@ -28,6 +28,7 @@ from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
 from db_scroll import run_db_scroll
 import overlay
+from dragon_settings import get_settings
 
 
 try:
@@ -44,8 +45,15 @@ INTERVAL     = 3    # seconds between each switch
 LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
 LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 MB on disk at most
 
-ARROWS_INTERVAL = 1000   # seconds between grab_arrows passes over all desktops
-REPAIR_INTERVAL = 2000   # seconds between repair passes over all desktops
+_S = get_settings('static', {
+    'FIRST_RUN_REPAIR': True,
+    'ARROWS_INTERVAL':  1000,
+    'REPAIR_INTERVAL':  2000,
+})
+
+FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair during each desktop's first-visit setup
+ARROWS_INTERVAL  = _S['ARROWS_INTERVAL']         # seconds between grab_arrows passes over all desktops
+REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
 TIMER_STATUS_INTERVAL = 5   # seconds between "[TIMER] ... left" countdown prints
 
 _timer_start = {}   # 'arrows' / 'repair' -> time.time() the current interval started
@@ -149,7 +157,10 @@ def _first_run(idx):
     """Full setup, once per desktop on the first visit."""
     print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
     handle_revive()
-    run_repair()
+    if FIRST_RUN_REPAIR:
+        run_repair()
+    else:
+        print('  [INIT] first-run repair turned off in settings — skipping')
     open_warehouse()
     _compose()
     ensure_arrows()
