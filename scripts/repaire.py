@@ -42,6 +42,7 @@ WAIT     = _S['WAIT']       # seconds between steps
 RETRIES  = _S['RETRIES']    # attempts (1s apart) to wait for each UI element to appear
 TRIALS   = 5                # attempts per step before giving up on validating it
 ALT_P_HOLD = 1.0            # seconds to hold Alt+P down when opening the remote warehouse
+CLICK_HOLD = 0.1            # seconds to hold the left mouse button down on every click
 
 MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
 
@@ -172,7 +173,7 @@ def _click_at(x, y):
     pyautogui.moveTo(x, y, duration=0.05)
     time.sleep(0.05)
     pyautogui.mouseDown()
-    time.sleep(0.08)
+    time.sleep(CLICK_HOLD)
     pyautogui.mouseUp()
 
 
