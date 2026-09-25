@@ -41,6 +41,7 @@ CONF_WH  = _S['CONF_WH']
 WAIT     = _S['WAIT']       # seconds between steps
 RETRIES  = _S['RETRIES']    # attempts (1s apart) to wait for each UI element to appear
 TRIALS   = 5                # attempts per step before giving up on validating it
+ALT_P_HOLD = 1.0            # seconds to hold Alt+P down when opening the remote warehouse
 
 MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
 
@@ -236,15 +237,17 @@ def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay
 
 
 def _press_alt_p():
-    """Presses Alt+P (remote warehouse hotkey)."""
+    """Presses Alt+P (remote warehouse hotkey), holding it for ALT_P_HOLD seconds."""
     _focus_game_window()
     pyautogui.keyDown('alt')
-    time.sleep(0.05)
-    pyautogui.keyDown('p')
-    time.sleep(0.08)
-    pyautogui.keyUp('p')
-    pyautogui.keyUp('alt')
-    print('  [KEY] Alt+P')
+    try:
+        time.sleep(0.05)
+        pyautogui.keyDown('p')
+        time.sleep(ALT_P_HOLD)
+        pyautogui.keyUp('p')
+    finally:
+        pyautogui.keyUp('alt')
+    print(f'  [KEY] Alt+P (held {ALT_P_HOLD}s)')
 
 
 def _click_warehouse_x():
