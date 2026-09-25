@@ -37,7 +37,7 @@ CONF_EMPTY   = 0.8
 
 WAIT   = 0.4  # seconds between steps
 TRIALS = 20   # attempts per step before giving up on validating it
-DEPOSIT_PRESSES = 3      # max Deposit presses while +N items remain in the inventory
+DEPOSIT_PRESSES = 50     # safety cap on Deposit presses while +N items remain (normally stops as soon as they're gone)
 PLUS_MAX_DIFF   = 3000   # mean squared color difference on the badge's yellow pixels; real badge ~800, other digits ~14000+
 
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
@@ -164,8 +164,8 @@ def plus_items_in_inventory():
 
 
 def deposit_plus_items(max_presses=DEPOSIT_PRESSES):
-    """Presses Deposit only while a +N item is in the inventory — up to `max_presses` times,
-    stopping as soon as no +N badge is left."""
+    """Presses Deposit only while a +N item is in the inventory, and keeps pressing until no
+    +N badge is left (capped at `max_presses` so a missed detection can't loop forever)."""
     found = plus_items_in_inventory()
     if not found:
         print('  [OK] no +N items in inventory — skipping deposit')
@@ -176,7 +176,7 @@ def deposit_plus_items(max_presses=DEPOSIT_PRESSES):
         time.sleep(0.5)
         found = plus_items_in_inventory()
         if not found:
-            print(f'  [OK] +N items deposited (after {press} press(es))')
+            print(f'  [OK] all +N items deposited (after {press} press(es))')
             return True
     print(f'  [FAIL] +N item(s) still in inventory after {max_presses} deposit presses ({", ".join(found)})')
     return False
@@ -198,7 +198,7 @@ def deposit_click(trials=TRIALS):
 
 
 def _find_empty_inventory_cell():
-    """Returns the center of the first empty inventory cell (matching emptycell.jpg), or None."""
+    """Returns the center of the last empty inventory cell (matching emptycell.jpg), or None."""
     if _tmpl_empty is None:
         return None
     gray = _ga._grab_gray()
@@ -207,8 +207,8 @@ def _find_empty_inventory_cell():
         return None
     ox, oy = inv_panel[0] + _ga.INV_OFFSET_X, inv_panel[1] + _ga.INV_OFFSET_Y
     th, tw = _tmpl_empty.shape[:2]
-    for r in range(_ga.INV_ROWS):
-        for c in range(_ga.INV_COLS):
+    for r in reversed(range(_ga.INV_ROWS)):        # scan bottom-right -> top-left
+        for c in reversed(range(_ga.INV_COLS)):
             x1, y1 = ox + c * _ga.INV_SLOT_W, oy + r * _ga.INV_SLOT_H
             crop = gray[y1:y1 + _ga.INV_SLOT_H, x1:x1 + _ga.INV_SLOT_W]
             if crop.shape[0] < th or crop.shape[1] < tw:
@@ -220,7 +220,7 @@ def _find_empty_inventory_cell():
 
 
 def click_empty_inventory_cell(trials=TRIALS):
-    """Finds the first empty cell in the inventory grid and left-clicks it; retried up to
+    """Finds the last empty cell in the inventory grid and left-clicks it; retried up to
     `trials` times if the inventory or an empty cell isn't found."""
     print('[SEQ] empty inventory cell...')
     for trial in range(1, trials + 1):
