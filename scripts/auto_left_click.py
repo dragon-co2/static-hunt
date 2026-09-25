@@ -13,7 +13,7 @@ pyautogui.FAILSAFE = True
 pyautogui.PAUSE    = 0
 
 from dragon_settings import get_settings
-_S = get_settings('auto_left_click', {'CLICK_INTERVAL': 0.1, 'RIGHT_CLICK_INTERVAL': 0.3})
+_S = get_settings('auto_left_click', {'CLICK_INTERVAL': 0.1, 'RIGHT_CLICK_INTERVAL': 0.1})
 
 CLICK_INTERVAL       = _S['CLICK_INTERVAL']        # seconds between each left click while held
 RIGHT_CLICK_INTERVAL = _S['RIGHT_CLICK_INTERVAL']  # seconds between each right click while Ctrl+` is held
