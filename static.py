@@ -26,6 +26,7 @@ from new_bank_compose import run_new_bank_compose, deposit_click, click_empty_in
 from revive import handle_revive
 from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
+from db_scroll import run_db_scroll
 import overlay
 
 
@@ -197,6 +198,8 @@ def _main():
             if current in pending_arrows:
                 ensure_arrows()
                 pending_arrows.discard(current)
+
+        run_db_scroll()   # every loop, on every desktop (no-op if disabled or < MIN_COUNT)
 
         time.sleep(INTERVAL)
 
