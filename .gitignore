@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 build_tmp/
+logs/
 
 app_icon.ico
 build.bat

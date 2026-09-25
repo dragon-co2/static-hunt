@@ -1,6 +1,9 @@
 import os
 import time
 import ctypes
+import logging
+import logging.handlers
+import threading
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -19,10 +22,11 @@ import pyautogui
 from pynput import keyboard as pynput_kb
 from pyvda import VirtualDesktop, get_virtual_desktops
 
-from new_bank_compose import run_new_bank_compose
+from new_bank_compose import run_new_bank_compose, deposit_click, click_empty_inventory_cell
 from revive import handle_revive
 from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
+import overlay
 
 
 try:
@@ -36,8 +40,14 @@ pyautogui.PAUSE    = 0
 SWITCH_DELAY = 0.5   # seconds to let the desktop-switch animation finish
 INTERVAL     = 3    # seconds between each switch
 
-ARROWS_INTERVAL = 100   # seconds between grab_arrows passes over all desktops
-REPAIR_INTERVAL = 200   # seconds between repair passes over all desktops
+LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
+LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 MB on disk at most
+
+ARROWS_INTERVAL = 1000   # seconds between grab_arrows passes over all desktops
+REPAIR_INTERVAL = 2000   # seconds between repair passes over all desktops
+TIMER_STATUS_INTERVAL = 5   # seconds between "[TIMER] ... left" countdown prints
+
+_timer_start = {}   # 'arrows' / 'repair' -> time.time() the current interval started
 
 _shift_held = False
 
@@ -64,13 +74,83 @@ def _on_key_press(key):
 pynput_kb.Listener(on_press=_on_key_press, on_release=_on_key_release, daemon=True).start()
 
 
+class _Tee:
+    """Mirrors a console stream into the rotating log, timestamping each complete line."""
+
+    def __init__(self, stream, logger):
+        self._stream = stream
+        self._logger = logger
+        self._buf = ''
+        self._lock = threading.Lock()
+
+    def write(self, text):
+        self._stream.write(text)
+        with self._lock:
+            self._buf += text
+            *lines, self._buf = self._buf.split('\n')
+            for line in lines:
+                if line.strip():
+                    self._logger.info(line)
+                    overlay.push(line)
+        return len(text)
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _setup_log():
+    """Copies everything printed (stdout + stderr, including crashes) into logs/static.log,
+    rotating it at LOG_MAX_MB so it never grows without bound, and mirrors each line to the
+    on-screen overlay."""
+    base = _os.path.dirname(_sys.executable if getattr(_sys, 'frozen', False) else _os.path.abspath(__file__))
+    log_dir = _os.path.join(base, 'logs')
+    _os.makedirs(log_dir, exist_ok=True)
+
+    handler = logging.handlers.RotatingFileHandler(
+        _os.path.join(log_dir, 'static.log'), maxBytes=LOG_MAX_MB * 1024 * 1024,
+        backupCount=LOG_BACKUPS, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d %H:%M:%S'))
+    logger = logging.getLogger('static')
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.addHandler(handler)
+
+    _sys.stdout = _Tee(_sys.stdout, logger)
+    _sys.stderr = _Tee(_sys.stderr, logger)
+    logger.info('=' * 20 + ' static.py started ' + '=' * 20)
+
+
+def _compose():
+    """VIP -> Compose tab, then Deposit x3 and click an empty inventory cell.
+    Skips the deposit/empty-cell clicks if the Compose tab never opened."""
+    if not run_new_bank_compose():
+        return
+    for _ in range(3):
+        deposit_click()
+    click_empty_inventory_cell()
+
+
+def _timer_status_loop():
+    """Every TIMER_STATUS_INTERVAL seconds, prints how long until the next grab_arrows
+    and repair passes are queued."""
+    while True:
+        time.sleep(TIMER_STATUS_INTERVAL)
+        now = time.time()
+        arrows_left = max(0, int(ARROWS_INTERVAL - (now - _timer_start['arrows'])))
+        repair_left = max(0, int(REPAIR_INTERVAL - (now - _timer_start['repair'])))
+        print(f'[TIMER] grab_arrows in {arrows_left}s | repair in {repair_left}s')
+
+
 def _first_run(idx):
     """Full setup, once per desktop on the first visit."""
     print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
     handle_revive()
     run_repair()
     open_warehouse()
-    run_new_bank_compose()
+    _compose()
     ensure_arrows()
 
 
@@ -88,18 +168,19 @@ def _main():
     initialized = set()          # desktops that already had their first-run setup
     pending_arrows = set()       # desktops still owed a grab_arrows run in the current pass
     pending_repair = set()       # desktops still owed a repair run in the current pass
-    last_arrows = last_repair = time.time()
+    _timer_start['arrows'] = _timer_start['repair'] = time.time()
+    threading.Thread(target=_timer_status_loop, daemon=True, name='timer-status').start()
 
     while True:
         now = time.time()
-        if now - last_arrows >= ARROWS_INTERVAL:
+        if now - _timer_start['arrows'] >= ARROWS_INTERVAL:
             print(f'[TIMER] {ARROWS_INTERVAL}s — grab_arrows queued for all desktops')
             pending_arrows = set(range(total))
-            last_arrows = now
-        if now - last_repair >= REPAIR_INTERVAL:
+            _timer_start['arrows'] = now
+        if now - _timer_start['repair'] >= REPAIR_INTERVAL:
             print(f'[TIMER] {REPAIR_INTERVAL}s — repair queued for all desktops')
             pending_repair = set(range(total))
-            last_repair = now
+            _timer_start['repair'] = now
 
         print(f'[DESKTOP] Processing {current + 1}/{total}')
         if current not in initialized:
@@ -112,7 +193,7 @@ def _main():
             if current in pending_repair:
                 run_repair()
                 pending_repair.discard(current)
-            run_new_bank_compose()
+            _compose()
             if current in pending_arrows:
                 ensure_arrows()
                 pending_arrows.discard(current)
@@ -134,6 +215,8 @@ def _main():
 if __name__ == '__main__':
     # When frozen, an unhandled exception would otherwise close the console
     # window instantly and the error is never seen - print it and wait.
+    overlay.start()
+    _setup_log()
     try:
         _main()
     except Exception:

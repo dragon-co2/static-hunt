@@ -100,6 +100,15 @@
       "default": 0.8,
       "desc": "How closely the screen must match the deposit button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
     },
+    "CONF_EMPTY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.8,
+      "desc": "How closely an inventory slot must match the 'empty cell' reference image before it's treated as empty (the script clicks the first empty slot as its last step). Lower it if no empty slot is found; raise it if it clicks a slot that has an item."
+    },
     "WAIT": {
       "type": "float",
       "min": 0.0,
@@ -156,6 +165,56 @@
       "unit": "",
       "default": 6,
       "desc": "How many of your warehouse tabs are treated as regular item tabs, separate from the arrow tab. Adjust this if your own tab setup differs."
+    }
+  },
+  "overlay": {
+    "__title__": "On-screen Console",
+    "ENABLED": {
+      "type": "int",
+      "min": 0,
+      "max": 1,
+      "step": 1,
+      "unit": "",
+      "default": 1,
+      "desc": "1 shows the last few console lines on top of the game while static.py runs; 0 turns the on-screen console off. Clicks always pass through it to the game."
+    },
+    "POSITION": {
+      "type": "choice",
+      "options": ["top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right"],
+      "default": "top-center",
+      "desc": "Where on the primary screen the on-screen console sits. Move it if it covers a part of the game the scripts need to see."
+    },
+    "LINES": {
+      "type": "int",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "unit": "lines",
+      "default": 5,
+      "desc": "How many of the most recent console lines are shown at once."
+    },
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the on-screen console."
+    },
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the on-screen console."
+    },
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the on-screen console and the edge of the screen."
     }
   }
 }

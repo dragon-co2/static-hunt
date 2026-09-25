@@ -7,6 +7,7 @@ import mss
 import pyautogui
 
 from _paths import app_root
+import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
 
 try:
     if not ctypes.windll.user32.IsProcessDPIAware():
@@ -25,19 +26,23 @@ VIP_BTN_PATH         = os.path.join(_DIR, 'vip_btn.png')
 VIP_MENU_PATH        = os.path.join(_DIR, 'vip_menu.jpg')
 COMPOSE_PATH         = os.path.join(_DIR, 'compose.jpg')
 DEPOSIT_PATH         = os.path.join(_DIR, 'deposit.jpg')
+EMPTYCELL_PATH       = os.path.join(_DIR, 'emptycell.jpg')
 
 from dragon_settings import get_settings
 _S = get_settings('new_bank_compose', {
-    'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8,
+    'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_EMPTY': 0.8,
     'WAIT': 0.4,
 })
 
 CONF_VIP_BTN   = _S['CONF_VIP_BTN']
 CONF_COMPOSE   = _S['CONF_COMPOSE']
 CONF_DEPOSIT   = _S['CONF_DEPOSIT']
+CONF_EMPTY     = _S['CONF_EMPTY']
 
 WAIT = _S['WAIT']  # seconds between steps
 TRIALS = 5         # attempts per step before giving up on validating it
+
+_tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
 
 
 def _focus_game_window():
@@ -139,7 +144,52 @@ def deposit_click(trials=TRIALS):
     return False
 
 
+def _find_empty_inventory_cell():
+    """Returns the center of the first empty inventory cell (matching emptycell.jpg), or None."""
+    if _tmpl_empty is None:
+        return None
+    gray = _ga._grab_gray()
+    inv_panel = _ga._find(gray, _ga._tmpl_inv, threshold=_ga.CONF_INV)
+    if not inv_panel:
+        return None
+    ox, oy = inv_panel[0] + _ga.INV_OFFSET_X, inv_panel[1] + _ga.INV_OFFSET_Y
+    th, tw = _tmpl_empty.shape[:2]
+    for r in range(_ga.INV_ROWS):
+        for c in range(_ga.INV_COLS):
+            x1, y1 = ox + c * _ga.INV_SLOT_W, oy + r * _ga.INV_SLOT_H
+            crop = gray[y1:y1 + _ga.INV_SLOT_H, x1:x1 + _ga.INV_SLOT_W]
+            if crop.shape[0] < th or crop.shape[1] < tw:
+                continue
+            res = cv2.matchTemplate(crop, _tmpl_empty, cv2.TM_CCOEFF_NORMED)
+            if cv2.minMaxLoc(res)[1] >= CONF_EMPTY:
+                return (x1 + _ga.INV_SLOT_W // 2, y1 + _ga.INV_SLOT_H // 2)
+    return None
+
+
+def click_empty_inventory_cell(trials=TRIALS):
+    """Finds the first empty cell in the inventory grid and left-clicks it; retried up to
+    `trials` times if the inventory or an empty cell isn't found."""
+    print('[SEQ] empty inventory cell...')
+    for trial in range(1, trials + 1):
+        pos = _find_empty_inventory_cell()
+        if pos:
+            x, y = pos
+            pyautogui.moveTo(x, y, duration=0.15)
+            time.sleep(0.1)
+            pyautogui.mouseDown()
+            time.sleep(0.08)
+            pyautogui.mouseUp()
+            print(f'  [OK] clicked empty inventory cell @ ({x},{y})')
+            return True
+        print(f'  [FAIL] no empty inventory cell found (trial {trial}/{trials})')
+        time.sleep(0.5)
+    print(f'  [FAIL] empty inventory cell — gave up after {trials} trials.')
+    return False
+
+
 if __name__ == '__main__':
     if run_new_bank_compose():
-        deposit_click()
+        for _ in range(3):
+            deposit_click()
+        click_empty_inventory_cell()
     os._exit(0)
