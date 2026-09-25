@@ -126,8 +126,6 @@ def run_new_bank_compose():
         print('[SEQ] Aborted at "compose".')
         return False
     time.sleep(WAIT)
-    deposit_click()
-    click_empty_inventory_cell()
     return True
 
 
@@ -190,5 +188,8 @@ def click_empty_inventory_cell(trials=TRIALS):
 
 
 if __name__ == '__main__':
-    run_new_bank_compose()
+    if run_new_bank_compose():
+        for _ in range(3):
+            deposit_click()
+        click_empty_inventory_cell()
     os._exit(0)
