@@ -17,12 +17,12 @@ comtypes.client.gen_dir = None
 
 import pyautogui
 from pynput import keyboard as pynput_kb
-from pyvda import get_virtual_desktops
+from pyvda import VirtualDesktop, get_virtual_desktops
 
-from stash2 import stash_items
 from new_bank_compose import run_new_bank_compose
 from revive import handle_revive
-from grab_arrows import ensure_arrows, init_bank_tab
+from grab_arrows import ensure_arrows
+from repaire import run_repair, open_warehouse
 
 
 try:
@@ -33,14 +33,11 @@ except Exception:
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE    = 0
 
-ACCOUNT_NUMBERS = len(get_virtual_desktops())   # number of accounts/desktops to ping-pong between
-
 SWITCH_DELAY = 0.5   # seconds to let the desktop-switch animation finish
 INTERVAL     = 3    # seconds between each switch
 
-ARROWS_INTERVAL = 1000   # seconds between grab_arrows runs, per account
-
-_last_arrows_check = {}
+ARROWS_INTERVAL = 100   # seconds between grab_arrows passes over all desktops
+REPAIR_INTERVAL = 200   # seconds between repair passes over all desktops
 
 _shift_held = False
 
@@ -67,42 +64,65 @@ def _on_key_press(key):
 pynput_kb.Listener(on_press=_on_key_press, on_release=_on_key_release, daemon=True).start()
 
 
-def _main():
-    print('Starting in 3s...')
+def _first_run(idx):
+    """Full setup, once per desktop on the first visit."""
+    print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
+    handle_revive()
+    run_repair()
+    open_warehouse()
+    run_new_bank_compose()
+    ensure_arrows()
 
+
+def _main():
+    total = len(get_virtual_desktops())         # accounts/desktops to ping-pong between
+    current = VirtualDesktop.current().number - 1  # 0-based; start from wherever we are now
+    print(f'[DESKTOP] {total} desktop(s) found, starting on {current + 1}')
+
+    print('Starting in 3s...')
     for i in range(3, 0, -1):
         print(f'  {i}...')
         time.sleep(1)
 
-    current   = 0
-    direction = 1
-    start_time = time.time()
-
-    _initialized = set()   # accounts already tab-initialized during the first loop
+    direction = 1 if current < total - 1 else -1
+    initialized = set()          # desktops that already had their first-run setup
+    pending_arrows = set()       # desktops still owed a grab_arrows run in the current pass
+    pending_repair = set()       # desktops still owed a repair run in the current pass
+    last_arrows = last_repair = time.time()
 
     while True:
-        print(f'[DESKTOP] Processing {current + 1}/{ACCOUNT_NUMBERS}')
-        if not handle_revive():
+        now = time.time()
+        if now - last_arrows >= ARROWS_INTERVAL:
+            print(f'[TIMER] {ARROWS_INTERVAL}s — grab_arrows queued for all desktops')
+            pending_arrows = set(range(total))
+            last_arrows = now
+        if now - last_repair >= REPAIR_INTERVAL:
+            print(f'[TIMER] {REPAIR_INTERVAL}s — repair queued for all desktops')
+            pending_repair = set(range(total))
+            last_repair = now
+
+        print(f'[DESKTOP] Processing {current + 1}/{total}')
+        if current not in initialized:
+            _first_run(current)
+            initialized.add(current)
+            pending_arrows.discard(current)   # just did both as part of the setup
+            pending_repair.discard(current)
+        else:
             handle_revive()
-
-            if current not in _initialized:
-                print('  [INIT] First pass on this account — clicking a bank tab to exit the arrows tab')
-                init_bank_tab()
-                _initialized.add(current)
-
+            if current in pending_repair:
+                run_repair()
+                pending_repair.discard(current)
             run_new_bank_compose()
-            stash_items()
-
-            now = time.time()
-            if now - _last_arrows_check.get(current, start_time) >= ARROWS_INTERVAL:
+            if current in pending_arrows:
                 ensure_arrows()
-                _last_arrows_check[current] = now
-
+                pending_arrows.discard(current)
 
         time.sleep(INTERVAL)
 
+        if total < 2:
+            continue
         next_idx = current + direction
-        if not (0 <= next_idx < ACCOUNT_NUMBERS):
+        if not (0 <= next_idx < total):
             direction *= -1
             next_idx = current + direction
 
