@@ -22,23 +22,25 @@ BODY_PATH            = os.path.join(_DIR, 'body.png')
 REPAIR_PATH          = os.path.join(_DIR, 'repair.png')
 YES_PATH             = os.path.join(_DIR, 'yes.png')
 CLOSE_STATUS_PATH    = os.path.join(_DIR, 'closeStatus.png')
-WH_BTN_PATH          = os.path.join(_DIR, 'wh_btn.png')
 
 from dragon_settings import get_settings
 _S = get_settings('repaire', {
-    'WH_CLOSE_OFF': (326, 13),
-    'VIP_BTN_POS':  (652, 984),
+    'WH_CLOSE_OFF': (337, 17),
+    'REPAIR_OFF':   (160, -109),
+    'CONF_REPAIR_NEAR': 0.5,
     'CONF_WH':      0.5,
     'WAIT':         0.5,
     'RETRIES':      15,
 })
 
 WH_CLOSE_OFF = tuple(_S['WH_CLOSE_OFF'])   # X button, relative to the warehouse panel's top-left
-VIP_BTN_POS  = tuple(_S['VIP_BTN_POS'])    # VIP button — fixed HUD position, doesn't move, no need to search for it
+REPAIR_OFF   = tuple(_S['REPAIR_OFF'])     # Repair button center, relative to the Body button's center
+CONF_REPAIR_NEAR = _S['CONF_REPAIR_NEAR']  # looser match for repair.png at its expected spot (it's often half-covered)
 
 CONF_WH  = _S['CONF_WH']
 WAIT     = _S['WAIT']       # seconds between steps
 RETRIES  = _S['RETRIES']    # attempts (1s apart) to wait for each UI element to appear
+TRIALS   = 5                # attempts per step before giving up on validating it
 
 MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
 
@@ -74,6 +76,14 @@ def _focus_game_window():
     return False
 
 
+def _grab_primary_gray():
+    """Grayscale capture of the primary monitor. mss's monitors[1] isn't necessarily the primary
+    one on multi-monitor setups, so pick it by `is_primary` (primary sits at 0,0 = click coords)."""
+    with mss.MSS() as sct:
+        mon = next((m for m in sct.monitors[1:] if m.get('is_primary')), sct.monitors[1])
+        return cv2.cvtColor(np.array(sct.grab(mon)), cv2.COLOR_BGRA2GRAY)
+
+
 def _find_warehouse(gray):
     """Returns (x, y, w, h) of the warehouse panel, or None."""
     if _tmpl_wh is None:
@@ -91,15 +101,69 @@ def _best_match(path):
     tmpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if tmpl is None:
         return None
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[1]))
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    gray = _grab_primary_gray()
     th, tw = tmpl.shape[:2]
     if gray.shape[0] < th or gray.shape[1] < tw:
         return None
     res = cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED)
     _, val, _, loc = cv2.minMaxLoc(res)
     return (loc[0], loc[1], tw, th, float(val))
+
+
+def _center(path, gray, confidence):
+    """Center of the best match for `path` in `gray` if it scores >= confidence, else None."""
+    tmpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if tmpl is None:
+        return None
+    th, tw = tmpl.shape[:2]
+    if gray.shape[0] < th or gray.shape[1] < tw:
+        return None
+    _, val, _, loc = cv2.minMaxLoc(cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED))
+    return (loc[0] + tw // 2, loc[1] + th // 2) if val >= confidence else None
+
+
+def _repair_pos():
+    """Where to click Repair: a confident on-screen match of repair.png if there is one
+    (still right if the UI ever moves), otherwise the Body button's center + REPAIR_OFF
+    (works even while the character model covers the button). Returns ((x, y), how) or None."""
+    gray = _grab_primary_gray()
+    found = _center(REPAIR_PATH, gray, 0.8)
+    if found:
+        return found, 'found repair.png'
+    body = _center(BODY_PATH, gray, 0.8)
+    if body:
+        return (body[0] + REPAIR_OFF[0], body[1] + REPAIR_OFF[1]), 'Body + offset'
+    return None
+
+
+def _repair_ready():
+    """Body tab is showing: repair.png matches confidently anywhere, or at least loosely
+    right where Body + REPAIR_OFF says it should be (it's often half-hidden)."""
+    gray = _grab_primary_gray()
+    if _center(REPAIR_PATH, gray, 0.8):
+        return True
+    body = _center(BODY_PATH, gray, 0.8)
+    tmpl = cv2.imread(REPAIR_PATH, cv2.IMREAD_GRAYSCALE)
+    if not body or tmpl is None:
+        return False
+    th, tw = tmpl.shape[:2]
+    cx, cy = body[0] + REPAIR_OFF[0], body[1] + REPAIR_OFF[1]
+    pad = 10  # tolerate a few px of drift
+    x1, y1 = max(cx - tw // 2 - pad, 0), max(cy - th // 2 - pad, 0)
+    crop = gray[y1:y1 + th + 2 * pad, x1:x1 + tw + 2 * pad]
+    if crop.shape[0] < th or crop.shape[1] < tw:
+        return False
+    return cv2.minMaxLoc(cv2.matchTemplate(crop, tmpl, cv2.TM_CCOEFF_NORMED))[1] >= CONF_REPAIR_NEAR
+
+
+def _click_repair():
+    pos = _repair_pos()
+    if not pos:
+        print('  [CLICK] repair — neither repair.png nor body.png found, nothing to click')
+        return
+    (x, y), how = pos
+    _click_at(x, y)
+    print(f'  [CLICK] repair @ ({x},{y})  ({how})')
 
 
 def _click_at(x, y):
@@ -149,69 +213,75 @@ def _is_visible(path, confidence=0.8):
 
 
 def _warehouse_open():
-    with mss.MSS() as sct:
-        gray = cv2.cvtColor(np.array(sct.grab(sct.monitors[1])), cv2.COLOR_BGRA2GRAY)
+    gray = _grab_primary_gray()
     return _find_warehouse(gray) is not None
 
 
-def _click_verify(path, verify_fn, confidence=0.8, outer_retries=3, verify_tries=6, verify_delay=0.5):
-    """Clicks `path`, then confirms the expected UI change via verify_fn; re-clicks (up to
-    `outer_retries` times) if the change never shows up. Always returns True — even if the
-    change never confirms, we've already best-effort clicked, so move on to the next step."""
-    for attempt in range(outer_retries):
+def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay=0.5):
+    """Runs `action`, then validates it by polling `check` (up to verify_tries * verify_delay
+    seconds). Prints the validation result; re-runs the action up to `trials` times until it
+    validates. Always returns True — a step that never validates is reported and skipped past."""
+    for trial in range(1, trials + 1):
         _check_alive()
-        _click_image(path, confidence=confidence)
+        action()
         for _ in range(verify_tries):
             _check_alive()
             time.sleep(verify_delay)
-            if verify_fn():
+            if check():
+                print(f'  [OK] {expect}')
                 return True
-        print(f'  [CHECK] {os.path.basename(path)} click not confirmed — retrying ({attempt + 1}/{outer_retries})')
-    print(f'  [CHECK] {os.path.basename(path)} still not confirmed after retries — continuing anyway.')
+        print(f'  [FAIL] {expect} — not validated (trial {trial}/{trials})')
+    print(f'  [FAIL] {expect} — gave up after {trials} trials, continuing anyway.')
     return True
 
 
-def _click_vip_btn(verify_fn, outer_retries=3, verify_tries=6, verify_delay=0.5):
-    """Clicks the VIP button at its fixed screen position (no image search needed),
-    then confirms the menu opened; re-clicks if it didn't. Always returns True."""
-    for attempt in range(outer_retries):
-        _check_alive()
-        _click_at(*VIP_BTN_POS)
-        print(f'  [CLICK] vip_btn (static) @ {VIP_BTN_POS}')
-        for _ in range(verify_tries):
-            _check_alive()
-            time.sleep(verify_delay)
-            if verify_fn():
-                return True
-        print(f'  [CHECK] vip_btn click not confirmed — retrying ({attempt + 1}/{outer_retries})')
-    print('  [CHECK] vip_btn still not confirmed after retries — continuing anyway.')
-    return True
+def _press_alt_p():
+    """Presses Alt+P (remote warehouse hotkey)."""
+    _focus_game_window()
+    pyautogui.keyDown('alt')
+    time.sleep(0.05)
+    pyautogui.keyDown('p')
+    time.sleep(0.08)
+    pyautogui.keyUp('p')
+    pyautogui.keyUp('alt')
+    print('  [KEY] Alt+P')
+
+
+def _click_warehouse_x():
+    """Clicks the warehouse panel's X button, if the panel is on screen."""
+    panel = _find_warehouse(_grab_primary_gray())
+    if not panel:
+        return
+    px, py, _, _ = panel
+    x, y = px + WH_CLOSE_OFF[0], py + WH_CLOSE_OFF[1]
+    _click_at(x, y)
+    print(f'  [CLICK] warehouse X @ ({x},{y})')
 
 
 def _close_warehouse():
     """Step 1 — closes the warehouse panel if it's open; a no-op otherwise."""
-    with mss.MSS() as sct:
-        gray = cv2.cvtColor(np.array(sct.grab(sct.monitors[1])), cv2.COLOR_BGRA2GRAY)
-    if not _find_warehouse(gray):
-        print('  [CLICK] warehouse not open — skipping')
+    if not _warehouse_open():
+        print('  [OK] warehouse not open — skipping')
         return True
+    return _run_step(_click_warehouse_x, lambda: not _warehouse_open(), 'warehouse disappeared')
 
-    for attempt in range(3):
-        _check_alive()
-        with mss.MSS() as sct:
-            gray = cv2.cvtColor(np.array(sct.grab(sct.monitors[1])), cv2.COLOR_BGRA2GRAY)
-        panel = _find_warehouse(gray)
-        if not panel:
-            print('  [CLICK] warehouse closed')
-            return True
-        px, py, _, _ = panel
-        x, y = px + WH_CLOSE_OFF[0], py + WH_CLOSE_OFF[1]
-        _click_at(x, y)
-        print(f'  [CLICK] warehouse X @ ({x},{y})  (attempt {attempt + 1}/3)')
-        time.sleep(0.7)
 
-    print('  [CHECK] warehouse still open after retries — continuing anyway')
-    return True
+def _open_status():
+    """Opens the Status window — skipped if body.png is already visible (Status already
+    open), so the next step goes straight to clicking Body."""
+    if _is_visible(BODY_PATH):
+        print('  [OK] body.png already visible — skipping Status')
+        return True
+    return _run_step(lambda: _click_image(STATUS_PATH), lambda: _is_visible(BODY_PATH), 'body.png appeared')
+
+
+def open_warehouse():
+    """Opens the remote warehouse with Alt+P, validated; a no-op if it's already open
+    (so it never toggles an open warehouse closed)."""
+    if _warehouse_open():
+        print('  [OK] warehouse already open — skipping Alt+P')
+        return True
+    return _run_step(_press_alt_p, _warehouse_open, 'warehouse appeared')
 
 
 def run_repair(wait_if_dead=None):
@@ -223,12 +293,12 @@ def run_repair(wait_if_dead=None):
     4. Click Repair.
     5. Confirm Yes.
     6. Close the Status window.
-    7. Open the VIP menu.
-    8. Open the remote warehouse.
+    7. Open the remote warehouse (Alt+P).
 
-    Every step tries to confirm the resulting UI change actually happened, re-clicking
-    if it didn't — but never aborts the sequence. If a button is never confidently found,
-    it clicks the best on-screen match anyway (no screenshots) and moves on regardless.
+    Every step is validated by the UI change it should cause (e.g. Status -> body.png
+    appears, Close status -> body.png disappears), printing [OK]/[FAIL], and is retried up
+    to TRIALS (5) times until it validates — but never aborts the sequence. If a button is
+    never confidently found, it clicks the best on-screen match anyway and moves on regardless.
 
     `wait_if_dead`, if given, is polled between steps and inside every retry loop
     so a mid-repair death (revive screen) pauses the sequence instead of it flailing
@@ -239,16 +309,16 @@ def run_repair(wait_if_dead=None):
 
     steps = [
         ('close warehouse', _close_warehouse),
-        ('status',          lambda: _click_verify(STATUS_PATH, lambda: _is_visible(BODY_PATH))),
-        ('body',            lambda: _click_verify(BODY_PATH, lambda: _is_visible(REPAIR_PATH))),
-        ('repair',          lambda: _click_verify(REPAIR_PATH, lambda: _is_visible(YES_PATH))),
-        ('yes',             lambda: _click_verify(YES_PATH, lambda: not _is_visible(YES_PATH))),
-        ('close status',    lambda: _click_verify(
-            CLOSE_STATUS_PATH,
-            lambda: not _is_visible(CLOSE_STATUS_PATH) and not _is_visible(BODY_PATH),
-        )),
-        ('vip menu',        lambda: _click_vip_btn(lambda: _is_visible(WH_BTN_PATH))),
-        ('warehouse',       lambda: _click_verify(WH_BTN_PATH, _warehouse_open)),
+        ('status',          _open_status),
+        ('body',            lambda: _run_step(lambda: _click_image(BODY_PATH),
+                                              _repair_ready, 'repair button showing')),
+        ('repair',          lambda: _run_step(_click_repair,
+                                              lambda: _is_visible(YES_PATH), 'yes.png appeared')),
+        ('yes',             lambda: _run_step(lambda: _click_image(YES_PATH),
+                                              lambda: not _is_visible(YES_PATH), 'yes.png disappeared')),
+        ('close status',    lambda: _run_step(lambda: _click_image(CLOSE_STATUS_PATH),
+                                              lambda: not _is_visible(BODY_PATH), 'body.png disappeared')),
+        ('warehouse',       open_warehouse),
     ]
     for label, step in steps:
         _check_alive()

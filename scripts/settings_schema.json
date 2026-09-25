@@ -9,18 +9,15 @@
       "unit": "s",
       "default": 0.1,
       "desc": "How long the script waits between each repeated click while the click-and-hold hotkey is held down. Lower it to click faster; raise it to click slower and more gently."
-    }
-  },
-  "fly": {
-    "__title__": "Fly",
-    "CONFIDENCE": {
+    },
+    "RIGHT_CLICK_INTERVAL": {
       "type": "float",
       "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.9,
-      "desc": "How closely the screen must match the target image before the script clicks it. Lower it if the click never triggers because the match is never confident enough; raise it if it ends up clicking the wrong thing."
+      "max": 10.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.3,
+      "desc": "How long the script waits between each repeated right click while Ctrl+` is held down. Lower it to click faster; raise it to click slower."
     }
   },
   "revive": {
@@ -55,6 +52,24 @@
       "default": 0.5,
       "desc": "How closely the screen must match the reference image of the warehouse panel before the script considers the warehouse detected/open. Lower this if the script fails to notice the warehouse even though it's clearly open; raise it if the script mistakenly thinks the warehouse is open when it isn't."
     },
+    "REPAIR_OFF": {
+      "type": "point",
+      "min": -500,
+      "max": 500,
+      "step": 1,
+      "unit": "px",
+      "default": [160, -109],
+      "desc": "Where the Repair button is, measured from the center of the Body button (X right, Y down; negative Y = above). Used when repair.png can't be matched because the character covers it. Adjust if the click misses the hammer."
+    },
+    "CONF_REPAIR_NEAR": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.5,
+      "desc": "How closely the spot at Body + REPAIR_OFF must match repair.png to count as the Repair button showing after clicking Body. Kept low because the character often half-covers it; raise it if the Body step passes when it shouldn't."
+    },
     "WAIT": {
       "type": "float",
       "min": 0.0,
@@ -74,158 +89,8 @@
       "desc": "How many times the script checks for a UI element to appear before giving up and clicking its best guess anyway. Raise it if elements sometimes take a while to show up on your PC; lower it to fail faster and move on to the next step sooner."
     }
   },
-  "compose": {
-    "__title__": "Compose",
-    "CONF_INV": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.3,
-      "desc": "How closely the screen must match the reference image of the inventory panel before the script considers the inventory detected/open. Lower this if inventory detection keeps failing; raise it if it falsely detects the inventory when it's actually closed."
-    },
-    "WAIT": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.7,
-      "desc": "How long the script pauses, in seconds, between each step of its sequence. Lower it to speed the script up if your game and PC respond quickly; raise it if steps start failing because the game's UI hasn't caught up yet."
-    }
-  },
-  "bank_compose": {
-    "__title__": "Bank Compose",
-    "WH_TAB_COUNT": {
-      "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 7,
-      "desc": "How many warehouse tabs this script cycles through. Set this to match how many tabs you actually use for it."
-    },
-    "CONF_WH": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.35,
-      "desc": "How closely the screen must match the reference image of the warehouse panel before the script considers the warehouse detected/open. Lower this if the script fails to notice the warehouse even though it's clearly open; raise it if the script mistakenly thinks the warehouse is open when it isn't."
-    },
-    "CONF_EMPTY": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.9,
-      "desc": "How closely a grid slot must match the 'empty cell' reference image before it's treated as empty. Lower it if occupied slots get wrongly skipped as empty; raise it if empty slots get wrongly counted as items."
-    },
-    "CLICK_MULTIPLIER": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.1,
-      "unit": "x",
-      "default": 1.5,
-      "desc": "How many extra clicks the script makes on the warehouse, as a multiple of the item count it detected (1.5 = 50% extra clicks, as a safety margin). Raise it if items keep getting left behind; lower it if it's clicking too many times or grabbing more than you want."
-    },
-    "VIS": {
-      "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 1,
-      "desc": "Turns the on-screen debug overlay on (1) or off (0). It draws boxes over whatever the script is currently detecting -- handy for troubleshooting, but not needed for normal runs."
-    },
-    "CYCLES": {
-      "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 7,
-      "desc": "How many times the full compose sequence repeats within a single run. Raise it to process more items in one run; lower it to keep each run shorter."
-    },
-    "WAREHOUSE_MIN_ITEMS": {
-      "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 20,
-      "desc": "The minimum number of items that must be sitting in the warehouse before this script bothers starting its routine at all. Raise it to only run on bigger batches; lower it to run even when there are just a few items."
-    },
-    "CONF_INV": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.3,
-      "desc": "How closely the screen must match the reference image of the inventory panel before the script considers the inventory detected/open. Lower this if inventory detection keeps failing; raise it if it falsely detects the inventory when it's actually closed."
-    },
-    "CONF_DIALOG": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.6,
-      "desc": "How closely the screen must match the compose dialog's reference image before the script considers that dialog open. Lower it if the script fails to notice the dialog; raise it if it falsely thinks the dialog is open."
-    },
-    "WAIT": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.4,
-      "desc": "How long the script pauses, in seconds, between each step of its sequence. Lower it to speed the script up if your game and PC respond quickly; raise it if steps start failing because the game's UI hasn't caught up yet."
-    },
-    "DRAGONBALL_NEED": {
-      "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 10,
-      "desc": "The minimum number of dragonballs that must be in the inventory before the script right-clicks one to convert them into a scroll. Raise it to wait for a bigger stack first; lower it to convert sooner."
-    }
-  },
   "new_bank_compose": {
     "__title__": "New Bank Compose",
-    "CONF_WH": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.35,
-      "desc": "How closely the screen must match the reference image of the warehouse panel before the script considers the warehouse detected/open. Lower this if the script fails to notice the warehouse even though it's clearly open; raise it if the script mistakenly thinks the warehouse is open when it isn't."
-    },
-    "CONF_EMPTY": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.8,
-      "desc": "How closely a grid slot must match the 'empty cell' reference image before it's treated as empty. Lower it if occupied slots get wrongly skipped as empty; raise it if empty slots get wrongly counted as items."
-    },
-    "CONF_ARROW": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.5,
-      "desc": "How closely a slot must match the arrow icon before it's recognized as an arrow stack. Lower it if arrows aren't being detected; raise it if other items get mistaken for arrows."
-    },
     "CONF_VIP_BTN": {
       "type": "float",
       "min": 0.0,
@@ -253,32 +118,14 @@
       "default": 0.8,
       "desc": "How closely the screen must match the deposit button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
     },
-    "CONF_CLOSE_VIP": {
+    "CONF_EMPTY": {
       "type": "float",
       "min": 0.0,
       "max": 1.0,
       "step": 0.01,
       "unit": "",
       "default": 0.8,
-      "desc": "How closely the screen must match the close-VIP button's reference image before the script clicks it. Lower it if the button isn't being found; raise it if the script clicks the wrong thing."
-    },
-    "CLICK_MULTIPLIER": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.1,
-      "unit": "x",
-      "default": 2,
-      "desc": "How many extra clicks the script makes on the warehouse, as a multiple of the item count it detected (1.5 = 50% extra clicks, as a safety margin). Raise it if items keep getting left behind; lower it if it's clicking too many times or grabbing more than you want."
-    },
-    "WAREHOUSE_MIN_ITEMS": {
-      "type": "int",
-      "min": 0,
-      "max": 10,
-      "step": 1,
-      "unit": "",
-      "default": 3,
-      "desc": "The minimum number of items that must be sitting in the warehouse before this script bothers starting its routine at all. Raise it to only run on bigger batches; lower it to run even when there are just a few items."
+      "desc": "How closely an inventory slot must match the 'empty cell' reference image before it's treated as empty (the script clicks the first empty slot as its last step). Lower it if no empty slot is found; raise it if it clicks a slot that has an item."
     },
     "WAIT": {
       "type": "float",
@@ -328,15 +175,6 @@
       "default": 0.5,
       "desc": "How closely a slot must match the arrow icon before it's recognized as an arrow stack. Lower it if arrows aren't being detected; raise it if other items get mistaken for arrows."
     },
-    "ARROW_TAB_INDEX": {
-      "type": "int",
-      "min": 0,
-      "max": 200,
-      "step": 1,
-      "unit": "",
-      "default": 6,
-      "desc": "Which warehouse tab (counting from 0) is set aside for arrows. Change this if you keep your arrows in a different tab than tab 7."
-    },
     "BANK_TAB_COUNT": {
       "type": "int",
       "min": 0,
@@ -347,70 +185,54 @@
       "desc": "How many of your warehouse tabs are treated as regular item tabs, separate from the arrow tab. Adjust this if your own tab setup differs."
     }
   },
-  "stash2": {
-    "__title__": "Stash 2",
-    "WH_TAB_COUNT": {
+  "overlay": {
+    "__title__": "On-screen Console",
+    "ENABLED": {
       "type": "int",
       "min": 0,
-      "max": 200,
+      "max": 1,
       "step": 1,
       "unit": "",
-      "default": 6,
-      "desc": "How many warehouse tabs this script cycles through. Set this to match how many tabs you actually use for it."
+      "default": 1,
+      "desc": "1 shows the last few console lines on top of the game while static.py runs; 0 turns the on-screen console off. Clicks always pass through it to the game."
     },
-    "CONF": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.3,
-      "desc": "General match confidence used for slot classification in this script. Lower it if slots keep getting misclassified as empty/junk; raise it if it's too eager to treat slots as items."
+    "POSITION": {
+      "type": "choice",
+      "options": ["top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right"],
+      "default": "top-center",
+      "desc": "Where on the primary screen the on-screen console sits. Move it if it covers a part of the game the scripts need to see."
     },
-    "CONF_WH": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.3,
-      "desc": "How closely the screen must match the reference image of the warehouse panel before the script considers the warehouse detected/open. Lower this if the script fails to notice the warehouse even though it's clearly open; raise it if the script mistakenly thinks the warehouse is open when it isn't."
+    "LINES": {
+      "type": "int",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "unit": "lines",
+      "default": 5,
+      "desc": "How many of the most recent console lines are shown at once."
     },
-    "CONF_EMPTY": {
-      "type": "float",
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.01,
-      "unit": "",
-      "default": 0.95,
-      "desc": "How closely a grid slot must match the 'empty cell' reference image before it's treated as empty. Lower it if occupied slots get wrongly skipped as empty; raise it if empty slots get wrongly counted as items."
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the on-screen console."
     },
-    "ALT_HOLD": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.1,
-      "desc": "How long the script holds down Alt before and after each stash click. Raise it if items sometimes fail to get sent to the warehouse -- this gives the game more time to register the modifier key."
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the on-screen console."
     },
-    "TAB_DELAY": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.2,
-      "desc": "How long the script waits after clicking a warehouse tab before it does the Alt+click to stash an item into it. Raise it if items land in the wrong tab because the tab switch hadn't finished yet."
-    },
-    "STASH_DELAY": {
-      "type": "float",
-      "min": 0.0,
-      "max": 10.0,
-      "step": 0.05,
-      "unit": "s",
-      "default": 0.5,
-      "desc": "How long the script waits between moving each item into the warehouse. Lower it to stash faster; raise it if items start getting skipped or misplaced."
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the on-screen console and the edge of the screen."
     }
   }
 }

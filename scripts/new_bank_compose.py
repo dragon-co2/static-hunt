@@ -1,6 +1,5 @@
 import os
 import time
-import random
 import ctypes
 import numpy as np
 import cv2
@@ -8,6 +7,7 @@ import mss
 import pyautogui
 
 from _paths import app_root
+import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
 
 try:
     if not ctypes.windll.user32.IsProcessDPIAware():
@@ -22,97 +22,31 @@ pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0
 
 _DIR = os.path.join(app_root(), 'reference_images')
-WAREHOUSE_TITLE_PATH = os.path.join(_DIR, 'warehouse_title.jpg')
-EMPTYCELL_PATH       = os.path.join(_DIR, 'emptycell.jpg')
-ARROW_PATH           = os.path.join(_DIR, 'arrow.jpg')
 VIP_BTN_PATH         = os.path.join(_DIR, 'vip_btn.png')
 VIP_MENU_PATH        = os.path.join(_DIR, 'vip_menu.jpg')
 COMPOSE_PATH         = os.path.join(_DIR, 'compose.jpg')
 DEPOSIT_PATH         = os.path.join(_DIR, 'deposit.jpg')
-CLOSE_VIP_PATH       = os.path.join(_DIR, 'close_vip.jpg')
+EMPTYCELL_PATH       = os.path.join(_DIR, 'emptycell.jpg')
 
 from dragon_settings import get_settings
 _S = get_settings('new_bank_compose', {
-    'WH_OFFSET_X': 128, 'WH_OFFSET_Y': 46, 'WH_SLOT_W': 43, 'WH_SLOT_H': 43,
-    'WH_COLS': 5, 'WH_ROWS': 4,
-    'CONF_WH': 0.5, 'CONF_EMPTY': 0.8, 'CONF_ARROW': 0.5,
-    'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_CLOSE_VIP': 0.8,
-    'CLICK_MULTIPLIER': 2, 'WAREHOUSE_MIN_ITEMS': 10,
+    'CONF_VIP_BTN': 0.5, 'CONF_COMPOSE': 0.8, 'CONF_DEPOSIT': 0.8, 'CONF_EMPTY': 0.8,
     'WAIT': 0.4,
 })
 
-WH_OFFSET_X = _S['WH_OFFSET_X']
-WH_OFFSET_Y = _S['WH_OFFSET_Y']
-WH_SLOT_W   = _S['WH_SLOT_W']
-WH_SLOT_H   = _S['WH_SLOT_H']
-WH_COLS     = _S['WH_COLS']
-WH_ROWS     = _S['WH_ROWS']
-
-CONF_WH    = _S['CONF_WH']
-CONF_EMPTY = _S['CONF_EMPTY']
-CONF_ARROW = _S['CONF_ARROW']
 CONF_VIP_BTN   = _S['CONF_VIP_BTN']
 CONF_COMPOSE   = _S['CONF_COMPOSE']
 CONF_DEPOSIT   = _S['CONF_DEPOSIT']
-CONF_CLOSE_VIP = _S['CONF_CLOSE_VIP']
-CLICK_MULTIPLIER = _S['CLICK_MULTIPLIER']  # extra clicks over the detected item count, e.g. 1.5 = +50%
-WAREHOUSE_MIN_ITEMS = _S['WAREHOUSE_MIN_ITEMS']  # only withdraw + run the vip flow if the warehouse has at least this many items
+CONF_EMPTY     = _S['CONF_EMPTY']
 
 WAIT = _S['WAIT']  # seconds between steps
+TRIALS = 5         # attempts per step before giving up on validating it
 
-_tmpl_wh    = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
-_tmpl_arrow = cv2.imread(ARROW_PATH, cv2.IMREAD_GRAYSCALE)
 
 
 def _focus_game_window():
     return True
-
-
-def _find(gray, template, threshold):
-    if template is None:
-        return None
-    th, tw = template.shape[:2]
-    if gray.shape[0] < th or gray.shape[1] < tw:
-        return None
-    res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-    _, val, _, loc = cv2.minMaxLoc(res)
-    if val >= threshold:
-        return (loc[0], loc[1], tw, th)
-    return None
-
-
-def _is_arrow(cell_gray):
-    if _tmpl_arrow is None:
-        return False
-    th, tw = _tmpl_arrow.shape[:2]
-    if cell_gray.shape[0] < th or cell_gray.shape[1] < tw:
-        return False
-    res = cv2.matchTemplate(cell_gray, _tmpl_arrow, cv2.TM_CCOEFF_NORMED)
-    return cv2.minMaxLoc(res)[1] >= CONF_ARROW
-
-
-def _count_warehouse_items(gray, wh_panel):
-    """Counts non-empty cells in the warehouse grid, and separately the arrow cells among them.
-    Arrow cells are ignored entirely — not counted as items, and not touched by the withdraw step."""
-    px, py, _, _ = wh_panel
-    ox, oy = px + WH_OFFSET_X, py + WH_OFFSET_Y
-    count = 0
-    arrow_count = 0
-    for r in range(WH_ROWS):
-        for c in range(WH_COLS):
-            x1 = ox + c * WH_SLOT_W
-            y1 = oy + r * WH_SLOT_H
-            crop = gray[y1:y1 + WH_SLOT_H, x1:x1 + WH_SLOT_W]
-            if _tmpl_empty is not None and crop.shape[0] >= _tmpl_empty.shape[0] and crop.shape[1] >= _tmpl_empty.shape[1]:
-                res = cv2.matchTemplate(crop, _tmpl_empty, cv2.TM_CCOEFF_NORMED)
-                if cv2.minMaxLoc(res)[1] >= CONF_EMPTY:
-                    continue
-            if _is_arrow(crop):
-                arrow_count += 1
-                continue
-            count += 1
-    return count, arrow_count
 
 
 def _best_match_score(path):
@@ -155,120 +89,107 @@ def _is_visible(path, confidence=0.8):
         return False
 
 
-def _click_verify(path, verify_fn, retries=5, delay=0.5, confidence=0.8):
-    """Clicks `path`, then calls verify_fn() to confirm it worked; retries the click if not."""
-    for attempt in range(retries):
-        _click_image(path, confidence=confidence)
-        time.sleep(delay)
-        if verify_fn():
-            return True
-        print(f'  [CHECK] {os.path.basename(path)} click not confirmed — retrying ({attempt + 1}/{retries})')
-    print(f'  [CHECK] {os.path.basename(path)} still not confirmed after retries.')
+def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay=0.5):
+    """Runs `action`, then validates it by polling `check` (up to verify_tries * verify_delay
+    seconds). Prints [OK]/[FAIL]; re-runs the action up to `trials` times until it validates."""
+    for trial in range(1, trials + 1):
+        action()
+        for _ in range(verify_tries):
+            time.sleep(verify_delay)
+            if check():
+                print(f'  [OK] {expect}')
+                return True
+        print(f'  [FAIL] {expect} — not validated (trial {trial}/{trials})')
+    print(f'  [FAIL] {expect} — gave up after {trials} trials.')
     return False
 
 
-def _warehouse_state():
-    with mss.MSS() as sct:
-        gray = cv2.cvtColor(np.array(sct.grab(sct.monitors[0])), cv2.COLOR_BGRA2GRAY)
-    wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
-    item_count, arrow_count = _count_warehouse_items(gray, wh_panel) if wh_panel else (0, 0)
-    return wh_panel, item_count, arrow_count
+def run_new_bank_compose():
+    """1. Open the VIP menu  -> validated by vip_menu.jpg appearing.
+       2. Open Compose tab   -> validated by deposit.jpg appearing.
+    Skips a step whose result is already on screen (e.g. VIP menu left open from last run),
+    and stops if a step never validates after TRIALS attempts."""
+    print('[SEQ] vip...')
+    if _is_visible(DEPOSIT_PATH, CONF_DEPOSIT) or _is_visible(VIP_MENU_PATH):
+        print('  [OK] VIP menu already open — skipping')
+    elif not _run_step(lambda: _click_image(VIP_BTN_PATH, confidence=CONF_VIP_BTN),
+                       lambda: _is_visible(VIP_MENU_PATH), 'vip_menu.jpg appeared'):
+        print('[SEQ] Aborted at "vip".')
+        return False
+    time.sleep(WAIT)
 
-
-def _withdraw_items(wh_panel, item_count):
-    """Clicks warehouse cells to pull items into the bag — same CLICK_MULTIPLIER logic as bank_compose.py.
-    Before each click it checks the target cell for arrow.jpg and skips it if found — arrows are
-    never withdrawn, they're just left in place."""
-    times = round(item_count * CLICK_MULTIPLIER)
-    print(f'  [WITHDRAW] {item_count} item(s) in warehouse — clicking {times} times (x{CLICK_MULTIPLIER})')
-    if times == 0:
-        return True
-
-    px, py, _, _ = wh_panel
-    _focus_game_window()
-    clicked = 0
-    attempts = 0
-    max_attempts = times * 4  # bail out if a cell keeps landing on an arrow
-    while clicked < times and attempts < max_attempts:
-        attempts += 1
-        r, c = random.choice([(0, 0), (0, 1)])
-        x1 = px + WH_OFFSET_X + c * WH_SLOT_W
-        y1 = py + WH_OFFSET_Y + r * WH_SLOT_H
-        x, y = x1 + WH_SLOT_W // 2, y1 + WH_SLOT_H // 2
-
-        with mss.MSS() as sct:
-            raw = np.array(sct.grab(sct.monitors[0]))
-        gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
-        crop = gray[y1:y1 + WH_SLOT_H, x1:x1 + WH_SLOT_W]
-        if _is_arrow(crop):
-            print(f'  [WITHDRAW] arrow at cell(r{r},c{c}) — skipping')
-            continue
-
-        pyautogui.moveTo(x, y, duration=0.15)
-        time.sleep(0.1)
-        pyautogui.mouseDown()
-        time.sleep(0.08)
-        pyautogui.mouseUp()
-        clicked += 1
-        print(f'  [WITHDRAW] cell(r{r},c{c}) @ ({x},{y})  {clicked}/{times}')
+    print('[SEQ] compose...')
+    if _is_visible(DEPOSIT_PATH, CONF_DEPOSIT):
+        print('  [OK] deposit.jpg already visible — skipping')
+    elif not _run_step(lambda: _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE),
+                       lambda: _is_visible(DEPOSIT_PATH, CONF_DEPOSIT), 'deposit.jpg appeared'):
+        print('[SEQ] Aborted at "compose".')
+        return False
+    time.sleep(WAIT)
     return True
 
 
-def run_new_bank_compose(min_items=WAREHOUSE_MIN_ITEMS):
-    wh_panel, item_count, arrow_count = _warehouse_state()
-    print(f'  [CHECK] {item_count} item(s) in warehouse ({arrow_count} arrow(s) ignored)')
-    if wh_panel and item_count == 0 and arrow_count > 0:
-        print('  [CHECK] Only arrows in warehouse — skipping.')
-        return
-    if not wh_panel or item_count < min_items:
-        print(f'  [CHECK] Fewer than {min_items} — skipping.')
-        return
-
-    _withdraw_items(wh_panel, item_count)
-    time.sleep(WAIT)
-
-    if not _click_verify(VIP_BTN_PATH, lambda: _is_visible(VIP_MENU_PATH), confidence=CONF_VIP_BTN):
-        print('[SEQ] VIP menu never opened.')
-        return
-    time.sleep(WAIT)
+def deposit_click(trials=TRIALS):
+    """Presses the deposit button once — no VIP or compose steps. Nothing on screen changes
+    after a deposit, so it's validated by the button being found and clicked; retried up to
+    `trials` times if it isn't."""
+    print('[SEQ] deposit...')
+    for trial in range(1, trials + 1):
+        if _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT):
+            print('  [OK] deposit clicked')
+            return True
+        print(f'  [FAIL] deposit button not found (trial {trial}/{trials})')
+        time.sleep(0.5)
+    print(f'  [FAIL] deposit — gave up after {trials} trials.')
+    return False
 
 
-    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
-    time.sleep(0.1)
-    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
-    time.sleep(0.1)
-    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
-    time.sleep(0.1)
-    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
-    time.sleep(0.1)
-    _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE)
-    time.sleep(0.3)
+def _find_empty_inventory_cell():
+    """Returns the center of the first empty inventory cell (matching emptycell.jpg), or None."""
+    if _tmpl_empty is None:
+        return None
+    gray = _ga._grab_gray()
+    inv_panel = _ga._find(gray, _ga._tmpl_inv, threshold=_ga.CONF_INV)
+    if not inv_panel:
+        return None
+    ox, oy = inv_panel[0] + _ga.INV_OFFSET_X, inv_panel[1] + _ga.INV_OFFSET_Y
+    th, tw = _tmpl_empty.shape[:2]
+    for r in range(_ga.INV_ROWS):
+        for c in range(_ga.INV_COLS):
+            x1, y1 = ox + c * _ga.INV_SLOT_W, oy + r * _ga.INV_SLOT_H
+            crop = gray[y1:y1 + _ga.INV_SLOT_H, x1:x1 + _ga.INV_SLOT_W]
+            if crop.shape[0] < th or crop.shape[1] < tw:
+                continue
+            res = cv2.matchTemplate(crop, _tmpl_empty, cv2.TM_CCOEFF_NORMED)
+            if cv2.minMaxLoc(res)[1] >= CONF_EMPTY:
+                return (x1 + _ga.INV_SLOT_W // 2, y1 + _ga.INV_SLOT_H // 2)
+    return None
 
 
-    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
-    time.sleep(0.3) 
-    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
-    time.sleep(0.3)
-    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
-    time.sleep(0.3)
-    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
-    time.sleep(0.3)
-    _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT)
-    time.sleep(0.3)
-
-    pyautogui.keyDown('esc')
-    time.sleep(0.05)
-    pyautogui.keyUp('esc')
-    time.sleep(0.5)
-    pyautogui.keyDown('esc')
-    time.sleep(0.05)
-    pyautogui.keyUp('esc')
-    time.sleep(0.5)
-
-
-
+def click_empty_inventory_cell(trials=TRIALS):
+    """Finds the first empty cell in the inventory grid and left-clicks it; retried up to
+    `trials` times if the inventory or an empty cell isn't found."""
+    print('[SEQ] empty inventory cell...')
+    for trial in range(1, trials + 1):
+        pos = _find_empty_inventory_cell()
+        if pos:
+            x, y = pos
+            pyautogui.moveTo(x, y, duration=0.15)
+            time.sleep(0.1)
+            pyautogui.mouseDown()
+            time.sleep(0.08)
+            pyautogui.mouseUp()
+            print(f'  [OK] clicked empty inventory cell @ ({x},{y})')
+            return True
+        print(f'  [FAIL] no empty inventory cell found (trial {trial}/{trials})')
+        time.sleep(0.5)
+    print(f'  [FAIL] empty inventory cell — gave up after {trials} trials.')
+    return False
 
 
 if __name__ == '__main__':
-    run_new_bank_compose()
+    if run_new_bank_compose():
+        for _ in range(3):
+            deposit_click()
+        click_empty_inventory_cell()
     os._exit(0)
