@@ -127,8 +127,6 @@ def run_new_bank_compose():
         return False
     time.sleep(WAIT)
     deposit_click()
-    deposit_click()
-    deposit_click()
     click_empty_inventory_cell()
     return True
 
