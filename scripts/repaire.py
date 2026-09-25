@@ -206,6 +206,15 @@ def _close_warehouse():
     return _run_step(_click_warehouse_x, lambda: not _warehouse_open(), 'warehouse disappeared')
 
 
+def _open_status():
+    """Opens the Status window — skipped if body.png is already visible (Status already
+    open), so the next step goes straight to clicking Body."""
+    if _is_visible(BODY_PATH):
+        print('  [OK] body.png already visible — skipping Status')
+        return True
+    return _run_step(lambda: _click_image(STATUS_PATH), lambda: _is_visible(BODY_PATH), 'body.png appeared')
+
+
 def open_warehouse():
     """Opens the remote warehouse with Alt+P, validated; a no-op if it's already open
     (so it never toggles an open warehouse closed)."""
@@ -240,8 +249,7 @@ def run_repair(wait_if_dead=None):
 
     steps = [
         ('close warehouse', _close_warehouse),
-        ('status',          lambda: _run_step(lambda: _click_image(STATUS_PATH),
-                                              lambda: _is_visible(BODY_PATH), 'body.png appeared')),
+        ('status',          _open_status),
         ('body',            lambda: _run_step(lambda: _click_image(BODY_PATH),
                                               lambda: _is_visible(REPAIR_PATH), 'repair.png appeared')),
         ('repair',          lambda: _run_step(lambda: _click_image(REPAIR_PATH),
