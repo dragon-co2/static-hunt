@@ -26,12 +26,16 @@ CLOSE_STATUS_PATH    = os.path.join(_DIR, 'closeStatus.png')
 from dragon_settings import get_settings
 _S = get_settings('repaire', {
     'WH_CLOSE_OFF': (337, 17),
+    'REPAIR_OFF':   (160, -109),
+    'CONF_REPAIR_NEAR': 0.5,
     'CONF_WH':      0.5,
     'WAIT':         0.5,
     'RETRIES':      15,
 })
 
 WH_CLOSE_OFF = tuple(_S['WH_CLOSE_OFF'])   # X button, relative to the warehouse panel's top-left
+REPAIR_OFF   = tuple(_S['REPAIR_OFF'])     # Repair button center, relative to the Body button's center
+CONF_REPAIR_NEAR = _S['CONF_REPAIR_NEAR']  # looser match for repair.png at its expected spot (it's often half-covered)
 
 CONF_WH  = _S['CONF_WH']
 WAIT     = _S['WAIT']       # seconds between steps
@@ -104,6 +108,62 @@ def _best_match(path):
     res = cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED)
     _, val, _, loc = cv2.minMaxLoc(res)
     return (loc[0], loc[1], tw, th, float(val))
+
+
+def _center(path, gray, confidence):
+    """Center of the best match for `path` in `gray` if it scores >= confidence, else None."""
+    tmpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if tmpl is None:
+        return None
+    th, tw = tmpl.shape[:2]
+    if gray.shape[0] < th or gray.shape[1] < tw:
+        return None
+    _, val, _, loc = cv2.minMaxLoc(cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED))
+    return (loc[0] + tw // 2, loc[1] + th // 2) if val >= confidence else None
+
+
+def _repair_pos():
+    """Where to click Repair: a confident on-screen match of repair.png if there is one
+    (still right if the UI ever moves), otherwise the Body button's center + REPAIR_OFF
+    (works even while the character model covers the button). Returns ((x, y), how) or None."""
+    gray = _grab_primary_gray()
+    found = _center(REPAIR_PATH, gray, 0.8)
+    if found:
+        return found, 'found repair.png'
+    body = _center(BODY_PATH, gray, 0.8)
+    if body:
+        return (body[0] + REPAIR_OFF[0], body[1] + REPAIR_OFF[1]), 'Body + offset'
+    return None
+
+
+def _repair_ready():
+    """Body tab is showing: repair.png matches confidently anywhere, or at least loosely
+    right where Body + REPAIR_OFF says it should be (it's often half-hidden)."""
+    gray = _grab_primary_gray()
+    if _center(REPAIR_PATH, gray, 0.8):
+        return True
+    body = _center(BODY_PATH, gray, 0.8)
+    tmpl = cv2.imread(REPAIR_PATH, cv2.IMREAD_GRAYSCALE)
+    if not body or tmpl is None:
+        return False
+    th, tw = tmpl.shape[:2]
+    cx, cy = body[0] + REPAIR_OFF[0], body[1] + REPAIR_OFF[1]
+    pad = 10  # tolerate a few px of drift
+    x1, y1 = max(cx - tw // 2 - pad, 0), max(cy - th // 2 - pad, 0)
+    crop = gray[y1:y1 + th + 2 * pad, x1:x1 + tw + 2 * pad]
+    if crop.shape[0] < th or crop.shape[1] < tw:
+        return False
+    return cv2.minMaxLoc(cv2.matchTemplate(crop, tmpl, cv2.TM_CCOEFF_NORMED))[1] >= CONF_REPAIR_NEAR
+
+
+def _click_repair():
+    pos = _repair_pos()
+    if not pos:
+        print('  [CLICK] repair — neither repair.png nor body.png found, nothing to click')
+        return
+    (x, y), how = pos
+    _click_at(x, y)
+    print(f'  [CLICK] repair @ ({x},{y})  ({how})')
 
 
 def _click_at(x, y):
@@ -251,8 +311,8 @@ def run_repair(wait_if_dead=None):
         ('close warehouse', _close_warehouse),
         ('status',          _open_status),
         ('body',            lambda: _run_step(lambda: _click_image(BODY_PATH),
-                                              lambda: _is_visible(REPAIR_PATH), 'repair.png appeared')),
-        ('repair',          lambda: _run_step(lambda: _click_image(REPAIR_PATH),
+                                              _repair_ready, 'repair button showing')),
+        ('repair',          lambda: _run_step(_click_repair,
                                               lambda: _is_visible(YES_PATH), 'yes.png appeared')),
         ('yes',             lambda: _run_step(lambda: _click_image(YES_PATH),
                                               lambda: not _is_visible(YES_PATH), 'yes.png disappeared')),

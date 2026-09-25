@@ -52,6 +52,24 @@
       "default": 0.5,
       "desc": "How closely the screen must match the reference image of the warehouse panel before the script considers the warehouse detected/open. Lower this if the script fails to notice the warehouse even though it's clearly open; raise it if the script mistakenly thinks the warehouse is open when it isn't."
     },
+    "REPAIR_OFF": {
+      "type": "point",
+      "min": -500,
+      "max": 500,
+      "step": 1,
+      "unit": "px",
+      "default": [160, -109],
+      "desc": "Where the Repair button is, measured from the center of the Body button (X right, Y down; negative Y = above). Used when repair.png can't be matched because the character covers it. Adjust if the click misses the hammer."
+    },
+    "CONF_REPAIR_NEAR": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.5,
+      "desc": "How closely the spot at Body + REPAIR_OFF must match repair.png to count as the Repair button showing after clicking Body. Kept low because the character often half-covers it; raise it if the Body step passes when it shouldn't."
+    },
     "WAIT": {
       "type": "float",
       "min": 0.0,
