@@ -40,7 +40,7 @@ CONF_REPAIR_NEAR = _S['CONF_REPAIR_NEAR']  # looser match for repair.png at its 
 CONF_WH  = _S['CONF_WH']
 WAIT     = _S['WAIT']       # seconds between steps
 RETRIES  = _S['RETRIES']    # attempts (1s apart) to wait for each UI element to appear
-TRIALS   = 5                # attempts per step before giving up on validating it
+TRIALS   = 20                # attempts per step before giving up on validating it
 ALT_P_HOLD = 1.0            # seconds to hold Alt+P down when opening the remote warehouse
 CLICK_HOLD = 0.1            # seconds to hold the left mouse button down on every click
 

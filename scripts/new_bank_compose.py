@@ -40,7 +40,7 @@ CONF_DEPOSIT   = _S['CONF_DEPOSIT']
 CONF_EMPTY     = _S['CONF_EMPTY']
 
 WAIT = _S['WAIT']  # seconds between steps
-TRIALS = 5         # attempts per step before giving up on validating it
+TRIALS = 20         # attempts per step before giving up on validating it
 
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
 
