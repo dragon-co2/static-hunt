@@ -1,3 +1,4 @@
+import glob
 import os
 import time
 import ctypes
@@ -36,8 +37,27 @@ CONF_EMPTY   = 0.8
 
 WAIT   = 0.4  # seconds between steps
 TRIALS = 20   # attempts per step before giving up on validating it
+DEPOSIT_PRESSES = 3      # max Deposit presses while +N items remain in the inventory
+PLUS_MAX_DIFF   = 3000   # mean squared color difference on the badge's yellow pixels; real badge ~800, other digits ~14000+
 
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
+
+
+def _load_plus_badges():
+    """Every reference_images/plus*.png (+1, +2, ...) with a mask of just its yellow digits,
+    so the item art behind a badge in the inventory doesn't spoil the match."""
+    badges = []
+    for path in sorted(glob.glob(os.path.join(_DIR, 'plus*.png'))):
+        tmpl = cv2.imread(path)
+        if tmpl is None:
+            continue
+        mask = cv2.inRange(cv2.cvtColor(tmpl, cv2.COLOR_BGR2HSV), (15, 80, 120), (40, 255, 255))
+        if cv2.countNonZero(mask):
+            badges.append((os.path.splitext(os.path.basename(path))[0], tmpl, mask))
+    return badges
+
+
+_plus_badges = _load_plus_badges()
 
 
 def _focus_game_window():
@@ -124,6 +144,44 @@ def run_new_bank_compose():
     return True
 
 
+def plus_items_in_inventory():
+    """Names of the +N badges (plus1, plus2, ...) visible in the inventory panel, or []."""
+    with mss.MSS() as sct:
+        bgr = cv2.cvtColor(np.array(sct.grab(sct.monitors[0])), cv2.COLOR_BGRA2BGR)
+    inv_panel = _ga._find(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), _ga._tmpl_inv, threshold=_ga.CONF_INV)
+    if not inv_panel:
+        return []
+    x, y, w, h = inv_panel
+    region = bgr[y:y + h, x:x + w]
+    found = []
+    for name, tmpl, mask in _plus_badges:
+        if region.shape[0] < tmpl.shape[0] or region.shape[1] < tmpl.shape[1]:
+            continue
+        diff = cv2.minMaxLoc(cv2.matchTemplate(region, tmpl, cv2.TM_SQDIFF, mask=mask))[0]
+        if diff / cv2.countNonZero(mask) <= PLUS_MAX_DIFF:
+            found.append(name)
+    return found
+
+
+def deposit_plus_items(max_presses=DEPOSIT_PRESSES):
+    """Presses Deposit only while a +N item is in the inventory — up to `max_presses` times,
+    stopping as soon as no +N badge is left."""
+    found = plus_items_in_inventory()
+    if not found:
+        print('  [OK] no +N items in inventory — skipping deposit')
+        return True
+    print(f'[SEQ] +N item(s) in inventory ({", ".join(found)}) — depositing')
+    for press in range(1, max_presses + 1):
+        deposit_click()
+        time.sleep(0.5)
+        found = plus_items_in_inventory()
+        if not found:
+            print(f'  [OK] +N items deposited (after {press} press(es))')
+            return True
+    print(f'  [FAIL] +N item(s) still in inventory after {max_presses} deposit presses ({", ".join(found)})')
+    return False
+
+
 def deposit_click(trials=TRIALS):
     """Presses the deposit button once — no VIP or compose steps. Nothing on screen changes
     after a deposit, so it's validated by the button being found and clicked; retried up to
@@ -184,7 +242,6 @@ def click_empty_inventory_cell(trials=TRIALS):
 
 if __name__ == '__main__':
     if run_new_bank_compose():
-        for _ in range(3):
-            deposit_click()
+        deposit_plus_items()
         click_empty_inventory_cell()
     os._exit(0)

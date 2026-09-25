@@ -22,7 +22,7 @@ import pyautogui
 from pynput import keyboard as pynput_kb
 from pyvda import VirtualDesktop, get_virtual_desktops
 
-from new_bank_compose import run_new_bank_compose, deposit_click, click_empty_inventory_cell
+from new_bank_compose import run_new_bank_compose, deposit_plus_items, click_empty_inventory_cell
 from revive import handle_revive
 from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
@@ -133,12 +133,11 @@ def _setup_log():
 
 
 def _compose():
-    """VIP -> Compose tab, then Deposit x3 and click an empty inventory cell.
-    Skips the deposit/empty-cell clicks if the Compose tab never opened."""
+    """VIP -> Compose tab, then Deposit while +N items are in the inventory, then click an
+    empty inventory cell. Skips the deposit/empty-cell clicks if the Compose tab never opened."""
     if not run_new_bank_compose():
         return
-    for _ in range(3):
-        deposit_click()
+    deposit_plus_items()
     click_empty_inventory_cell()
 
 
