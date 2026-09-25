@@ -9,7 +9,7 @@ import threading
 from dragon_settings import get_settings
 
 _S = get_settings('overlay', {
-    'ENABLED':   1,
+    'ENABLED':   True,
     'POSITION':  'top-center',
     'LINES':     5,
     'FONT_SIZE': 14,

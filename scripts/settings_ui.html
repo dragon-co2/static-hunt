@@ -145,6 +145,27 @@
     margin-bottom: 12px;
   }
   .field.modified { border-left-color: var(--modified); }
+  .field.locked { opacity: 0.45; }
+  .field.locked .field-control, .field.locked .reset-btn { pointer-events: none; }
+
+  .toggle { position: relative; display: inline-block; width: 60px; height: 32px; cursor: pointer; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider {
+    position: absolute; inset: 0;
+    background: var(--border);
+    border-radius: 32px;
+    transition: background 0.15s;
+  }
+  .toggle .slider::before {
+    content: ''; position: absolute; left: 4px; top: 4px;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--text);
+    transition: transform 0.15s;
+  }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider::before { transform: translateX(28px); }
+  .toggle input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .toggle-label { font-size: 16px; color: var(--muted); font-family: var(--mono); }
   .field-info .field-name {
     font-family: var(--mono);
     font-weight: 600;
@@ -297,6 +318,7 @@ function isPoint(meta) { return meta.type === 'point'; }
 function isInt(meta) { return meta.type === 'int'; }
 function isChoice(meta) { return meta.type === 'choice'; }
 function isColor(meta) { return meta.type === 'color'; }
+function isBool(meta) { return meta.type === 'bool'; }
 
 function fmtNumber(value, meta) {
   if (isInt(meta)) return String(Math.round(value));
@@ -305,6 +327,7 @@ function fmtNumber(value, meta) {
 }
 
 function valuesEqual(a, b) {
+  if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
   if (Array.isArray(a) && Array.isArray(b)) return a[0] === b[0] && a[1] === b[1];
   if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-9;
   return a === b;
@@ -468,8 +491,49 @@ function makeValueRow(script, name, meta) {
   return row;
 }
 
+// On/off switch for type "bool". An ENABLED toggle also locks/unlocks the rest of its section.
+function makeToggleRow(script, name) {
+  const row = document.createElement('div');
+  row.className = 'axis-row';
+  const label = document.createElement('label');
+  label.className = 'toggle';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = Boolean(state[script][name]);
+  const slider = document.createElement('span');
+  slider.className = 'slider';
+  label.appendChild(input);
+  label.appendChild(slider);
+  const text = document.createElement('span');
+  text.className = 'toggle-label';
+  text.textContent = input.checked ? 'On' : 'Off';
+  input.addEventListener('change', () => {
+    state[script][name] = input.checked;
+    text.textContent = input.checked ? 'On' : 'Off';
+    markDirty(true);
+    refreshFieldRow(script, name);
+    applySectionEnabled(script);
+  });
+  row.appendChild(label);
+  row.appendChild(text);
+  return row;
+}
+
+// If a section has a bool ENABLED field, grey out and lock every other field while it's off.
+function applySectionEnabled(script) {
+  const meta = schema[script].ENABLED;
+  const enabled = !(meta && isBool(meta)) || Boolean(state[script].ENABLED);
+  for (const row of $content.querySelectorAll(`.field[data-script="${script}"]`)) {
+    if (row.dataset.name === 'ENABLED') continue;
+    row.classList.toggle('locked', !enabled);
+    for (const el of row.querySelectorAll('input, select, button')) el.disabled = !enabled;
+  }
+}
+
 function fillControl(control, script, name, meta) {
-  if (isPoint(meta)) {
+  if (isBool(meta)) {
+    control.appendChild(makeToggleRow(script, name));
+  } else if (isPoint(meta)) {
     control.appendChild(makeAxisRow(script, name, 0, 'X', meta));
     control.appendChild(makeAxisRow(script, name, 1, 'Y', meta));
   } else if (isChoice(meta) || isColor(meta)) {
@@ -530,6 +594,7 @@ function rerenderFieldControls(script, name) {
   control.innerHTML = '';
   fillControl(control, script, name, meta);
   refreshFieldRow(script, name);
+  applySectionEnabled(script);
 }
 
 function renderContent() {
@@ -553,6 +618,7 @@ function renderContent() {
       panel.appendChild(buildFieldRow(script, name));
     }
     $content.appendChild(panel);
+    applySectionEnabled(script);
   }
 }
 

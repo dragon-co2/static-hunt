@@ -18,7 +18,7 @@ DRAGONBALL_PATH = os.path.join(_DIR, 'dragonball.png')
 SCROLL_PATH     = os.path.join(_DIR, 'dragonball_scroll.jpg')
 
 _DEFAULTS = {
-    'ENABLED':     1,
+    'ENABLED':     True,
     'MIN_COUNT':   10,
     'CONF_DB':     0.85,
     'CONF_SCROLL': 0.8,

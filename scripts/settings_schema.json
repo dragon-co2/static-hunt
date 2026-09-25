@@ -188,13 +188,9 @@
   "overlay": {
     "__title__": "On-screen Console",
     "ENABLED": {
-      "type": "int",
-      "min": 0,
-      "max": 1,
-      "step": 1,
-      "unit": "",
-      "default": 1,
-      "desc": "1 shows the last few console lines on top of the game while static.py runs; 0 turns the on-screen console off. Clicks always pass through it to the game."
+      "type": "bool",
+      "default": true,
+      "desc": "Shows the last few console lines on top of the game while static.py runs. Turn off to hide the on-screen console. Clicks always pass through it to the game."
     },
     "POSITION": {
       "type": "choice",
@@ -238,13 +234,9 @@
   "db_scroll": {
     "__title__": "Dragonball Scroll",
     "ENABLED": {
-      "type": "int",
-      "min": 0,
-      "max": 1,
-      "step": 1,
-      "unit": "",
-      "default": 1,
-      "desc": "1 turns the dragonball-to-scroll feature on: every loop, if the inventory has enough dragonballs, one is right-clicked to make a scroll, which is then Alt+clicked. 0 turns it off. Takes effect on the next loop, no restart needed."
+      "type": "bool",
+      "default": true,
+      "desc": "Turns the dragonball-to-scroll feature on: every loop, if the inventory has enough dragonballs, one is right-clicked to make a scroll, which is then Alt+clicked. Takes effect on the next loop, no restart needed."
     },
     "MIN_COUNT": {
       "type": "int",
