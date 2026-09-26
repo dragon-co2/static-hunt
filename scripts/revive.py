@@ -16,8 +16,9 @@ pyautogui.PAUSE    = 0
 _DIR = os.path.join(app_root(), 'reference_images')
 REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
+
 REVIVE_WAIT  = 1    # seconds to wait after death before the revive button becomes clickable
-REVIVE_RETRY = 1.0   # seconds between re-checks once the wait is over
+REVIVE_RETRY = 1.0  # seconds between re-checks once the wait is over
 
 
 def _locate(path, confidence=0.9):
@@ -36,9 +37,9 @@ def _click_at(x, y):
 
 
 def handle_revive():
-    """If revive.jpg is on screen, hovers over it and waits for the respawn timer before
-    clicking — it's visible but not actually clickable right after death.
-    Returns True if a revive was handled, False if there was nothing to do."""
+    """If revive.jpg is on screen, hovers over it and waits for the respawn timer (it's visible
+    but not clickable right after death), then keeps clicking it every REVIVE_RETRY seconds
+    until it's gone. Returns True if a revive was handled, False if there was nothing to do."""
     loc = _locate(REVIVE_PATH)
     if not loc:
         return False
@@ -48,18 +49,18 @@ def handle_revive():
     pyautogui.moveTo(x, y, duration=0.1)
     time.sleep(REVIVE_WAIT)
 
-    print('  [REVIVE] Wait done — checking for revive button...')
+    clicks = 0
     while True:
         loc = _locate(REVIVE_PATH)
-        if loc:
-            x, y = pyautogui.center(loc)
-            _click_at(x, y)
-            print(f'  [REVIVE] Clicked @ ({x},{y})')
+        if not loc:
             break
-        print('  [REVIVE] Not found yet — checking again...')
+        x, y = pyautogui.center(loc)
+        _click_at(x, y)
+        clicks += 1
+        print(f'  [REVIVE] Clicked @ ({x},{y})  (#{clicks})')
         time.sleep(REVIVE_RETRY)
 
-    print('  [REVIVE] Done.')
+    print(f'  [REVIVE] Revive button gone — done after {clicks} click(s).')
     return True
 
 

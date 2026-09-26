@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dragon CO2 Settings</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #e3e5e9;
+    --text: #1c1e21;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: #eaf1ff;
+    --modified: #f59e0b;
+    --danger: #dc2626;
+    --danger-soft: #fdeaea;
+    --radius: 15px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+    --header-h: 108px; /* fallback; JS measures the real header height on load */
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d;
+      --panel: #1e2127;
+      --border: #2c3038;
+      --text: #e7e9ec;
+      --muted: #9aa0aa;
+      --accent: #5b8def;
+      --accent-soft: #1c2a44;
+      --modified: #f5a524;
+      --danger: #f87171;
+      --danger-soft: #3a1e1e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 18px;             /* 150% of the original 14px base */
+    line-height: 1.45;
+  }
+  header#topbar {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 21px 30px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .title-block h1 {
+    margin: 0;
+    font-size: 27px;
+    font-weight: 600;
+  }
+  .title-block h1 span { font-weight: 400; color: var(--muted); }
+  .subtitle {
+    margin-top: 3px;
+    font-size: 15px;
+    color: var(--muted);
+    font-family: var(--mono);
+  }
+  .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  input[type="search"] {
+    padding: 12px 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    color: var(--text);
+    font-size: 18px;
+    width: 300px;
+  }
+  button {
+    font-family: var(--font);
+    font-size: 18px;
+    padding: 12px 21px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover { filter: brightness(0.97); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: default; }
+
+  #layout { display: flex; align-items: flex-start; }
+  nav#sidebar {
+    width: 320px;
+    flex: none;
+    padding: 18px;
+    position: sticky;
+    top: var(--header-h);
+    height: calc(100vh - var(--header-h));
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+  }
+  nav#sidebar button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    margin-bottom: 6px;
+    border: none;
+    background: transparent;
+    padding: 14px 18px;
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 18px;
+  }
+  nav#sidebar button:hover { background: var(--bg); }
+  nav#sidebar button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  nav#sidebar button .count {
+    float: right;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  nav#sidebar button.active .count { color: var(--accent); }
+
+  main#content { flex: 1; padding: 30px; max-width: 1200px; }
+  .script-panel { display: none; }
+  .script-panel.active { display: block; }
+  .script-panel h2 { margin: 0 0 6px; font-size: 24px; }
+  .script-panel .script-sub { color: var(--muted); font-size: 16px; margin-bottom: 24px; }
+
+  .field {
+    display: grid;
+    grid-template-columns: 1fr 440px 100px;
+    gap: 18px;
+    align-items: center;
+    padding: 18px 21px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 4px solid transparent;
+    border-radius: 12px;
+    margin-bottom: 12px;
+  }
+  .field.modified { border-left-color: var(--modified); }
+  .field.locked { opacity: 0.45; }
+  .field.locked .field-control, .field.locked .reset-btn { pointer-events: none; }
+
+  .toggle { position: relative; display: inline-block; width: 60px; height: 32px; cursor: pointer; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider {
+    position: absolute; inset: 0;
+    background: var(--border);
+    border-radius: 32px;
+    transition: background 0.15s;
+  }
+  .toggle .slider::before {
+    content: ''; position: absolute; left: 4px; top: 4px;
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--text);
+    transition: transform 0.15s;
+  }
+  .toggle input:checked + .slider { background: var(--accent); }
+  .toggle input:checked + .slider::before { transform: translateX(28px); }
+  .toggle input:focus-visible + .slider { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .toggle-label { font-size: 16px; color: var(--muted); font-family: var(--mono); }
+  .field-info .field-name {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .field-info .badge {
+    font-family: var(--font);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--modified);
+    border: 1px solid var(--modified);
+    border-radius: 999px;
+    padding: 2px 11px;
+  }
+  .field-info .field-desc { color: var(--muted); font-size: 17px; margin-top: 8px; line-height: 1.5; }
+
+  .field-control { display: flex; flex-direction: column; gap: 9px; }
+  .axis-row { display: flex; align-items: center; gap: 12px; }
+  .axis-label { width: 21px; font-size: 16px; color: var(--muted); font-family: var(--mono); }
+
+  .axis-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 9px;
+    cursor: pointer;
+  }
+  .axis-row input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
+  .axis-row input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; }
+
+  .axis-row input[type="number"] {
+    width: 108px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 18px;
+  }
+  .axis-row select {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 18px;
+    cursor: pointer;
+  }
+  .axis-row input[type="color"] {
+    width: 108px;
+    height: 40px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg);
+    cursor: pointer;
+  }
+  .unit { font-size: 16px; color: var(--muted); width: 27px; }
+
+  .field .reset-btn {
+    padding: 9px 12px;
+    font-size: 16px;
+    justify-self: end;
+  }
+
+  #toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--text);
+    color: var(--bg);
+    padding: 15px 27px;
+    border-radius: 999px;
+    font-size: 19px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .empty-hint { color: var(--muted); font-size: 19px; padding: 30px; }
+
+  @media (max-width: 900px) {
+    #layout { flex-direction: column; }
+    nav#sidebar { width: 100%; height: auto; position: static; border-right: none; border-bottom: 1px solid var(--border); }
+    .field { grid-template-columns: 1fr; }
+    .field .reset-btn { justify-self: start; }
+  }
+</style>
+</head>
+<body>
+
+<header id="topbar">
+  <div class="title-block">
+    <h1>Dragon CO2 <span>Settings</span></h1>
+    <div class="subtitle" id="override-path">loading...</div>
+  </div>
+  <div class="controls">
+    <input id="search" type="search" placeholder="Search parameters...">
+    <button id="btn-save" class="primary">Save Changes</button>
+    <button id="btn-reset-all" class="danger">Reset All Overrides</button>
+  </div>
+</header>
+
+<div id="layout">
+  <nav id="sidebar"></nav>
+  <main id="content"></main>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+let schema = {};
+let overrides = {};
+let state = {};      // state[script][name] = value (number, or [x, y] for a point-type field)
+let dirty = false;
+let activeScript = null;
+
+const $sidebar = document.getElementById('sidebar');
+const $content = document.getElementById('content');
+const $search = document.getElementById('search');
+const $overridePath = document.getElementById('override-path');
+const $btnSave = document.getElementById('btn-save');
+const $btnResetAll = document.getElementById('btn-reset-all');
+const $toast = document.getElementById('toast');
+const $topbar = document.getElementById('topbar');
+
+function syncHeaderHeight() {
+  document.documentElement.style.setProperty('--header-h', $topbar.offsetHeight + 'px');
+}
+window.addEventListener('resize', syncHeaderHeight);
+
+function showToast(msg) {
+  $toast.textContent = msg;
+  $toast.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => $toast.classList.remove('show'), 2200);
+}
+
+function isPoint(meta) { return meta.type === 'point'; }
+function isInt(meta) { return meta.type === 'int'; }
+function isChoice(meta) { return meta.type === 'choice'; }
+function isColor(meta) { return meta.type === 'color'; }
+function isBool(meta) { return meta.type === 'bool'; }
+
+function fmtNumber(value, meta) {
+  if (isInt(meta)) return String(Math.round(value));
+  // trim trailing zeros for floats
+  return String(Math.round(value * 1e6) / 1e6);
+}
+
+function valuesEqual(a, b) {
+  if (typeof a === 'boolean' || typeof b === 'boolean') return Boolean(a) === Boolean(b);
+  if (Array.isArray(a) && Array.isArray(b)) return a[0] === b[0] && a[1] === b[1];
+  if (typeof a === 'number' && typeof b === 'number') return Math.abs(a - b) < 1e-9;
+  return a === b;
+}
+
+function currentValueFor(script, name) {
+  const meta = schema[script][name];
+  const ov = overrides[script] && overrides[script][name];
+  return ov !== undefined ? ov : meta.default;
+}
+
+function buildState() {
+  state = {};
+  for (const script of Object.keys(schema)) {
+    state[script] = {};
+    for (const name of Object.keys(schema[script])) {
+      if (name === '__title__') continue;
+      state[script][name] = currentValueFor(script, name);
+    }
+  }
+}
+
+function markDirty(isDirty) {
+  dirty = isDirty;
+}
+
+function fieldIsModified(script, name) {
+  const meta = schema[script][name];
+  return !valuesEqual(state[script][name], meta.default);
+}
+
+// --- Sidebar -----------------------------------------------------------
+function renderSidebar() {
+  $sidebar.innerHTML = '';
+  for (const script of Object.keys(schema)) {
+    const title = schema[script].__title__ || script;
+    const btn = document.createElement('button');
+    btn.dataset.script = script;
+    btn.innerHTML = `${title}`;
+    btn.addEventListener('click', () => selectScript(script));
+    $sidebar.appendChild(btn);
+  }
+  updateSidebarCounts();
+}
+
+function updateSidebarCounts() {
+  for (const btn of $sidebar.querySelectorAll('button')) {
+    const script = btn.dataset.script;
+    const modifiedCount = Object.keys(schema[script])
+      .filter(n => n !== '__title__' && fieldIsModified(script, n)).length;
+    let countSpan = btn.querySelector('.count');
+    if (!countSpan) {
+      countSpan = document.createElement('span');
+      countSpan.className = 'count';
+      btn.appendChild(countSpan);
+    }
+    countSpan.textContent = modifiedCount > 0 ? modifiedCount : '';
+    btn.classList.toggle('active', script === activeScript);
+  }
+}
+
+function selectScript(script) {
+  activeScript = script;
+  for (const panel of $content.querySelectorAll('.script-panel')) {
+    panel.classList.toggle('active', panel.dataset.script === script);
+  }
+  updateSidebarCounts();
+  applySearchFilter();
+}
+
+// --- Field rows ----------------------------------------------------------
+function makeAxisRow(script, name, axisIndex, axisLabel, meta) {
+  const row = document.createElement('div');
+  row.className = 'axis-row';
+
+  if (axisLabel) {
+    const label = document.createElement('span');
+    label.className = 'axis-label';
+    label.textContent = axisLabel;
+    row.appendChild(label);
+  }
+
+  const value = axisIndex === null ? state[script][name] : state[script][name][axisIndex];
+
+  const range = document.createElement('input');
+  range.type = 'range';
+  range.min = Math.min(meta.min, value);
+  range.max = Math.max(meta.max, value);
+  range.step = meta.step;
+  range.value = value;
+
+  const num = document.createElement('input');
+  num.type = 'number';
+  num.step = meta.step;
+  num.value = fmtNumber(value, meta);
+
+  function commit(newValue) {
+    let v = parseFloat(newValue);
+    if (Number.isNaN(v)) v = axisIndex === null ? state[script][name] : state[script][name][axisIndex];
+    if (isInt(meta)) v = Math.round(v);
+    if (v < parseFloat(range.min)) range.min = v;
+    if (v > parseFloat(range.max)) range.max = v;
+    range.value = v;
+    num.value = fmtNumber(v, meta);
+    if (axisIndex === null) {
+      state[script][name] = v;
+    } else {
+      state[script][name][axisIndex] = v;
+    }
+    markDirty(true);
+    refreshFieldRow(script, name);
+  }
+
+  range.addEventListener('input', () => commit(range.value));
+  num.addEventListener('change', () => commit(num.value));
+  num.addEventListener('keydown', (e) => { if (e.key === 'Enter') commit(num.value); });
+
+  row.appendChild(range);
+  row.appendChild(num);
+
+  const unit = document.createElement('span');
+  unit.className = 'unit';
+  unit.textContent = meta.unit || '';
+  row.appendChild(unit);
+
+  return row;
+}
+
+// Dropdown (type "choice", meta.options) or color picker (type "color") for non-numeric values.
+function makeValueRow(script, name, meta) {
+  const row = document.createElement('div');
+  row.className = 'axis-row';
+  const value = state[script][name];
+  let input;
+  if (isChoice(meta)) {
+    input = document.createElement('select');
+    for (const opt of meta.options || []) {
+      const o = document.createElement('option');
+      o.value = opt;
+      o.textContent = opt;
+      input.appendChild(o);
+    }
+  } else {
+    input = document.createElement('input');
+    input.type = 'color';
+  }
+  input.value = value;
+  input.addEventListener('input', () => {
+    state[script][name] = input.value;
+    markDirty(true);
+    refreshFieldRow(script, name);
+  });
+  row.appendChild(input);
+  if (isColor(meta)) {
+    const hex = document.createElement('span');
+    hex.className = 'unit';
+    hex.textContent = value;
+    input.addEventListener('input', () => { hex.textContent = input.value; });
+    row.appendChild(hex);
+  }
+  return row;
+}
+
+// On/off switch for type "bool". An ENABLED toggle also locks/unlocks the rest of its section.
+function makeToggleRow(script, name) {
+  const row = document.createElement('div');
+  row.className = 'axis-row';
+  const label = document.createElement('label');
+  label.className = 'toggle';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.checked = Boolean(state[script][name]);
+  const slider = document.createElement('span');
+  slider.className = 'slider';
+  label.appendChild(input);
+  label.appendChild(slider);
+  const text = document.createElement('span');
+  text.className = 'toggle-label';
+  text.textContent = input.checked ? 'On' : 'Off';
+  input.addEventListener('change', () => {
+    state[script][name] = input.checked;
+    text.textContent = input.checked ? 'On' : 'Off';
+    markDirty(true);
+    refreshFieldRow(script, name);
+    applySectionEnabled(script);
+  });
+  row.appendChild(label);
+  row.appendChild(text);
+  return row;
+}
+
+// If a section has a bool ENABLED field, grey out and lock every other field while it's off.
+function applySectionEnabled(script) {
+  const meta = schema[script].ENABLED;
+  const enabled = !(meta && isBool(meta)) || Boolean(state[script].ENABLED);
+  for (const row of $content.querySelectorAll(`.field[data-script="${script}"]`)) {
+    if (row.dataset.name === 'ENABLED') continue;
+    row.classList.toggle('locked', !enabled);
+    for (const el of row.querySelectorAll('input, select, button')) el.disabled = !enabled;
+  }
+}
+
+function fillControl(control, script, name, meta) {
+  if (isBool(meta)) {
+    control.appendChild(makeToggleRow(script, name));
+  } else if (isPoint(meta)) {
+    control.appendChild(makeAxisRow(script, name, 0, 'X', meta));
+    control.appendChild(makeAxisRow(script, name, 1, 'Y', meta));
+  } else if (isChoice(meta) || isColor(meta)) {
+    control.appendChild(makeValueRow(script, name, meta));
+  } else {
+    control.appendChild(makeAxisRow(script, name, null, '', meta));
+  }
+}
+
+function buildFieldRow(script, name) {
+  const meta = schema[script][name];
+  const row = document.createElement('div');
+  row.className = 'field';
+  row.dataset.script = script;
+  row.dataset.name = name;
+  row.dataset.search = (name + ' ' + (meta.desc || '')).toLowerCase();
+
+  const info = document.createElement('div');
+  info.className = 'field-info';
+  const nameEl = document.createElement('div');
+  nameEl.className = 'field-name';
+  nameEl.innerHTML = `<span>${name}</span><span class="badge" hidden>modified</span>`;
+  const descEl = document.createElement('div');
+  descEl.className = 'field-desc';
+  descEl.textContent = meta.desc || '';
+  info.appendChild(nameEl);
+  info.appendChild(descEl);
+
+  const control = document.createElement('div');
+  control.className = 'field-control';
+  fillControl(control, script, name, meta);
+
+  const resetBtn = document.createElement('button');
+  resetBtn.className = 'reset-btn';
+  resetBtn.textContent = 'Reset';
+  resetBtn.addEventListener('click', () => resetField(script, name));
+
+  row.appendChild(info);
+  row.appendChild(control);
+  row.appendChild(resetBtn);
+  return row;
+}
+
+function refreshFieldRow(script, name) {
+  const row = $content.querySelector(`.field[data-script="${script}"][data-name="${name}"]`);
+  if (row) row.classList.toggle('modified', fieldIsModified(script, name));
+  const badge = row && row.querySelector('.badge');
+  if (badge) badge.hidden = !fieldIsModified(script, name);
+  updateSidebarCounts();
+}
+
+function rerenderFieldControls(script, name) {
+  // Replaces the control area to reflect a fresh value (used after reset).
+  const row = $content.querySelector(`.field[data-script="${script}"][data-name="${name}"]`);
+  if (!row) return;
+  const meta = schema[script][name];
+  const control = row.querySelector('.field-control');
+  control.innerHTML = '';
+  fillControl(control, script, name, meta);
+  refreshFieldRow(script, name);
+  applySectionEnabled(script);
+}
+
+function renderContent() {
+  $content.innerHTML = '';
+  for (const script of Object.keys(schema)) {
+    const panel = document.createElement('div');
+    panel.className = 'script-panel';
+    panel.dataset.script = script;
+
+    const title = schema[script].__title__ || script;
+    const h2 = document.createElement('h2');
+    h2.textContent = title;
+    const sub = document.createElement('div');
+    sub.className = 'script-sub';
+    const names = Object.keys(schema[script]).filter(n => n !== '__title__');
+    sub.textContent = `${names.length} parameter${names.length === 1 ? '' : 's'}`;
+    panel.appendChild(h2);
+    panel.appendChild(sub);
+
+    for (const name of names) {
+      panel.appendChild(buildFieldRow(script, name));
+    }
+    $content.appendChild(panel);
+    applySectionEnabled(script);
+  }
+}
+
+// --- Search filter -------------------------------------------------------
+function applySearchFilter() {
+  const query = $search.value.trim().toLowerCase();
+  const panel = $content.querySelector(`.script-panel[data-script="${activeScript}"]`);
+  if (!panel) return;
+  let anyVisible = false;
+  for (const row of panel.querySelectorAll('.field')) {
+    const visible = !query || row.dataset.search.includes(query);
+    row.style.display = visible ? '' : 'none';
+    if (visible) anyVisible = true;
+  }
+  let hint = panel.querySelector('.empty-hint');
+  if (!anyVisible) {
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.className = 'empty-hint';
+      hint.textContent = 'No parameters match your search.';
+      panel.appendChild(hint);
+    }
+  } else if (hint) {
+    hint.remove();
+  }
+}
+
+// --- Actions ---------------------------------------------------------------
+async function saveChanges() {
+  $btnSave.disabled = true;
+  try {
+    const res = await fetch('/api/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: state }),
+    });
+    const data = await res.json();
+    overrides = data.overrides || {};
+    markDirty(false);
+    for (const script of Object.keys(schema)) {
+      for (const name of Object.keys(schema[script])) {
+        if (name === '__title__') continue;
+        refreshFieldRow(script, name);
+      }
+    }
+    showToast('Saved.');
+  } catch (e) {
+    showToast('Save failed -- is the server still running?');
+  } finally {
+    $btnSave.disabled = false;
+  }
+}
+
+async function resetField(script, name) {
+  try {
+    const res = await fetch('/api/reset-field', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script, name }),
+    });
+    const data = await res.json();
+    overrides = data.overrides || {};
+    state[script][name] = schema[script][name].default;
+    rerenderFieldControls(script, name);
+    showToast(`Reset ${name} to default.`);
+  } catch (e) {
+    showToast('Reset failed -- is the server still running?');
+  }
+}
+
+async function resetAll() {
+  if (!confirm('Reset ALL parameters (every script) back to the factory defaults?\nThis clears your entire override file.')) return;
+  try {
+    const res = await fetch('/api/reset-all', { method: 'POST' });
+    const data = await res.json();
+    overrides = data.overrides || {};
+    buildState();
+    renderContent();
+    selectScript(activeScript);
+    applySearchFilter();
+    markDirty(false);
+    showToast('All overrides cleared.');
+  } catch (e) {
+    showToast('Reset failed -- is the server still running?');
+  }
+}
+
+window.addEventListener('beforeunload', (e) => {
+  if (dirty) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+$btnSave.addEventListener('click', saveChanges);
+$btnResetAll.addEventListener('click', resetAll);
+$search.addEventListener('input', applySearchFilter);
+
+// --- Boot ------------------------------------------------------------------
+async function boot() {
+  const [schemaRes, overridesRes, pathRes] = await Promise.all([
+    fetch('/api/schema'),
+    fetch('/api/overrides'),
+    fetch('/api/override-path'),
+  ]);
+  schema = await schemaRes.json();
+  overrides = await overridesRes.json();
+  const pathData = await pathRes.json();
+  $overridePath.textContent = 'Overrides saved to: ' + pathData.path;
+
+  buildState();
+  renderSidebar();
+  renderContent();
+  const firstScript = Object.keys(schema)[0];
+  selectScript(firstScript);
+  syncHeaderHeight();
+}
+
+boot().catch(err => {
+  $content.innerHTML = `<div class="empty-hint">Failed to load settings: ${err}</div>`;
+});
+</script>
+</body>
+</html>

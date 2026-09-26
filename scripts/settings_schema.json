@@ -1,0 +1,109 @@
+{
+  "static": {
+    "__title__": "General",
+    "FIRST_RUN_REPAIR": {
+      "type": "bool",
+      "default": true,
+      "desc": "Repair gear during each desktop's first-visit setup when static.py starts. Turn off to skip it; repair still runs every REPAIR_INTERVAL seconds."
+    },
+    "ARROWS_INTERVAL": {
+      "type": "int",
+      "min": 10,
+      "max": 7200,
+      "step": 10,
+      "unit": "s",
+      "default": 1000,
+      "desc": "Seconds between grab-arrows passes. When it runs out, every desktop checks its arrows the next time the loop reaches it."
+    },
+    "REPAIR_INTERVAL": {
+      "type": "int",
+      "min": 10,
+      "max": 7200,
+      "step": 10,
+      "unit": "s",
+      "default": 2000,
+      "desc": "Seconds between repair passes. When it runs out, every desktop runs the repair the next time the loop reaches it."
+    }
+  },
+  "overlay": {
+    "__title__": "On-screen Console",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Shows the last few console lines on top of the game while static.py runs. Turn off to hide the on-screen console. Clicks always pass through it to the game."
+    },
+    "POSITION": {
+      "type": "choice",
+      "options": ["top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right"],
+      "default": "top-center",
+      "desc": "Where on the primary screen the on-screen console sits. Move it if it covers a part of the game the scripts need to see."
+    },
+    "LINES": {
+      "type": "int",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "unit": "lines",
+      "default": 5,
+      "desc": "How many of the most recent console lines are shown at once."
+    },
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the on-screen console."
+    },
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the on-screen console."
+    },
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the on-screen console and the edge of the screen."
+    }
+  },
+  "db_scroll": {
+    "__title__": "Dragonball Scroll",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Turns the dragonball-to-scroll feature on: every loop, if the inventory has enough dragonballs, one is right-clicked to make a scroll, which is then Alt+clicked. Takes effect on the next loop, no restart needed."
+    },
+    "MIN_COUNT": {
+      "type": "int",
+      "min": 1,
+      "max": 40,
+      "step": 1,
+      "unit": "",
+      "default": 10,
+      "desc": "How many dragonballs must be in the inventory before one is right-clicked to convert them into a scroll."
+    },
+    "CONF_DB": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.85,
+      "desc": "How closely an inventory slot must match dragonball.png to count as a dragonball. Empty slots score around 0.7, so keep this well above that."
+    },
+    "CONF_SCROLL": {
+      "type": "float",
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "unit": "",
+      "default": 0.8,
+      "desc": "How closely an inventory slot must match dragonball_scroll.jpg to count as the new scroll. Lower it if the scroll isn't recognized after converting."
+    }
+  }
+}

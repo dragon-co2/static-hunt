@@ -1,0 +1,247 @@
+import glob
+import os
+import time
+import ctypes
+import numpy as np
+import cv2
+import mss
+import pyautogui
+
+from _paths import app_root
+import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
+
+try:
+    if not ctypes.windll.user32.IsProcessDPIAware():
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+pyautogui.FAILSAFE = True
+pyautogui.PAUSE = 0
+
+_DIR = os.path.join(app_root(), 'reference_images')
+VIP_BTN_PATH         = os.path.join(_DIR, 'vip_btn.png')
+VIP_MENU_PATH        = os.path.join(_DIR, 'vip_menu.jpg')
+COMPOSE_PATH         = os.path.join(_DIR, 'compose.jpg')
+DEPOSIT_PATH         = os.path.join(_DIR, 'deposit.jpg')
+EMPTYCELL_PATH       = os.path.join(_DIR, 'emptycell.jpg')
+
+
+CONF_VIP_BTN = 0.5
+CONF_COMPOSE = 0.8
+CONF_DEPOSIT = 0.8
+CONF_EMPTY   = 0.8
+
+WAIT   = 0.4  # seconds between steps
+TRIALS = 20   # attempts per step before giving up on validating it
+DEPOSIT_PRESSES = 50     # safety cap on Deposit presses while +N items remain (normally stops as soon as they're gone)
+PLUS_MAX_DIFF   = 3000   # mean squared color difference on the badge's yellow pixels; real badge ~800, other digits ~14000+
+
+_tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
+
+
+def _load_plus_badges():
+    """Every reference_images/plus*.png (+1, +2, ...) with a mask of just its yellow digits,
+    so the item art behind a badge in the inventory doesn't spoil the match."""
+    badges = []
+    for path in sorted(glob.glob(os.path.join(_DIR, 'plus*.png'))):
+        tmpl = cv2.imread(path)
+        if tmpl is None:
+            continue
+        mask = cv2.inRange(cv2.cvtColor(tmpl, cv2.COLOR_BGR2HSV), (15, 80, 120), (40, 255, 255))
+        if cv2.countNonZero(mask):
+            badges.append((os.path.splitext(os.path.basename(path))[0], tmpl, mask))
+    return badges
+
+
+_plus_badges = _load_plus_badges()
+
+
+def _focus_game_window():
+    return True
+
+
+def _best_match_score(path):
+    tmpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+    if tmpl is None:
+        return 0.0
+    with mss.MSS() as sct:
+        raw = np.array(sct.grab(sct.monitors[0]))
+    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    if gray.shape[0] < tmpl.shape[0] or gray.shape[1] < tmpl.shape[1]:
+        return 0.0
+    res = cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED)
+    return float(cv2.minMaxLoc(res)[1])
+
+
+def _click_image(path, confidence=0.8):
+    try:
+        loc = pyautogui.locateOnScreen(path, confidence=confidence, grayscale=True)
+    except pyautogui.ImageNotFoundException:
+        loc = None
+    if not loc:
+        best = _best_match_score(path)
+        print(f'  [CLICK] not found: {os.path.basename(path)}  (best score={best:.2f}, need {confidence})')
+        return False
+    x, y = pyautogui.center(loc)
+    _focus_game_window()
+    pyautogui.moveTo(x, y, duration=0.15)
+    time.sleep(0.1)
+    pyautogui.mouseDown()
+    time.sleep(0.08)
+    pyautogui.mouseUp()
+    print(f'  [CLICK] {os.path.basename(path)} @ ({x},{y})')
+    return True
+
+
+def _is_visible(path, confidence=0.8):
+    try:
+        return pyautogui.locateOnScreen(path, confidence=confidence, grayscale=True) is not None
+    except pyautogui.ImageNotFoundException:
+        return False
+
+
+def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay=0.5):
+    """Runs `action`, then validates it by polling `check` (up to verify_tries * verify_delay
+    seconds). Prints [OK]/[FAIL]; re-runs the action up to `trials` times until it validates."""
+    for trial in range(1, trials + 1):
+        action()
+        for _ in range(verify_tries):
+            time.sleep(verify_delay)
+            if check():
+                print(f'  [OK] {expect}')
+                return True
+        print(f'  [FAIL] {expect} — not validated (trial {trial}/{trials})')
+    print(f'  [FAIL] {expect} — gave up after {trials} trials.')
+    return False
+
+
+def run_new_bank_compose():
+    """1. Open the VIP menu  -> validated by vip_menu.jpg appearing.
+       2. Open Compose tab   -> validated by deposit.jpg appearing.
+    Skips a step whose result is already on screen (e.g. VIP menu left open from last run),
+    and stops if a step never validates after TRIALS attempts."""
+    print('[SEQ] vip...')
+    if _is_visible(DEPOSIT_PATH, CONF_DEPOSIT) or _is_visible(VIP_MENU_PATH):
+        print('  [OK] VIP menu already open — skipping')
+    elif not _run_step(lambda: _click_image(VIP_BTN_PATH, confidence=CONF_VIP_BTN),
+                       lambda: _is_visible(VIP_MENU_PATH), 'vip_menu.jpg appeared'):
+        print('[SEQ] Aborted at "vip".')
+        return False
+    time.sleep(WAIT)
+
+    print('[SEQ] compose...')
+    if _is_visible(DEPOSIT_PATH, CONF_DEPOSIT):
+        print('  [OK] deposit.jpg already visible — skipping')
+    elif not _run_step(lambda: _click_image(COMPOSE_PATH, confidence=CONF_COMPOSE),
+                       lambda: _is_visible(DEPOSIT_PATH, CONF_DEPOSIT), 'deposit.jpg appeared'):
+        print('[SEQ] Aborted at "compose".')
+        return False
+    time.sleep(WAIT)
+    return True
+
+
+def plus_items_in_inventory():
+    """Names of the +N badges (plus1, plus2, ...) visible in the inventory panel, or []."""
+    with mss.MSS() as sct:
+        bgr = cv2.cvtColor(np.array(sct.grab(sct.monitors[0])), cv2.COLOR_BGRA2BGR)
+    inv_panel = _ga._find(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), _ga._tmpl_inv, threshold=_ga.CONF_INV)
+    if not inv_panel:
+        return []
+    x, y, w, h = inv_panel
+    region = bgr[y:y + h, x:x + w]
+    found = []
+    for name, tmpl, mask in _plus_badges:
+        if region.shape[0] < tmpl.shape[0] or region.shape[1] < tmpl.shape[1]:
+            continue
+        diff = cv2.minMaxLoc(cv2.matchTemplate(region, tmpl, cv2.TM_SQDIFF, mask=mask))[0]
+        if diff / cv2.countNonZero(mask) <= PLUS_MAX_DIFF:
+            found.append(name)
+    return found
+
+
+def deposit_plus_items(max_presses=DEPOSIT_PRESSES):
+    """Presses Deposit only while a +N item is in the inventory, and keeps pressing until no
+    +N badge is left (capped at `max_presses` so a missed detection can't loop forever)."""
+    found = plus_items_in_inventory()
+    if not found:
+        print('  [OK] no +N items in inventory — skipping deposit')
+        return True
+    print(f'[SEQ] +N item(s) in inventory ({", ".join(found)}) — depositing')
+    for press in range(1, max_presses + 1):
+        deposit_click()
+        time.sleep(0.5)
+        found = plus_items_in_inventory()
+        if not found:
+            print(f'  [OK] all +N items deposited (after {press} press(es))')
+            return True
+    print(f'  [FAIL] +N item(s) still in inventory after {max_presses} deposit presses ({", ".join(found)})')
+    return False
+
+
+def deposit_click(trials=TRIALS):
+    """Presses the deposit button once — no VIP or compose steps. Nothing on screen changes
+    after a deposit, so it's validated by the button being found and clicked; retried up to
+    `trials` times if it isn't."""
+    print('[SEQ] deposit...')
+    for trial in range(1, trials + 1):
+        if _click_image(DEPOSIT_PATH, confidence=CONF_DEPOSIT):
+            print('  [OK] deposit clicked')
+            return True
+        print(f'  [FAIL] deposit button not found (trial {trial}/{trials})')
+        time.sleep(0.5)
+    print(f'  [FAIL] deposit — gave up after {trials} trials.')
+    return False
+
+
+def _find_empty_inventory_cell():
+    """Returns the center of the last empty inventory cell (matching emptycell.jpg), or None."""
+    if _tmpl_empty is None:
+        return None
+    gray = _ga._grab_gray()
+    inv_panel = _ga._find(gray, _ga._tmpl_inv, threshold=_ga.CONF_INV)
+    if not inv_panel:
+        return None
+    ox, oy = inv_panel[0] + _ga.INV_OFFSET_X, inv_panel[1] + _ga.INV_OFFSET_Y
+    th, tw = _tmpl_empty.shape[:2]
+    for r in reversed(range(_ga.INV_ROWS)):        # scan bottom-right -> top-left
+        for c in reversed(range(_ga.INV_COLS)):
+            x1, y1 = ox + c * _ga.INV_SLOT_W, oy + r * _ga.INV_SLOT_H
+            crop = gray[y1:y1 + _ga.INV_SLOT_H, x1:x1 + _ga.INV_SLOT_W]
+            if crop.shape[0] < th or crop.shape[1] < tw:
+                continue
+            res = cv2.matchTemplate(crop, _tmpl_empty, cv2.TM_CCOEFF_NORMED)
+            if cv2.minMaxLoc(res)[1] >= CONF_EMPTY:
+                return (x1 + _ga.INV_SLOT_W // 2, y1 + _ga.INV_SLOT_H // 2)
+    return None
+
+
+def click_empty_inventory_cell(trials=TRIALS):
+    """Finds the last empty cell in the inventory grid and left-clicks it; retried up to
+    `trials` times if the inventory or an empty cell isn't found."""
+    print('[SEQ] empty inventory cell...')
+    for trial in range(1, trials + 1):
+        pos = _find_empty_inventory_cell()
+        if pos:
+            x, y = pos
+            pyautogui.moveTo(x, y, duration=0.15)
+            time.sleep(0.1)
+            pyautogui.mouseDown()
+            time.sleep(0.08)
+            pyautogui.mouseUp()
+            print(f'  [OK] clicked empty inventory cell @ ({x},{y})')
+            return True
+        print(f'  [FAIL] no empty inventory cell found (trial {trial}/{trials})')
+        time.sleep(0.5)
+    print(f'  [FAIL] empty inventory cell — gave up after {trials} trials.')
+    return False
+
+
+if __name__ == '__main__':
+    if run_new_bank_compose():
+        deposit_plus_items()
+        click_empty_inventory_cell()
+    os._exit(0)

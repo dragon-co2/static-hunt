@@ -33,45 +33,61 @@ INVENTORY_TITLE_PATH = os.path.join(_DIR, 'inventory_title.jpg')
 COMPOSE_ITEMS_PATH = os.path.join(_DIR, 'compose_items.jpg')
 EMPTYCELL_PATH = os.path.join(_DIR, 'emptycell.jpg')
 
-WH_OFFSET_X  = 120
-WH_OFFSET_Y  = 40
-WH_SLOT_W    = 43
-WH_SLOT_H    = 43
-WH_COLS      = 5
-WH_ROWS      = 4
+from dragon_settings import get_settings
+_S = get_settings('bank_compose', {
+    'WH_OFFSET_X': 120, 'WH_OFFSET_Y': 40, 'WH_SLOT_W': 43, 'WH_SLOT_H': 43,
+    'WH_COLS': 5, 'WH_ROWS': 4,
+    'WH_TAB_X': 5, 'WH_TAB_Y': 26, 'WH_TAB_W': 110, 'WH_TAB_H': 31, 'WH_TAB_COUNT': 7,
+    'CONF_WH': 0.35, 'CONF_EMPTY': 0.9, 'CLICK_MULTIPLIER': 1.5,
+    'VIS': 1, 'CYCLES': 7, 'WAREHOUSE_MIN_ITEMS': 20,
+    'CONF_INV': 0.3, 'CONF_DIALOG': 0.6,
+    'INV_OFFSET_X': 18, 'INV_OFFSET_Y': 10, 'INV_SLOT_W': 43, 'INV_SLOT_H': 43,
+    'INV_COLS': 5, 'INV_ROWS': 8,
+    'DIALOG_MAIN_OFF': (68, 80), 'DIALOG_MINOR_OFF': (200, 80),
+    'DIALOG_COMPOSE_OFF': (167, 260), 'DIALOG_CANCEL_OFF': (244, 260),
+    'WAIT': 0.4,
+    'DRAGONBALL_NEED': 10,
+})
 
-WH_TAB_X     = 5
-WH_TAB_Y     = 26
-WH_TAB_W     = 110
-WH_TAB_H     = 31
-WH_TAB_COUNT = 7
+WH_OFFSET_X  = _S['WH_OFFSET_X']
+WH_OFFSET_Y  = _S['WH_OFFSET_Y']
+WH_SLOT_W    = _S['WH_SLOT_W']
+WH_SLOT_H    = _S['WH_SLOT_H']
+WH_COLS      = _S['WH_COLS']
+WH_ROWS      = _S['WH_ROWS']
 
-CONF_WH      = 0.35
-CONF_EMPTY   = 0.9
-CLICK_MULTIPLIER = 1.5  # extra clicks over the detected item count, e.g. 1.5 = +50%
+WH_TAB_X     = _S['WH_TAB_X']
+WH_TAB_Y     = _S['WH_TAB_Y']
+WH_TAB_W     = _S['WH_TAB_W']
+WH_TAB_H     = _S['WH_TAB_H']
+WH_TAB_COUNT = _S['WH_TAB_COUNT']
+
+CONF_WH      = _S['CONF_WH']
+CONF_EMPTY   = _S['CONF_EMPTY']
+CLICK_MULTIPLIER = _S['CLICK_MULTIPLIER']  # extra clicks over the detected item count, e.g. 1.5 = +50%
 MEM_WINDOW   = 'GhostArrow'  # partial game window title, same as navigation.py
-VIS          = 1
-CYCLES       = 7
-WAREHOUSE_MIN_ITEMS = 20  # only run the compose flow if the warehouse has at least this many items
+VIS          = _S['VIS']
+CYCLES       = _S['CYCLES']
+WAREHOUSE_MIN_ITEMS = _S['WAREHOUSE_MIN_ITEMS']  # only run the compose flow if the warehouse has at least this many items
 VIP_BTN_PATH = os.path.join(_DIR, 'vip_btn.png')  # VIP button image, searched for on screen
 
 # ── Inventory / compose dialog ─────────────────────────────────────────────────
-CONF_INV     = 0.3
-CONF_DIALOG  = 0.6
-INV_OFFSET_X = 18
-INV_OFFSET_Y = 10
-INV_SLOT_W   = 43
-INV_SLOT_H   = 43
-INV_COLS     = 5
-INV_ROWS     = 8
+CONF_INV     = _S['CONF_INV']
+CONF_DIALOG  = _S['CONF_DIALOG']
+INV_OFFSET_X = _S['INV_OFFSET_X']
+INV_OFFSET_Y = _S['INV_OFFSET_Y']
+INV_SLOT_W   = _S['INV_SLOT_W']
+INV_SLOT_H   = _S['INV_SLOT_H']
+INV_COLS     = _S['INV_COLS']
+INV_ROWS     = _S['INV_ROWS']
 
 # Fixed offsets from the compose dialog's top-left corner.
-DIALOG_MAIN_OFF    = (68,  80)   # center of the left (Main) slot
-DIALOG_MINOR_OFF   = (200, 80)   # center of the right (Minor) slot
-DIALOG_COMPOSE_OFF = (167, 260)  # center of the Compose button
-DIALOG_CANCEL_OFF  = (244, 260)  # center of the Cancel button
+DIALOG_MAIN_OFF    = tuple(_S['DIALOG_MAIN_OFF'])     # center of the left (Main) slot
+DIALOG_MINOR_OFF   = tuple(_S['DIALOG_MINOR_OFF'])    # center of the right (Minor) slot
+DIALOG_COMPOSE_OFF = tuple(_S['DIALOG_COMPOSE_OFF'])  # center of the Compose button
+DIALOG_CANCEL_OFF  = tuple(_S['DIALOG_CANCEL_OFF'])   # center of the Cancel button
 
-WAIT = 0.4  # seconds between compose sub-steps
+WAIT = _S['WAIT']  # seconds between compose sub-steps
 
 _tmpl_wh = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_inv = cv2.imread(INVENTORY_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
@@ -123,7 +139,7 @@ BADGES = [
 
 DRAGONBALL = _load_badge('dragonball', 0.95)
 DRAGONBALL['label'] = 'dragonball'
-DRAGONBALL_NEED = 10  # right-click one once at least this many are in the inventory, to convert them into a scroll
+DRAGONBALL_NEED = _S['DRAGONBALL_NEED']  # right-click one once at least this many are in the inventory, to convert them into a scroll
 
 _ui = {'main': None, 'minor': None, 'compose': None, 'cancel': None}
 
