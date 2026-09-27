@@ -9,6 +9,7 @@ import pyautogui
 
 from _paths import app_root
 import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
+from repaire import open_warehouse  # Alt+P until the warehouse panel is visible
 
 try:
     if not ctypes.windll.user32.IsProcessDPIAware():
@@ -120,10 +121,17 @@ def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay
 
 
 def run_new_bank_compose():
-    """1. Open the VIP menu  -> validated by vip_menu.jpg appearing.
+    """0. Make sure the warehouse is open -> Alt+P until warehouse_title is visible.
+       1. Open the VIP menu  -> validated by vip_menu.jpg appearing.
        2. Open Compose tab   -> validated by deposit.jpg appearing.
     Skips a step whose result is already on screen (e.g. VIP menu left open from last run),
     and stops if a step never validates after TRIALS attempts."""
+    print('[SEQ] warehouse...')
+    if not open_warehouse():
+        print('[SEQ] Aborted at "warehouse" — never opened.')
+        return False
+    time.sleep(WAIT)
+
     print('[SEQ] vip...')
     if _is_visible(DEPOSIT_PATH, CONF_DEPOSIT) or _is_visible(VIP_MENU_PATH):
         print('  [OK] VIP menu already open — skipping')
