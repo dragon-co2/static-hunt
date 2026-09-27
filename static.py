@@ -28,7 +28,8 @@ from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
 from db_scroll import run_db_scroll
 import overlay
-from dragon_settings import get_settings
+import json
+from dragon_settings import get_settings, override_dir
 
 
 try:
@@ -56,6 +57,7 @@ ARROWS_INTERVAL  = _S['ARROWS_INTERVAL']         # seconds between grab_arrows p
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
 
 _timer_start = {}   # 'arrows' / 'repair' -> time.time() the current interval started
+TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
 _shift_held = False
 
@@ -145,14 +147,47 @@ def _fmt_left(seconds):
     return f'{m:02d}:{s:02d}'
 
 
+def _load_timer_state():
+    """Restores the countdowns where the previous session left them (closed or crashed):
+    the saved seconds-left pick up again now, as if the script had been paused. Missing or
+    unreadable state, or a saved value longer than the current interval, starts fresh."""
+    try:
+        with open(TIMER_STATE_PATH, encoding='utf-8') as f:
+            saved = json.load(f)
+    except Exception:
+        saved = {}
+    now = time.time()
+    for key, interval in (('arrows', ARROWS_INTERVAL), ('repair', REPAIR_INTERVAL)):
+        left = saved.get(key)
+        if not isinstance(left, (int, float)) or not 0 <= left <= interval:
+            left = interval
+        _timer_start[key] = now - (interval - left)
+    if saved:
+        print(f'[TIMER] resumed from last session — arrows in {_fmt_left(saved.get("arrows", 0))}, '
+              f'repair in {_fmt_left(saved.get("repair", 0))}')
+
+
+def _save_timer_state(arrows_left, repair_left):
+    try:
+        _os.makedirs(override_dir(), exist_ok=True)
+        tmp = TIMER_STATE_PATH + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({'arrows': max(0, round(arrows_left)), 'repair': max(0, round(repair_left))}, f)
+        _os.replace(tmp, TIMER_STATE_PATH)  # atomic: a crash mid-write never leaves a broken file
+    except Exception:
+        pass
+
+
 def _timer_status_loop():
     """Once a second, shows how long until the next grab_arrows and repair passes are queued
-    in the on-screen timers panel (overlay_timers settings)."""
+    in the on-screen timers panel (overlay_timers settings), and saves it so the next run can
+    resume from here."""
     while True:
         now = time.time()
         arrows_left = ARROWS_INTERVAL - (now - _timer_start['arrows'])
         repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
         overlay.set_status(f'Arrows {_fmt_left(arrows_left)}\nRepair {_fmt_left(repair_left)}')
+        _save_timer_state(arrows_left, repair_left)
         time.sleep(1)
 
 
@@ -197,7 +232,7 @@ def _main():
     initialized = set()          # desktops that already had their first-run setup
     pending_arrows = set()       # desktops still owed a grab_arrows run in the current pass
     pending_repair = set()       # desktops still owed a repair run in the current pass
-    _timer_start['arrows'] = _timer_start['repair'] = time.time()
+    _load_timer_state()
     threading.Thread(target=_timer_status_loop, daemon=True, name='timer-status').start()
 
     while True:
