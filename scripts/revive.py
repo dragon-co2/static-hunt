@@ -19,7 +19,7 @@ REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
 
 REVIVE_WAIT  = 1    # seconds to wait after death before the revive button becomes clickable
-REVIVE_RETRY = 1.0  # seconds between re-checks once the wait is over
+REVIVE_RETRY = 2.0  # seconds between revive clicks
 REVIVE_MAX_CLICKS = 30  # give up after this many clicks (the loop moves on to the next desktop)
 
 
