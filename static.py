@@ -165,17 +165,31 @@ def _first_run(idx):
     ensure_arrows()
 
 
+def _go_to_desktop(idx, retries=3):
+    """Jumps directly to desktop idx + 1 (no Ctrl+Win+arrow stepping), then confirms that's
+    really the current desktop; retries if the switch didn't land."""
+    for attempt in range(1, retries + 1):
+        VirtualDesktop(idx + 1).go()
+        time.sleep(SWITCH_DELAY)
+        actual = VirtualDesktop.current().number
+        if actual == idx + 1:
+            return True
+        print(f'  [DESKTOP] switch to {idx + 1} landed on {actual} — retrying ({attempt}/{retries})')
+    print(f'  [DESKTOP] could not switch to desktop {idx + 1} — continuing anyway')
+    return False
+
+
 def _main():
-    total = len(get_virtual_desktops())         # accounts/desktops to ping-pong between
-    current = VirtualDesktop.current().number - 1  # 0-based; start from wherever we are now
-    print(f'[DESKTOP] {total} desktop(s) found, starting on {current + 1}')
+    total = len(get_virtual_desktops())         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
+    current = 0                                  # 0-based; always start on desktop 1
+    print(f'[DESKTOP] {total} desktop(s) found — jumping to desktop 1')
+    _go_to_desktop(current)
 
     print('Starting in 3s...')
     for i in range(3, 0, -1):
         print(f'  {i}...')
         time.sleep(1)
 
-    direction = 1 if current < total - 1 else -1
     initialized = set()          # desktops that already had their first-run setup
     pending_arrows = set()       # desktops still owed a grab_arrows run in the current pass
     pending_repair = set()       # desktops still owed a repair run in the current pass
@@ -215,14 +229,8 @@ def _main():
 
         if total < 2:
             continue
-        next_idx = current + direction
-        if not (0 <= next_idx < total):
-            direction *= -1
-            next_idx = current + direction
-
-        pyautogui.hotkey('ctrl', 'win', 'right' if direction == 1 else 'left')
-        current = next_idx
-        time.sleep(SWITCH_DELAY)
+        current = (current + 1) % total   # after the last desktop, jump straight back to 1
+        _go_to_desktop(current)
 
 
 if __name__ == '__main__':
