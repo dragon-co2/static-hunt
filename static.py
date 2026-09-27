@@ -28,7 +28,7 @@ from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
 from db_scroll import run_db_scroll
 import overlay
-from game_window import find_game_window
+from game_window import find_game_window, focus_game_window
 import new_bank_compose as _nbc
 import repaire as _rep
 import revive as _rev
@@ -285,6 +285,8 @@ def _main():
             print(f'[DESKTOP] {current + 1}/{total} — game open but no in-game UI (disconnected?), skipping')
         else:
             print(f'[DESKTOP] Processing {current + 1}/{total}')
+            if not focus_game_window():   # the game ignores the mouse until it's the active window
+                print('  [DESKTOP] could not bring the game window to the front')
             if current not in initialized:
                 done = _first_run(current)
                 if done:

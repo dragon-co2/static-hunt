@@ -7,6 +7,7 @@ import ctypes
 import ctypes.wintypes
 import os
 import re
+import time
 
 GAME_EXE = 'conquer.exe'
 TITLE_RE = re.compile(r'\bLVL\s*\d+', re.IGNORECASE)
@@ -71,3 +72,18 @@ def find_game_window():
 
     _user32.EnumWindows(_cb, 0)
     return found[0] if found else None
+
+
+def focus_game_window():
+    """Brings this desktop's game window to the front. The game ignores mouse moves and clicks
+    while it isn't the active window, so call this before clicking in it. Only this desktop's
+    window is used — focusing one on another desktop makes Windows switch to that desktop."""
+    hwnd = find_game_window()
+    if not hwnd:
+        return False
+    if _user32.GetForegroundWindow() != hwnd:
+        if _user32.IsIconic(hwnd):
+            _user32.ShowWindow(hwnd, 9)  # SW_RESTORE — only when minimized
+        _user32.SetForegroundWindow(hwnd)
+        time.sleep(0.2)
+    return _user32.GetForegroundWindow() == hwnd

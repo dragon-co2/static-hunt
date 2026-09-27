@@ -4,6 +4,7 @@ import ctypes
 import pyautogui
 
 from _paths import app_root
+from game_window import focus_game_window
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -30,10 +31,17 @@ def _locate(path, confidence=0.9):
 
 
 def _click_at(x, y):
+    """Focuses the game first (it ignores the mouse while not the active window), moves there,
+    reports if the cursor didn't actually arrive, then clicks with a 0.1s hold like repair."""
+    if not focus_game_window():
+        print('  [REVIVE] could not bring the game window to the front')
     pyautogui.moveTo(x, y, duration=0.05)
     time.sleep(0.05)
+    cx, cy = pyautogui.position()
+    if abs(cx - x) > 3 or abs(cy - y) > 3:
+        print(f'  [REVIVE] mouse is at ({cx},{cy}), not ({x},{y}) — move was blocked')
     pyautogui.mouseDown()
-    time.sleep(0.08)
+    time.sleep(0.1)
     pyautogui.mouseUp()
 
 
@@ -49,6 +57,7 @@ def handle_revive():
 
     x, y = pyautogui.center(loc)
     print(f'  [REVIVE] Died — hovering at ({x},{y}), waiting {REVIVE_WAIT}s...')
+    focus_game_window()
     pyautogui.moveTo(x, y, duration=0.1)
     time.sleep(REVIVE_WAIT)
 

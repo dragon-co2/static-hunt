@@ -7,7 +7,7 @@ import cv2
 import mss
 import pyautogui
 
-from game_window import find_game_window
+from game_window import find_game_window, focus_game_window
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -48,17 +48,7 @@ def _check_alive():
 
 
 def _focus_game_window():
-    """Brings the game window on the CURRENT virtual desktop to the front (see game_window.py).
-    Each desktop runs its own game window, and focusing one on another desktop makes Windows
-    switch to that desktop — so only this desktop's window is ever used."""
-    hwnd = find_game_window()
-    if not hwnd:
-        return False
-    if ctypes.windll.user32.IsIconic(hwnd):
-        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE — only when minimized
-    ctypes.windll.user32.SetForegroundWindow(hwnd)
-    time.sleep(0.2)
-    return True
+    return focus_game_window()
 
 
 def _grab_primary_gray():
