@@ -47,7 +47,18 @@ def _check_alive():
         _wait_if_dead()
 
 
+def _on_current_desktop(hwnd):
+    try:
+        from pyvda import AppView
+        return AppView(hwnd=hwnd).is_on_current_desktop()
+    except Exception:
+        return False
+
+
 def _focus_game_window():
+    """Brings the game window on the CURRENT virtual desktop to the front. Each desktop runs
+    its own game window with the same title, and focusing one on another desktop makes
+    Windows switch to that desktop — so windows elsewhere are skipped."""
     found_hwnd = ctypes.c_void_p(0)
 
     @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -55,14 +66,15 @@ def _focus_game_window():
         length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
         buf = ctypes.create_unicode_buffer(length + 1)
         ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-        if MEM_WINDOW.lower() in buf.value.lower():
+        if MEM_WINDOW.lower() in buf.value.lower() and _on_current_desktop(hwnd):
             found_hwnd.value = hwnd
             return False
         return True
 
     ctypes.windll.user32.EnumWindows(_cb, 0)
     if found_hwnd.value:
-        ctypes.windll.user32.ShowWindow(found_hwnd.value, 9)  # SW_RESTORE
+        if ctypes.windll.user32.IsIconic(found_hwnd.value):
+            ctypes.windll.user32.ShowWindow(found_hwnd.value, 9)  # SW_RESTORE — only when minimized
         ctypes.windll.user32.SetForegroundWindow(found_hwnd.value)
         time.sleep(0.2)
         return True
