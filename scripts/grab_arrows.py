@@ -49,6 +49,7 @@ CONF_ARROW = 0.5
 
 BANK_TAB_COUNT = 6  # tabs 0-5 are regular banks (used by init_bank_tab)
 TRIALS         = 5  # attempts per step before giving up on validating it
+TAB_SCAN_WAIT  = 2.0  # seconds to wait after switching warehouse tab before scanning it for arrows
 
 _tmpl_inv = cv2.imread(INVENTORY_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_wh  = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
@@ -185,7 +186,7 @@ def _search_tabs_for_arrow():
     for tab in range(WH_TAB_COUNT):
         if not _click_warehouse_tab(tab):
             return None
-        time.sleep(0.4)
+        time.sleep(TAB_SCAN_WAIT)  # let the tab's grid finish loading before scanning it
         gray = _grab_gray()
         wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
         if not wh_panel:
