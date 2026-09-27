@@ -219,9 +219,11 @@ def _account_online():
 
 
 def _first_run(idx):
-    """Full setup, once per desktop on the first visit."""
+    """Full setup, once per desktop on the first visit. Returns False (setup not done — retried
+    next visit) if the character couldn't be revived."""
     print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
-    handle_revive()
+    if not handle_revive():
+        return False
     if FIRST_RUN_REPAIR:
         run_repair()
     else:
@@ -229,6 +231,7 @@ def _first_run(idx):
     open_warehouse()
     _compose()
     ensure_arrows()
+    return True
 
 
 def _go_to_desktop(idx, retries=3):
@@ -283,12 +286,12 @@ def _main():
         else:
             print(f'[DESKTOP] Processing {current + 1}/{total}')
             if current not in initialized:
-                _first_run(current)
-                initialized.add(current)
-                pending_arrows.discard(current)   # just did both as part of the setup
-                pending_repair.discard(current)
-            else:
-                handle_revive()
+                done = _first_run(current)
+                if done:
+                    initialized.add(current)
+                    pending_arrows.discard(current)   # just did both as part of the setup
+                    pending_repair.discard(current)
+            elif handle_revive():
                 if current in pending_repair:
                     run_repair()
                     pending_repair.discard(current)
@@ -296,10 +299,15 @@ def _main():
                 if current in pending_arrows:
                     ensure_arrows()
                     pending_arrows.discard(current)
+                done = True
+            else:
+                done = False
 
-            run_db_scroll()   # every loop, on every desktop (no-op if disabled or < MIN_COUNT)
-
-            time.sleep(INTERVAL)
+            if done:
+                run_db_scroll()   # every loop, on every desktop (no-op if disabled or < MIN_COUNT)
+                time.sleep(INTERVAL)
+            else:
+                print(f'[DESKTOP] {current + 1}/{total} — revive failed, moving on to the next desktop')
 
         if total < 2:
             continue

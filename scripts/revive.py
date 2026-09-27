@@ -19,6 +19,7 @@ REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
 REVIVE_WAIT  = 1    # seconds to wait after death before the revive button becomes clickable
 REVIVE_RETRY = 1.0  # seconds between re-checks once the wait is over
+REVIVE_MAX_CLICKS = 30  # give up after this many clicks (the loop moves on to the next desktop)
 
 
 def _locate(path, confidence=0.9):
@@ -38,30 +39,34 @@ def _click_at(x, y):
 
 def handle_revive():
     """If revive.jpg is on screen, hovers over it and waits for the respawn timer (it's visible
-    but not clickable right after death), then keeps clicking it every REVIVE_RETRY seconds
-    until it's gone. Returns True if a revive was handled, False if there was nothing to do."""
+    but not clickable right after death), then clicks it every REVIVE_RETRY seconds until it's
+    gone — up to REVIVE_MAX_CLICKS times.
+    Returns True if the character is alive afterwards (not dead, or revived), False if the
+    button was still there after REVIVE_MAX_CLICKS clicks."""
     loc = _locate(REVIVE_PATH)
     if not loc:
-        return False
+        return True
 
     x, y = pyautogui.center(loc)
     print(f'  [REVIVE] Died — hovering at ({x},{y}), waiting {REVIVE_WAIT}s...')
     pyautogui.moveTo(x, y, duration=0.1)
     time.sleep(REVIVE_WAIT)
 
-    clicks = 0
-    while True:
+    for clicks in range(1, REVIVE_MAX_CLICKS + 1):
         loc = _locate(REVIVE_PATH)
         if not loc:
-            break
+            print(f'  [REVIVE] Revive button gone — done after {clicks - 1} click(s).')
+            return True
         x, y = pyautogui.center(loc)
         _click_at(x, y)
-        clicks += 1
-        print(f'  [REVIVE] Clicked @ ({x},{y})  (#{clicks})')
+        print(f'  [REVIVE] Clicked @ ({x},{y})  ({clicks}/{REVIVE_MAX_CLICKS})')
         time.sleep(REVIVE_RETRY)
 
-    print(f'  [REVIVE] Revive button gone — done after {clicks} click(s).')
-    return True
+    if not _locate(REVIVE_PATH):
+        print(f'  [REVIVE] Revive button gone — done after {REVIVE_MAX_CLICKS} click(s).')
+        return True
+    print(f'  [REVIVE] Still dead after {REVIVE_MAX_CLICKS} clicks — giving up for now.')
+    return False
 
 
 if __name__ == '__main__':
