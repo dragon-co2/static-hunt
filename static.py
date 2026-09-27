@@ -28,6 +28,7 @@ from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
 from db_scroll import run_db_scroll
 import overlay
+from game_window import find_game_window
 import json
 from dragon_settings import get_settings, override_dir
 
@@ -246,25 +247,30 @@ def _main():
             pending_repair = set(range(total))
             _timer_start['repair'] = now
 
-        print(f'[DESKTOP] Processing {current + 1}/{total}')
-        if current not in initialized:
-            _first_run(current)
-            initialized.add(current)
-            pending_arrows.discard(current)   # just did both as part of the setup
-            pending_repair.discard(current)
+        if not find_game_window():
+            # crashed / closed / frozen: don't click blindly here — move on. Its first-run setup
+            # and any queued repair/arrows stay pending until the game is back.
+            print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
         else:
-            handle_revive()
-            if current in pending_repair:
-                run_repair()
+            print(f'[DESKTOP] Processing {current + 1}/{total}')
+            if current not in initialized:
+                _first_run(current)
+                initialized.add(current)
+                pending_arrows.discard(current)   # just did both as part of the setup
                 pending_repair.discard(current)
-            _compose()
-            if current in pending_arrows:
-                ensure_arrows()
-                pending_arrows.discard(current)
+            else:
+                handle_revive()
+                if current in pending_repair:
+                    run_repair()
+                    pending_repair.discard(current)
+                _compose()
+                if current in pending_arrows:
+                    ensure_arrows()
+                    pending_arrows.discard(current)
 
-        run_db_scroll()   # every loop, on every desktop (no-op if disabled or < MIN_COUNT)
+            run_db_scroll()   # every loop, on every desktop (no-op if disabled or < MIN_COUNT)
 
-        time.sleep(INTERVAL)
+            time.sleep(INTERVAL)
 
         if total < 2:
             continue

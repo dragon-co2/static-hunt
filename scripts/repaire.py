@@ -7,6 +7,8 @@ import cv2
 import mss
 import pyautogui
 
+from game_window import find_game_window
+
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
@@ -35,8 +37,6 @@ TRIALS     = 20   # attempts per step before giving up on validating it
 ALT_P_HOLD = 1.0  # seconds to hold Alt+P down when opening the remote warehouse
 CLICK_HOLD = 0.1  # seconds to hold the left mouse button down on every click
 
-MEM_WINDOW = 'GhostArrow'  # partial game window title, same as navigation.py
-
 _tmpl_wh = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 
 _wait_if_dead = None  # optional callback set by run_repair(); polled to pause mid-step during a revive
@@ -47,38 +47,18 @@ def _check_alive():
         _wait_if_dead()
 
 
-def _on_current_desktop(hwnd):
-    try:
-        from pyvda import AppView
-        return AppView(hwnd=hwnd).is_on_current_desktop()
-    except Exception:
-        return False
-
-
 def _focus_game_window():
-    """Brings the game window on the CURRENT virtual desktop to the front. Each desktop runs
-    its own game window with the same title, and focusing one on another desktop makes
-    Windows switch to that desktop — so windows elsewhere are skipped."""
-    found_hwnd = ctypes.c_void_p(0)
-
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
-    def _cb(hwnd, _):
-        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
-        buf = ctypes.create_unicode_buffer(length + 1)
-        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
-        if MEM_WINDOW.lower() in buf.value.lower() and _on_current_desktop(hwnd):
-            found_hwnd.value = hwnd
-            return False
-        return True
-
-    ctypes.windll.user32.EnumWindows(_cb, 0)
-    if found_hwnd.value:
-        if ctypes.windll.user32.IsIconic(found_hwnd.value):
-            ctypes.windll.user32.ShowWindow(found_hwnd.value, 9)  # SW_RESTORE — only when minimized
-        ctypes.windll.user32.SetForegroundWindow(found_hwnd.value)
-        time.sleep(0.2)
-        return True
-    return False
+    """Brings the game window on the CURRENT virtual desktop to the front (see game_window.py).
+    Each desktop runs its own game window, and focusing one on another desktop makes Windows
+    switch to that desktop — so only this desktop's window is ever used."""
+    hwnd = find_game_window()
+    if not hwnd:
+        return False
+    if ctypes.windll.user32.IsIconic(hwnd):
+        ctypes.windll.user32.ShowWindow(hwnd, 9)  # SW_RESTORE — only when minimized
+    ctypes.windll.user32.SetForegroundWindow(hwnd)
+    time.sleep(0.2)
+    return True
 
 
 def _grab_primary_gray():
