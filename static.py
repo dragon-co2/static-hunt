@@ -49,7 +49,7 @@ LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 
 _S = get_settings('static', {
     'FIRST_RUN_REPAIR': True,
     'ARROWS_INTERVAL':  1000,
-    'REPAIR_INTERVAL':  2000,
+    'REPAIR_INTERVAL':  2500,
 })
 
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair during each desktop's first-visit setup

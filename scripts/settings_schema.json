@@ -21,7 +21,7 @@
       "max": 7200,
       "step": 10,
       "unit": "s",
-      "default": 2000,
+      "default": 2500,
       "desc": "Seconds between repair passes. When it runs out, every desktop runs the repair the next time the loop reaches it."
     }
   },
