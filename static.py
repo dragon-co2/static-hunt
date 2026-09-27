@@ -22,7 +22,7 @@ import pyautogui
 from pynput import keyboard as pynput_kb
 from pyvda import VirtualDesktop, get_virtual_desktops
 
-from new_bank_compose import run_new_bank_compose, deposit_plus_items, click_empty_inventory_cell
+from new_bank_compose import run_new_bank_compose, deposit_plus_items, hover_last_empty_cell
 from revive import handle_revive
 from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
@@ -54,7 +54,6 @@ _S = get_settings('static', {
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair during each desktop's first-visit setup
 ARROWS_INTERVAL  = _S['ARROWS_INTERVAL']         # seconds between grab_arrows passes over all desktops
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
-TIMER_STATUS_INTERVAL = 5   # seconds between "[TIMER] ... left" countdown prints
 
 _timer_start = {}   # 'arrows' / 'repair' -> time.time() the current interval started
 
@@ -133,23 +132,28 @@ def _setup_log():
 
 
 def _compose():
-    """VIP -> Compose tab, then Deposit while +N items are in the inventory, then click an
-    empty inventory cell. Skips the deposit/empty-cell clicks if the Compose tab never opened."""
+    """VIP -> Compose tab, then Deposit while +N items are in the inventory, then move the mouse
+    onto the last empty inventory cell. Skips both if the Compose tab never opened."""
     if not run_new_bank_compose():
         return
     deposit_plus_items()
-    click_empty_inventory_cell()
+    hover_last_empty_cell()
+
+
+def _fmt_left(seconds):
+    m, s = divmod(max(0, int(seconds)), 60)
+    return f'{m:02d}:{s:02d}'
 
 
 def _timer_status_loop():
-    """Every TIMER_STATUS_INTERVAL seconds, prints how long until the next grab_arrows
-    and repair passes are queued."""
+    """Once a second, shows how long until the next grab_arrows and repair passes are queued
+    in the on-screen timers panel (overlay_timers settings)."""
     while True:
-        time.sleep(TIMER_STATUS_INTERVAL)
         now = time.time()
-        arrows_left = max(0, int(ARROWS_INTERVAL - (now - _timer_start['arrows'])))
-        repair_left = max(0, int(REPAIR_INTERVAL - (now - _timer_start['repair'])))
-        print(f'[TIMER] grab_arrows in {arrows_left}s | repair in {repair_left}s')
+        arrows_left = ARROWS_INTERVAL - (now - _timer_start['arrows'])
+        repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
+        overlay.set_status(f'Arrows {_fmt_left(arrows_left)}\nRepair {_fmt_left(repair_left)}')
+        time.sleep(1)
 
 
 def _first_run(idx):

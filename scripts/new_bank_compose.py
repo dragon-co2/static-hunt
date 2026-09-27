@@ -227,29 +227,17 @@ def _find_empty_inventory_cell():
     return None
 
 
-def click_empty_inventory_cell(trials=TRIALS):
-    """Finds the last empty cell in the inventory grid and left-clicks it; retried up to
-    `trials` times if the inventory or an empty cell isn't found."""
-    print('[SEQ] empty inventory cell...')
-    for trial in range(1, trials + 1):
-        pos = _find_empty_inventory_cell()
-        if pos:
-            x, y = pos
-            pyautogui.moveTo(x, y, duration=0.15)
-            time.sleep(0.1)
-            pyautogui.mouseDown()
-            time.sleep(0.08)
-            pyautogui.mouseUp()
-            print(f'  [OK] clicked empty inventory cell @ ({x},{y})')
-            return True
-        print(f'  [FAIL] no empty inventory cell found (trial {trial}/{trials})')
-        time.sleep(0.5)
-    print(f'  [FAIL] empty inventory cell — gave up after {trials} trials.')
-    return False
+def hover_last_empty_cell():
+    """Moves the mouse onto the last empty inventory cell (no click, no output) — parks the
+    cursor somewhere harmless. Does nothing if the inventory or an empty cell isn't found."""
+    pos = _find_empty_inventory_cell()
+    if pos:
+        pyautogui.moveTo(*pos, duration=0.15)
+    return pos is not None
 
 
 if __name__ == '__main__':
     if run_new_bank_compose():
         deposit_plus_items()
-        click_empty_inventory_cell()
+        hover_last_empty_cell()
     os._exit(0)

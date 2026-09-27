@@ -71,6 +71,43 @@
       "desc": "Gap in pixels between the on-screen console and the edge of the screen."
     }
   },
+  "overlay_timers": {
+    "__title__": "On-screen Timers",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Keeps the grab-arrows and repair countdowns on screen while static.py runs. Turn off to hide them."
+    },
+    "POSITION": {
+      "type": "choice",
+      "options": ["top-left", "top-center", "top-right", "center", "bottom-left", "bottom-center", "bottom-right"],
+      "default": "top-right",
+      "desc": "Where on the primary screen the countdowns sit. Keep it away from the on-screen console and from anything the scripts need to see."
+    },
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the countdowns."
+    },
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the countdowns."
+    },
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the countdowns and the edge of the screen."
+    }
+  },
   "db_scroll": {
     "__title__": "Dragonball Scroll",
     "ENABLED": {
