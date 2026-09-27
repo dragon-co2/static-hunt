@@ -29,6 +29,9 @@ from repaire import run_repair, open_warehouse
 from db_scroll import run_db_scroll
 import overlay
 from game_window import find_game_window
+import new_bank_compose as _nbc
+import repaire as _rep
+import revive as _rev
 import json
 from dragon_settings import get_settings, override_dir
 
@@ -192,6 +195,29 @@ def _timer_status_loop():
         time.sleep(1)
 
 
+def _in_game_ui_visible():
+    """True if something that only shows while logged in is on screen: the bank panel, the
+    VIP menu, the Compose tab's Deposit button, or the revive button (dead but still online)."""
+    return (_rep._warehouse_open()
+            or _nbc._is_visible(_nbc.VIP_MENU_PATH)
+            or _nbc._is_visible(_nbc.DEPOSIT_PATH, _nbc.CONF_DEPOSIT)
+            or _rev._locate(_rev.REVIVE_PATH) is not None)
+
+
+def _account_online():
+    """Second check after the game window: the window stays open when the account gets
+    disconnected, so also require in-game UI. If none is showing (e.g. a fresh login with every
+    panel closed), press Alt+P once and give the bank 3s to appear before calling it offline."""
+    if _in_game_ui_visible():
+        return True
+    _rep._press_alt_p()
+    for _ in range(6):
+        time.sleep(0.5)
+        if _rep._warehouse_open():
+            return True
+    return False
+
+
 def _first_run(idx):
     """Full setup, once per desktop on the first visit."""
     print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
@@ -251,6 +277,9 @@ def _main():
             # crashed / closed / frozen: don't click blindly here — move on. Its first-run setup
             # and any queued repair/arrows stay pending until the game is back.
             print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
+        elif not _account_online():
+            # window still open but no in-game UI even after Alt+P — likely disconnected
+            print(f'[DESKTOP] {current + 1}/{total} — game open but no in-game UI (disconnected?), skipping')
         else:
             print(f'[DESKTOP] Processing {current + 1}/{total}')
             if current not in initialized:
