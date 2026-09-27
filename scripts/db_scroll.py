@@ -25,6 +25,7 @@ _DEFAULTS = {
 }
 
 TRIALS = 5  # attempts per step before giving up on validating it
+STASH_TRIALS = 10  # attempts to get the scroll(s) into the bank before giving up
 
 _tmpl_db     = cv2.imread(DRAGONBALL_PATH, cv2.IMREAD_GRAYSCALE)
 _tmpl_scroll = cv2.imread(SCROLL_PATH, cv2.IMREAD_GRAYSCALE)
@@ -109,15 +110,14 @@ def run_db_scroll():
 
 
 def _stash_scrolls(s):
-    """Clicks a random regular warehouse tab, then Alt+clicks every dragonball scroll in the
-    inventory until none are left."""
-    tab = random.randrange(_ga.BANK_TAB_COUNT)  # regular bank tabs only — never the arrows tab
-    if not _ga._click_warehouse_tab(tab):
-        print('[DB] Aborted — warehouse not visible, cannot pick a tab for the scroll.')
-        return False
-    time.sleep(0.4)
-
+    """Puts every dragonball scroll in the bank: clicks a random regular warehouse tab, then
+    Alt+clicks each scroll in the inventory, and checks they left it. Up to STASH_TRIALS
+    attempts, each on a freshly picked tab (in case the previous one was full)."""
     def _alt_click_scrolls():
+        tab = random.randrange(_ga.BANK_TAB_COUNT)  # regular bank tabs only — never the arrows tab
+        if not _ga._click_warehouse_tab(tab):
+            return
+        time.sleep(0.4)
         for x, y in _inventory_cells(_tmpl_scroll, s['CONF_SCROLL']):
             pyautogui.moveTo(x, y, duration=0.1)
             pyautogui.keyDown('alt')
@@ -133,11 +133,10 @@ def _stash_scrolls(s):
             time.sleep(0.3)
 
     if not _run_step(_alt_click_scrolls, lambda: not _inventory_cells(_tmpl_scroll, s['CONF_SCROLL']),
-                     'dragonball_scroll.jpg left the inventory'):
-        print('[DB] Aborted — scroll still in inventory after Alt+click.')
+                     'dragonball_scroll.jpg left the inventory', trials=STASH_TRIALS):
+        print(f'[DB] Aborted — scroll still in inventory after {STASH_TRIALS} tries.')
         return False
     return True
-
 
 if __name__ == '__main__':
     run_db_scroll()
