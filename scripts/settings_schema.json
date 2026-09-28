@@ -25,6 +25,36 @@
       "desc": "Seconds between repair passes. When it runs out, every desktop runs the repair the next time the loop reaches it."
     }
   },
+  "revive": {
+    "__title__": "Revive",
+    "REVIVE_WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 60.0,
+      "step": 0.5,
+      "unit": "s",
+      "default": 1,
+      "desc": "After death is detected, how long to hover over the Revive button before the first click (it shows up before it's clickable)."
+    },
+    "REVIVE_RETRY": {
+      "type": "float",
+      "min": 0.5,
+      "max": 30.0,
+      "step": 0.5,
+      "unit": "s",
+      "default": 2.0,
+      "desc": "Seconds between Revive clicks while the button is still on screen."
+    },
+    "REVIVE_MAX_CLICKS": {
+      "type": "int",
+      "min": 1,
+      "max": 200,
+      "step": 1,
+      "unit": "",
+      "default": 30,
+      "desc": "Give up after this many Revive clicks; the loop then moves on to the next desktop and tries again on its next visit."
+    }
+  },
   "overlay": {
     "__title__": "On-screen Console",
     "ENABLED": {
