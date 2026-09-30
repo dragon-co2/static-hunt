@@ -14,7 +14,7 @@ try:
 except Exception:
     ctypes.windll.user32.SetProcessDPIAware()
 
-pyautogui.FAILSAFE = True
+pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop the script
 pyautogui.PAUSE    = 0
 
 _DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'reference_images')

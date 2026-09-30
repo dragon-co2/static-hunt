@@ -9,7 +9,7 @@ try:
 except Exception:
     ctypes.windll.user32.SetProcessDPIAware()
 
-pyautogui.FAILSAFE = True
+pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop the script
 pyautogui.PAUSE    = 0
 
 
@@ -135,7 +135,6 @@ if __name__ == '__main__':
     print('Hold Alt+` to Alt+left-click repeatedly.')
     print(f'Hold Ctrl+` to right-click repeatedly (every {RIGHT_CLICK_INTERVAL}s).')
     print('Release either key in the combo to stop.')
-    print('Move mouse to TOP-LEFT to emergency stop.')
     threading.Thread(target=_click_loop, daemon=True).start()
     listener = pynput_kb.Listener(on_press=_on_key_press, on_release=_on_key_release)
     listener.start()

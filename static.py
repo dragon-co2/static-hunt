@@ -41,7 +41,7 @@ try:
 except Exception:
     ctypes.windll.user32.SetProcessDPIAware()
 
-pyautogui.FAILSAFE = True
+pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop the script
 pyautogui.PAUSE    = 0
 
 SWITCH_DELAY = 0.5   # seconds to let the desktop-switch animation finish
