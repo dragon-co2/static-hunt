@@ -2,12 +2,11 @@ import glob
 import os
 import time
 import ctypes
-import numpy as np
 import cv2
-import mss
 import pyautogui
 
 from _paths import app_root
+import screen  # shared primary-monitor capture + panel matching
 import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
 from repaire import open_warehouse  # Alt+P until the warehouse panel is visible
 
@@ -69,9 +68,7 @@ def _best_match_score(path):
     tmpl = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
     if tmpl is None:
         return 0.0
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[0]))
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    gray = screen.grab_gray()
     if gray.shape[0] < tmpl.shape[0] or gray.shape[1] < tmpl.shape[1]:
         return 0.0
     res = cv2.matchTemplate(gray, tmpl, cv2.TM_CCOEFF_NORMED)
@@ -154,8 +151,7 @@ def run_new_bank_compose():
 
 def plus_items_in_inventory():
     """Names of the +N badges (plus1, plus2, ...) visible in the inventory panel, or []."""
-    with mss.MSS() as sct:
-        bgr = cv2.cvtColor(np.array(sct.grab(sct.monitors[0])), cv2.COLOR_BGRA2BGR)
+    bgr = screen.grab_bgr()
     inv_panel = _ga._find(cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY), _ga._tmpl_inv, threshold=_ga.CONF_INV)
     if not inv_panel:
         return []

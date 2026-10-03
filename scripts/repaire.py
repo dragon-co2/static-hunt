@@ -2,12 +2,11 @@ import os
 import time
 import ctypes
 import ctypes.wintypes
-import numpy as np
 import cv2
-import mss
 import pyautogui
 
 from game_window import find_game_window, focus_game_window
+import screen  # shared primary-monitor capture + panel matching
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -18,7 +17,6 @@ pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop 
 pyautogui.PAUSE    = 0
 
 _DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'reference_images')
-WAREHOUSE_TITLE_PATH = os.path.join(_DIR, 'warehouse_title.jpg')
 STATUS_PATH          = os.path.join(_DIR, 'status.png')
 BODY_PATH            = os.path.join(_DIR, 'body.png')
 REPAIR_PATH          = os.path.join(_DIR, 'repair.png')
@@ -30,14 +28,12 @@ WH_CLOSE_OFF     = (337, 17)    # X button, relative to the warehouse panel's to
 REPAIR_OFF       = (160, -109)  # Repair button center, relative to the Body button's center
 CONF_REPAIR_NEAR = 0.5          # looser match for repair.png at its expected spot (it's often half-covered)
 
-CONF_WH    = 0.5
+CONF_WH    = screen.CONF_WH  # shared with every script (see screen.py)
 WAIT       = 0.5  # seconds between steps
 RETRIES    = 15   # attempts (1s apart) to wait for each UI element to appear
 TRIALS     = 20   # attempts per step before giving up on validating it
 ALT_P_HOLD = 1.0  # seconds to hold Alt+P down when opening the remote warehouse
 CLICK_HOLD = 0.1  # seconds to hold the left mouse button down on every click
-
-_tmpl_wh = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
 
 _wait_if_dead = None  # optional callback set by run_repair(); polled to pause mid-step during a revive
 
@@ -51,24 +47,10 @@ def _focus_game_window():
     return focus_game_window()
 
 
-def _grab_primary_gray():
-    """Grayscale capture of the primary monitor. mss's monitors[1] isn't necessarily the primary
-    one on multi-monitor setups, so pick it by `is_primary` (primary sits at 0,0 = click coords)."""
-    with mss.MSS() as sct:
-        mon = next((m for m in sct.monitors[1:] if m.get('is_primary')), sct.monitors[1])
-        return cv2.cvtColor(np.array(sct.grab(mon)), cv2.COLOR_BGRA2GRAY)
+_grab_primary_gray = screen.grab_gray
 
 
-def _find_warehouse(gray):
-    """Returns (x, y, w, h) of the warehouse panel, or None."""
-    if _tmpl_wh is None:
-        return None
-    th, tw = _tmpl_wh.shape[:2]
-    if gray.shape[0] < th or gray.shape[1] < tw:
-        return None
-    res = cv2.matchTemplate(gray, _tmpl_wh, cv2.TM_CCOEFF_NORMED)
-    _, val, _, loc = cv2.minMaxLoc(res)
-    return (loc[0], loc[1], tw, th) if val >= CONF_WH else None
+_find_warehouse = screen.find_warehouse
 
 
 def _best_match(path):

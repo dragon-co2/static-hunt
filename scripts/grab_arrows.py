@@ -2,12 +2,11 @@ import os
 import time
 import random
 import ctypes
-import numpy as np
 import cv2
-import mss
 import pyautogui
 
 from _paths import app_root
+import screen  # shared primary-monitor capture + panel matching
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -18,8 +17,6 @@ pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop 
 pyautogui.PAUSE    = 0
 
 _DIR = os.path.join(app_root(), 'reference_images')
-INVENTORY_TITLE_PATH = os.path.join(_DIR, 'inventory_title.jpg')
-WAREHOUSE_TITLE_PATH = os.path.join(_DIR, 'warehouse_title.jpg')
 ARROW_PATH           = os.path.join(_DIR, 'arrow.jpg')
 
 
@@ -43,30 +40,20 @@ WH_TAB_W     = 110
 WH_TAB_H     = 31
 WH_TAB_COUNT = 7
 
-CONF_INV   = 0.3
-CONF_WH    = 0.35
 CONF_ARROW = 0.5
+CONF_INV   = screen.CONF_INV  # shared with every script (see screen.py)
+CONF_WH    = screen.CONF_WH
 
 BANK_TAB_COUNT = 6  # tabs 0-5 are regular banks (used by init_bank_tab)
 TRIALS         = 5  # attempts per step before giving up on validating it
 TAB_SCAN_WAIT  = 2.0  # seconds to wait after switching warehouse tab before scanning it for arrows
 
-_tmpl_inv = cv2.imread(INVENTORY_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
-_tmpl_wh  = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_inv = screen.tmpl_inv
+_tmpl_wh  = screen.tmpl_wh
 _tmpl_arrow = cv2.imread(ARROW_PATH,         cv2.IMREAD_GRAYSCALE)
 
 
-def _find(gray, template, threshold):
-    if template is None:
-        return None
-    th, tw = template.shape[:2]
-    if gray.shape[0] < th or gray.shape[1] < tw:
-        return None
-    res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-    _, val, _, loc = cv2.minMaxLoc(res)
-    if val >= threshold:
-        return (loc[0], loc[1], tw, th)
-    return None
+_find = screen.find
 
 
 def _is_arrow(cell_gray):
@@ -79,9 +66,7 @@ def _is_arrow(cell_gray):
 
 def count_arrows():
     """Counts inventory cells matching arrow.jpg. Returns None if the inventory isn't visible."""
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[0]))
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    gray = _grab_gray()
 
     inv_panel = _find(gray, _tmpl_inv, threshold=CONF_INV)
     if not inv_panel:
@@ -114,9 +99,7 @@ def _click_at(x, y):
 
 
 def _click_warehouse_tab(tab_idx):
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[0]))
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    gray = _grab_gray()
     wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
     if not wh_panel:
         print('[ARROWS] Warehouse not visible — cannot switch tab.')
@@ -130,10 +113,7 @@ def _click_warehouse_tab(tab_idx):
     return True
 
 
-def _grab_gray():
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[0]))
-    return cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+_grab_gray = screen.grab_gray  # primary monitor only (see screen.py)
 
 
 def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay=0.5):
