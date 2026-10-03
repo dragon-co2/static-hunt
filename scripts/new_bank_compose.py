@@ -38,7 +38,7 @@ CONF_EMPTY   = 0.8
 
 WAIT   = 0.4  # seconds between steps
 TRIALS = 20   # attempts per step before giving up on validating it
-DEPOSIT_PRESSES = 50     # safety cap on Deposit presses while +N items remain (normally stops as soon as they're gone)
+DEPOSIT_PRESSES = 5      # max Deposit presses while +N items remain (stops earlier as soon as they're gone)
 PLUS_MAX_DIFF   = 3000   # mean squared color difference on the badge's yellow pixels; real badge ~800, other digits ~14000+
 
 _tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
