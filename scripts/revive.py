@@ -20,11 +20,13 @@ REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
 from dragon_settings import get_settings
 _S = get_settings('revive', {
+    'REVIVE_DELAY':      360,
     'REVIVE_WAIT':       1,
     'REVIVE_RETRY':      2.0,
     'REVIVE_MAX_CLICKS': 30,
 })
 
+REVIVE_DELAY      = _S['REVIVE_DELAY']       # per desktop: seconds after death is first seen before revive is attempted
 REVIVE_WAIT       = _S['REVIVE_WAIT']        # seconds to wait after death before the revive button becomes clickable
 REVIVE_RETRY      = _S['REVIVE_RETRY']       # seconds between revive clicks
 REVIVE_MAX_CLICKS = int(_S['REVIVE_MAX_CLICKS'])  # give up after this many clicks (the loop moves on to the next desktop)
@@ -50,6 +52,11 @@ def _click_at(x, y):
     pyautogui.mouseDown()
     time.sleep(0.1)
     pyautogui.mouseUp()
+
+
+def is_dead():
+    """True if the revive button is on screen."""
+    return _locate(REVIVE_PATH) is not None
 
 
 def handle_revive():

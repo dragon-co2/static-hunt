@@ -27,6 +27,15 @@
   },
   "revive": {
     "__title__": "Revive",
+    "REVIVE_DELAY": {
+      "type": "int",
+      "min": 0,
+      "max": 3600,
+      "step": 10,
+      "unit": "s",
+      "default": 360,
+      "desc": "Per desktop: once an account is seen dead, wait this long before clicking Revive. Until then that desktop is skipped and the other desktops carry on as usual."
+    },
     "REVIVE_WAIT": {
       "type": "float",
       "min": 0.0,

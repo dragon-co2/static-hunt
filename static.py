@@ -23,7 +23,7 @@ from pynput import keyboard as pynput_kb
 from pyvda import VirtualDesktop, get_virtual_desktops
 
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, hover_last_empty_cell
-from revive import handle_revive
+from revive import handle_revive, is_dead, REVIVE_DELAY
 from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
 from db_scroll import run_db_scroll
@@ -61,6 +61,7 @@ ARROWS_INTERVAL  = _S['ARROWS_INTERVAL']         # seconds between grab_arrows p
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
 
 _timer_start = {}   # 'arrows' / 'repair' -> time.time() the current interval started
+_dead_since = {}    # desktop index -> time.time() its account was first seen dead
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
 _shift_held = False
@@ -190,7 +191,10 @@ def _timer_status_loop():
         now = time.time()
         arrows_left = ARROWS_INTERVAL - (now - _timer_start['arrows'])
         repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
-        overlay.set_status(f'Arrows {_fmt_left(arrows_left)}\nRepair {_fmt_left(repair_left)}')
+        lines = [f'Arrows {_fmt_left(arrows_left)}', f'Repair {_fmt_left(repair_left)}']
+        for idx, since in sorted(_dead_since.items()):
+            lines.append(f'Revive D{idx + 1} {_fmt_left(REVIVE_DELAY - (now - since))}')
+        overlay.set_status('\n'.join(lines))
         _save_timer_state(arrows_left, repair_left)
         time.sleep(1)
 
@@ -218,12 +222,31 @@ def _account_online():
     return False
 
 
-def _first_run(idx):
-    """Full setup, once per desktop on the first visit. Returns False (setup not done — retried
-    next visit) if the character couldn't be revived."""
-    print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
-    if not handle_revive():
+def _revive_gate(idx, total):
+    """Per-desktop death handling. Returns True if the character is alive (carry on with this
+    desktop), False to skip it for now. The first time a desktop is seen dead its clock starts;
+    revive is only attempted once REVIVE_DELAY seconds have passed, and meanwhile the loop moves
+    on so the other desktops keep running."""
+    if not is_dead():
+        if _dead_since.pop(idx, None) is not None:
+            print(f'  [REVIVE] desktop {idx + 1} is alive again')
+        return True
+    now = time.time()
+    since = _dead_since.setdefault(idx, now)
+    left = REVIVE_DELAY - (now - since)
+    if left > 0:
+        print(f'[DESKTOP] {idx + 1}/{total} — dead, revive in {_fmt_left(left)}, skipping')
         return False
+    if handle_revive():
+        _dead_since.pop(idx, None)
+        return True
+    print(f'[DESKTOP] {idx + 1}/{total} — revive failed, moving on to the next desktop')
+    return False
+
+
+def _first_run(idx):
+    """Full setup, once per desktop on the first visit (the character is alive by now)."""
+    print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
     if FIRST_RUN_REPAIR:
         run_repair()
     else:
@@ -284,32 +307,26 @@ def _main():
             # window still open but no in-game UI even after Alt+P — likely disconnected
             print(f'[DESKTOP] {current + 1}/{total} — game open but no in-game UI (disconnected?), skipping')
         else:
-            print(f'[DESKTOP] Processing {current + 1}/{total}')
             if not focus_game_window():   # the game ignores the mouse until it's the active window
                 print('  [DESKTOP] could not bring the game window to the front')
-            if current not in initialized:
-                done = _first_run(current)
-                if done:
+            if _revive_gate(current, total):
+                print(f'[DESKTOP] Processing {current + 1}/{total}')
+                if current not in initialized:
+                    _first_run(current)
                     initialized.add(current)
                     pending_arrows.discard(current)   # just did both as part of the setup
                     pending_repair.discard(current)
-            elif handle_revive():
-                if current in pending_repair:
-                    run_repair()
-                    pending_repair.discard(current)
-                _compose()
-                if current in pending_arrows:
-                    ensure_arrows()
-                    pending_arrows.discard(current)
-                done = True
-            else:
-                done = False
+                else:
+                    if current in pending_repair:
+                        run_repair()
+                        pending_repair.discard(current)
+                    _compose()
+                    if current in pending_arrows:
+                        ensure_arrows()
+                        pending_arrows.discard(current)
 
-            if done:
                 run_db_scroll()   # every loop, on every desktop (no-op if disabled or < MIN_COUNT)
                 time.sleep(INTERVAL)
-            else:
-                print(f'[DESKTOP] {current + 1}/{total} — revive failed, moving on to the next desktop')
 
         if total < 2:
             continue
