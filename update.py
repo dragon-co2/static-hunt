@@ -36,8 +36,13 @@ def _python_for_pip():
 def update():
     os.chdir(_base_dir())
     try:
+        subprocess.run(["git", "reset", "--hard"])
+        subprocess.run(["git", "log", "--oneline", "-1"])
+        subprocess.run(["git", "status"])
         subprocess.run(["git", "pull"], check=True)
         subprocess.run(_python_for_pip() + ["-m", "pip", "install", "-r", "requirements.txt"], check=True)
+        subprocess.run(["git", "log", "--oneline", "-1"])
+
     except Exception as e:
         print(f"{e}")
 
