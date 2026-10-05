@@ -19,17 +19,10 @@ REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
 
 from dragon_settings import get_settings
-_S = get_settings('revive', {
-    'REVIVE_DELAY':      360,
-    'REVIVE_WAIT':       1,
-    'REVIVE_RETRY':      2.0,
-    'REVIVE_MAX_CLICKS': 30,
-})
+_S = get_settings('revive', {'REVIVE_DELAY': 360})
 
-REVIVE_DELAY      = _S['REVIVE_DELAY']       # per desktop: seconds after death is first seen before revive is attempted
-REVIVE_WAIT       = _S['REVIVE_WAIT']        # seconds to wait after death before the revive button becomes clickable
-REVIVE_RETRY      = _S['REVIVE_RETRY']       # seconds between revive clicks
-REVIVE_MAX_CLICKS = int(_S['REVIVE_MAX_CLICKS'])  # give up after this many clicks (the loop moves on to the next desktop)
+REVIVE_DELAY = _S['REVIVE_DELAY']  # per desktop: seconds after death is first seen before Revive is clicked
+REVIVE_CHECK = 3                   # seconds to watch for the button to disappear after a click
 
 
 def _locate(path, confidence=0.9):
@@ -60,35 +53,22 @@ def is_dead():
 
 
 def handle_revive():
-    """If revive.jpg is on screen, hovers over it and waits for the respawn timer (it's visible
-    but not clickable right after death), then clicks it every REVIVE_RETRY seconds until it's
-    gone — up to REVIVE_MAX_CLICKS times.
-    Returns True if the character is alive afterwards (not dead, or revived), False if the
-    button was still there after REVIVE_MAX_CLICKS clicks."""
+    """Clicks Revive once (bringing the game to the front first) and watches up to REVIVE_CHECK
+    seconds for the button to disappear. Returns True if the character is alive afterwards (not
+    dead, or revived), False if the button is still there — the caller retries on its next visit.
+    The wait before reviving is REVIVE_DELAY, handled per desktop by static.py."""
     loc = _locate(REVIVE_PATH)
     if not loc:
         return True
-
     x, y = pyautogui.center(loc)
-    print(f'  [REVIVE] Died — hovering at ({x},{y}), waiting {REVIVE_WAIT}s...')
-    focus_game_window()
-    pyautogui.moveTo(x, y, duration=0.1)
-    time.sleep(REVIVE_WAIT)
-
-    for clicks in range(1, REVIVE_MAX_CLICKS + 1):
-        loc = _locate(REVIVE_PATH)
-        if not loc:
-            print(f'  [REVIVE] Revive button gone — done after {clicks - 1} click(s).')
+    print(f'  [REVIVE] clicking Revive @ ({x},{y})')
+    _click_at(x, y)
+    for _ in range(REVIVE_CHECK * 2):
+        time.sleep(0.5)
+        if not _locate(REVIVE_PATH):
+            print('  [REVIVE] revived')
             return True
-        x, y = pyautogui.center(loc)
-        _click_at(x, y)
-        print(f'  [REVIVE] Clicked @ ({x},{y})  ({clicks}/{REVIVE_MAX_CLICKS})')
-        time.sleep(REVIVE_RETRY)
-
-    if not _locate(REVIVE_PATH):
-        print(f'  [REVIVE] Revive button gone — done after {REVIVE_MAX_CLICKS} click(s).')
-        return True
-    print(f'  [REVIVE] Still dead after {REVIVE_MAX_CLICKS} clicks — giving up for now.')
+    print('  [REVIVE] button still there — will try again next visit')
     return False
 
 

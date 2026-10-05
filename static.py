@@ -240,7 +240,7 @@ def _revive_gate(idx, total):
     if handle_revive():
         _dead_since.pop(idx, None)
         return True
-    print(f'[DESKTOP] {idx + 1}/{total} — revive failed, moving on to the next desktop')
+    print(f'[DESKTOP] {idx + 1}/{total} — still dead after clicking Revive, moving on (retry next visit)')
     return False
 
 

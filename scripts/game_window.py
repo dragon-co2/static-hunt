@@ -19,9 +19,11 @@ PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 
 
 def _title(hwnd):
-    n = _user32.GetWindowTextLengthW(hwnd)
-    buf = ctypes.create_unicode_buffer(n + 1)
-    _user32.GetWindowTextW(hwnd, buf, n + 1)
+    # Fixed buffer + GetWindowTextW only: for another process's window this reads the cached
+    # caption without messaging it. GetWindowTextLengthW messages the window, and waits forever
+    # if that window is busy or frozen.
+    buf = ctypes.create_unicode_buffer(512)
+    _user32.GetWindowTextW(hwnd, buf, 512)
     return buf.value
 
 
@@ -60,18 +62,21 @@ def is_game_window(hwnd):
 
 def find_game_window():
     """hwnd of a live (not frozen) game window on the current virtual desktop, or None."""
-    found = []
+    candidates = []
 
     @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
     def _cb(hwnd, _):
-        if (_user32.IsWindowVisible(hwnd) and is_game_window(hwnd)
-                and not _user32.IsHungAppWindow(hwnd) and _on_current_desktop(hwnd)):
-            found.append(hwnd)
-            return False
+        if (_user32.IsWindowVisible(hwnd) and not _user32.IsHungAppWindow(hwnd)
+                and is_game_window(hwnd)):
+            candidates.append(hwnd)
         return True
 
     _user32.EnumWindows(_cb, 0)
-    return found[0] if found else None
+    # the virtual-desktop (COM) check runs after enumeration, not inside the Windows callback
+    for hwnd in candidates:
+        if _on_current_desktop(hwnd):
+            return hwnd
+    return None
 
 
 def focus_game_window():
