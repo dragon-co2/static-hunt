@@ -3,6 +3,8 @@ import time
 import ctypes
 import pyautogui
 
+import game_input as gi  # real-device input via the Interception driver
+
 from _paths import app_root
 from game_window import focus_game_window
 
@@ -37,14 +39,14 @@ def _click_at(x, y):
     reports if the cursor didn't actually arrive, then clicks with a 0.1s hold like repair."""
     if not focus_game_window():
         print('  [REVIVE] could not bring the game window to the front')
-    pyautogui.moveTo(x, y, duration=0.05)
+    gi.move(x, y)
     time.sleep(0.05)
     cx, cy = pyautogui.position()
     if abs(cx - x) > 3 or abs(cy - y) > 3:
         print(f'  [REVIVE] mouse is at ({cx},{cy}), not ({x},{y}) — move was blocked')
-    pyautogui.mouseDown()
+    gi.down()
     time.sleep(0.1)
-    pyautogui.mouseUp()
+    gi.up()
 
 
 def is_dead():

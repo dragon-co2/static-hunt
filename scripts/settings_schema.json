@@ -23,6 +23,24 @@
       "unit": "s",
       "default": 8000,
       "desc": "Seconds between repair passes. When it runs out, every desktop runs the repair the next time the loop reaches it."
+    },
+    "VISIT_WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 30.0,
+      "step": 0.1,
+      "unit": "s",
+      "default": 0,
+      "desc": "Pause at the end of each desktop visit before switching to the next one. 0 moves on straight away."
+    },
+    "SCAN_INTERVAL": {
+      "type": "int",
+      "min": 10,
+      "max": 3600,
+      "step": 10,
+      "unit": "s",
+      "default": 60,
+      "desc": "Per desktop: how often to scan the inventory. If it holds +N items they're deposited; if there are enough dragonballs they're turned into a scroll and stashed. Between scans neither is touched, so visits are quicker."
     }
   },
   "revive": {
@@ -35,6 +53,50 @@
       "unit": "s",
       "default": 360,
       "desc": "Per desktop: once an account is seen dead, wait this long before clicking Revive. Until then that desktop is skipped and the other desktops carry on as usual."
+    }
+  },
+  "scatter": {
+    "__title__": "Scatter Arrows",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Once per desktop visit, right-click around a few randomly picked corners of the VIP page (no fixed order) so the character casts scatter arrows."
+    },
+    "CLICKS": {
+      "type": "int",
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "unit": "",
+      "default": 1,
+      "desc": "How many corners to right-click per visit, each a different corner picked at random."
+    },
+    "OFFSET": {
+      "type": "int",
+      "min": 0,
+      "max": 200,
+      "step": 1,
+      "unit": "px",
+      "default": 20,
+      "desc": "How far outside each corner of the VIP page to right-click (diagonally, away from the page's center)."
+    },
+    "DELAY": {
+      "type": "float",
+      "min": 0.0,
+      "max": 5.0,
+      "step": 0.05,
+      "unit": "s",
+      "default": 0.3,
+      "desc": "Pause between the four corner right-clicks, so each cast has time to go off."
+    },
+    "JITTER": {
+      "type": "int",
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "unit": "px",
+      "default": 15,
+      "desc": "Each click lands at a random spot up to this many pixels from the corner point, so it never hits the exact same pixel."
     }
   },
   "overlay": {

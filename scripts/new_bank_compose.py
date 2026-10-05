@@ -5,6 +5,8 @@ import ctypes
 import cv2
 import pyautogui
 
+import game_input as gi  # real-device input via the Interception driver
+
 from _paths import app_root
 import screen  # shared primary-monitor capture + panel matching
 import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
@@ -27,20 +29,17 @@ VIP_BTN_PATH         = os.path.join(_DIR, 'vip_btn.png')
 VIP_MENU_PATH        = os.path.join(_DIR, 'vip_menu.jpg')
 COMPOSE_PATH         = os.path.join(_DIR, 'compose.jpg')
 DEPOSIT_PATH         = os.path.join(_DIR, 'deposit.jpg')
-EMPTYCELL_PATH       = os.path.join(_DIR, 'emptycell.jpg')
 
 
 CONF_VIP_BTN = 0.5
 CONF_COMPOSE = 0.8
 CONF_DEPOSIT = 0.8
-CONF_EMPTY   = 0.8
 
 WAIT   = 0.4  # seconds between steps
 TRIALS = 20   # attempts per step before giving up on validating it
 DEPOSIT_PRESSES = 5      # max Deposit presses while +N items remain (stops earlier as soon as they're gone)
 PLUS_MAX_DIFF   = 3000   # mean squared color difference on the badge's yellow pixels; real badge ~800, other digits ~14000+
 
-_tmpl_empty = cv2.imread(EMPTYCELL_PATH, cv2.IMREAD_GRAYSCALE)
 
 
 def _load_plus_badges():
@@ -86,11 +85,11 @@ def _click_image(path, confidence=0.8):
         return False
     x, y = pyautogui.center(loc)
     _focus_game_window()
-    pyautogui.moveTo(x, y, duration=0.15)
+    gi.move(x, y)
     time.sleep(0.1)
-    pyautogui.mouseDown()
+    gi.down()
     time.sleep(0.08)
-    pyautogui.mouseUp()
+    gi.up()
     print(f'  [CLICK] {os.path.basename(path)} @ ({x},{y})')
     return True
 
@@ -201,39 +200,7 @@ def deposit_click(trials=TRIALS):
     return False
 
 
-def _find_empty_inventory_cell():
-    """Returns the center of the last empty inventory cell (matching emptycell.jpg), or None."""
-    if _tmpl_empty is None:
-        return None
-    gray = _ga._grab_gray()
-    inv_panel = _ga._find(gray, _ga._tmpl_inv, threshold=_ga.CONF_INV)
-    if not inv_panel:
-        return None
-    ox, oy = inv_panel[0] + _ga.INV_OFFSET_X, inv_panel[1] + _ga.INV_OFFSET_Y
-    th, tw = _tmpl_empty.shape[:2]
-    for r in reversed(range(_ga.INV_ROWS)):        # scan bottom-right -> top-left
-        for c in reversed(range(_ga.INV_COLS)):
-            x1, y1 = ox + c * _ga.INV_SLOT_W, oy + r * _ga.INV_SLOT_H
-            crop = gray[y1:y1 + _ga.INV_SLOT_H, x1:x1 + _ga.INV_SLOT_W]
-            if crop.shape[0] < th or crop.shape[1] < tw:
-                continue
-            res = cv2.matchTemplate(crop, _tmpl_empty, cv2.TM_CCOEFF_NORMED)
-            if cv2.minMaxLoc(res)[1] >= CONF_EMPTY:
-                return (x1 + _ga.INV_SLOT_W // 2, y1 + _ga.INV_SLOT_H // 2)
-    return None
-
-
-def hover_last_empty_cell():
-    """Moves the mouse onto the last empty inventory cell (no click, no output) — parks the
-    cursor somewhere harmless. Does nothing if the inventory or an empty cell isn't found."""
-    pos = _find_empty_inventory_cell()
-    if pos:
-        pyautogui.moveTo(*pos, duration=0.15)
-    return pos is not None
-
-
 if __name__ == '__main__':
     if run_new_bank_compose():
         deposit_plus_items()
-        hover_last_empty_cell()
     os._exit(0)

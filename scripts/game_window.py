@@ -86,9 +86,35 @@ def focus_game_window():
     hwnd = find_game_window()
     if not hwnd:
         return False
-    if _user32.GetForegroundWindow() != hwnd:
-        if _user32.IsIconic(hwnd):
-            _user32.ShowWindow(hwnd, 9)  # SW_RESTORE — only when minimized
-        _user32.SetForegroundWindow(hwnd)
-        time.sleep(0.2)
+    if _user32.GetForegroundWindow() == hwnd:
+        return True
+    if _user32.IsIconic(hwnd):
+        _user32.ShowWindow(hwnd, 9)  # SW_RESTORE — only when minimized
+    _force_foreground(hwnd)
     return _user32.GetForegroundWindow() == hwnd
+
+
+def _force_foreground(hwnd):
+    """Windows refuses SetForegroundWindow from a program that isn't the one in front (focus
+    stealing protection), so a plain call silently fails while e.g. the console or VS Code has
+    focus. Attach to the foreground window's input first, which makes the switch allowed; if that
+    still fails, tap Alt (an input event of our own also unlocks it) and try again."""
+    if _user32.SetForegroundWindow(hwnd) and _user32.GetForegroundWindow() == hwnd:
+        return
+    fg = _user32.GetForegroundWindow()
+    fg_thread = _user32.GetWindowThreadProcessId(fg, None) if fg else 0
+    me = _kernel32.GetCurrentThreadId()
+    attached = bool(fg_thread and fg_thread != me and _user32.AttachThreadInput(me, fg_thread, True))
+    try:
+        _user32.BringWindowToTop(hwnd)
+        _user32.SetForegroundWindow(hwnd)
+    finally:
+        if attached:
+            _user32.AttachThreadInput(me, fg_thread, False)
+    time.sleep(0.1)
+    if _user32.GetForegroundWindow() != hwnd:
+        VK_MENU, KEYEVENTF_KEYUP = 0x12, 0x0002
+        _user32.keybd_event(VK_MENU, 0, 0, 0)
+        _user32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0)
+        _user32.SetForegroundWindow(hwnd)
+    time.sleep(0.2)

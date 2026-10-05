@@ -9,6 +9,8 @@ import time
 import cv2
 import pyautogui
 
+import game_input as gi  # real-device input via the Interception driver
+
 from _paths import app_root
 from dragon_settings import get_settings
 import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
@@ -96,9 +98,9 @@ def run_db_scroll():
         if not cells:
             return
         x, y = cells[0]
-        pyautogui.moveTo(x, y, duration=0.1)
+        gi.move(x, y)
         time.sleep(0.05)
-        pyautogui.rightClick()
+        gi.click_here('right')
         print(f'  [CLICK] right-clicked dragonball @ ({x},{y})')
 
     # validated by the scroll count going up, so a leftover scroll can't fake success
@@ -119,16 +121,16 @@ def _stash_scrolls(s):
             return
         time.sleep(0.4)
         for x, y in _inventory_cells(_tmpl_scroll, s['CONF_SCROLL']):
-            pyautogui.moveTo(x, y, duration=0.1)
-            pyautogui.keyDown('alt')
+            gi.move(x, y)
+            gi.key_down('alt')
             try:
                 time.sleep(0.1)
-                pyautogui.mouseDown()
+                gi.down()
                 time.sleep(0.08)
-                pyautogui.mouseUp()
+                gi.up()
                 time.sleep(0.1)
             finally:
-                pyautogui.keyUp('alt')
+                gi.key_up('alt')
             print(f'  [CLICK] Alt+clicked dragonball scroll @ ({x},{y})')
             time.sleep(0.3)
 

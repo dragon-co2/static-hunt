@@ -22,11 +22,13 @@ import pyautogui
 from pynput import keyboard as pynput_kb
 from pyvda import VirtualDesktop, get_virtual_desktops
 
-from new_bank_compose import run_new_bank_compose, deposit_plus_items, hover_last_empty_cell
+from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
 from revive import handle_revive, is_dead, REVIVE_DELAY
 from grab_arrows import ensure_arrows
 from repaire import run_repair, open_warehouse
 from db_scroll import run_db_scroll
+import scatter
+import game_input
 import overlay
 from game_window import find_game_window, focus_game_window
 import new_bank_compose as _nbc
@@ -45,7 +47,6 @@ pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop 
 pyautogui.PAUSE    = 0
 
 SWITCH_DELAY = 0.5   # seconds to let the desktop-switch animation finish
-INTERVAL     = 3    # seconds between each switch
 
 LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
 LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 MB on disk at most
@@ -54,14 +55,19 @@ _S = get_settings('static', {
     'FIRST_RUN_REPAIR': True,
     'ARROWS_INTERVAL':  1000,
     'REPAIR_INTERVAL':  8000,
+    'VISIT_WAIT':       0,
+    'SCAN_INTERVAL':    60,
 })
 
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair during each desktop's first-visit setup
 ARROWS_INTERVAL  = _S['ARROWS_INTERVAL']         # seconds between grab_arrows passes over all desktops
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
+VISIT_WAIT       = _S['VISIT_WAIT']              # seconds to pause at the end of a desktop visit before switching
+SCAN_INTERVAL    = _S['SCAN_INTERVAL']           # per desktop: seconds between inventory scans (+N items, dragonballs)
 
 _timer_start = {}   # 'arrows' / 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
+_last_scan = {}     # desktop index -> time.time() of its last inventory scan
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
 _shift_held = False
@@ -139,12 +145,23 @@ def _setup_log():
 
 
 def _compose():
-    """VIP -> Compose tab, then Deposit while +N items are in the inventory, then move the mouse
-    onto the last empty inventory cell. Skips both if the Compose tab never opened."""
+    """Opens the warehouse, VIP menu and Compose tab (each skipped if already showing), then
+    presses Deposit until no +N item is left in the inventory."""
     if not run_new_bank_compose():
         return
     deposit_plus_items()
-    hover_last_empty_cell()
+
+
+def _scan_inventory(idx):
+    """Every SCAN_INTERVAL seconds per desktop: if the inventory holds +N items, deposit them;
+    if there are enough dragonballs (or a leftover scroll), convert and stash them. Nothing is
+    clicked when neither is the case."""
+    _last_scan[idx] = time.time()
+    plus = plus_items_in_inventory()
+    print(f'  [SCAN] +N items: {", ".join(plus) if plus else "none"}')
+    if plus:
+        _compose()
+    run_db_scroll()   # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
 
 
 def _fmt_left(seconds):
@@ -192,6 +209,9 @@ def _timer_status_loop():
         arrows_left = ARROWS_INTERVAL - (now - _timer_start['arrows'])
         repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
         lines = [f'Arrows {_fmt_left(arrows_left)}', f'Repair {_fmt_left(repair_left)}']
+        for idx, last in sorted(_last_scan.items()):   # deposit / dragonball check, per desktop
+            left = SCAN_INTERVAL - (now - last)
+            lines.append(f'Scan D{idx + 1} {_fmt_left(left) if left > 0 else "due"}')
         for idx, since in sorted(_dead_since.items()):
             lines.append(f'Revive D{idx + 1} {_fmt_left(REVIVE_DELAY - (now - since))}')
         overlay.set_status('\n'.join(lines))
@@ -254,6 +274,8 @@ def _first_run(idx):
     open_warehouse()
     _compose()
     ensure_arrows()
+    run_db_scroll()
+    _last_scan[idx] = time.time()
     return True
 
 
@@ -320,13 +342,14 @@ def _main():
                     if current in pending_repair:
                         run_repair()
                         pending_repair.discard(current)
-                    _compose()
+                    if time.time() - _last_scan.get(current, 0) >= SCAN_INTERVAL:
+                        _scan_inventory(current)
                     if current in pending_arrows:
                         ensure_arrows()
                         pending_arrows.discard(current)
 
-                run_db_scroll()   # every loop, on every desktop (no-op if disabled or < MIN_COUNT)
-                time.sleep(INTERVAL)
+                scatter.volley()   # one right-click around a random corner of the VIP page
+                time.sleep(VISIT_WAIT)
 
         if total < 2:
             continue
@@ -337,6 +360,8 @@ def _main():
 if __name__ == '__main__':
     # When frozen, an unhandled exception would otherwise close the console
     # window instantly and the error is never seen - print it and wait.
+    if not game_input.ensure_driver():   # driver just installed (or needs a reboot): stop here
+        os._exit(0)
     overlay.start()
     _setup_log()
     try:

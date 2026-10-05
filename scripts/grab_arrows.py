@@ -5,6 +5,8 @@ import ctypes
 import cv2
 import pyautogui
 
+import game_input as gi  # real-device input via the Interception driver
+
 from _paths import app_root
 import screen  # shared primary-monitor capture + panel matching
 
@@ -91,11 +93,11 @@ def count_arrows():
 
 
 def _click_at(x, y):
-    pyautogui.moveTo(x, y, duration=0.05)
+    gi.move(x, y)
     time.sleep(0.05)
-    pyautogui.mouseDown()
+    gi.down()
     time.sleep(0.08)
-    pyautogui.mouseUp()
+    gi.up()
 
 
 def _click_warehouse_tab(tab_idx):
@@ -234,9 +236,9 @@ def ensure_arrows():
         return False
 
     x, y = _arrow_in_inventory()
-    pyautogui.moveTo(x, y, duration=0.05)
+    gi.move(x, y)
     time.sleep(0.05)
-    pyautogui.rightClick()
+    gi.click_here('right')
     print(f'  [CLICK] right-clicked arrow in inventory @ ({x},{y})')
     return True
 

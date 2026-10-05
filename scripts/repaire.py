@@ -5,6 +5,8 @@ import ctypes.wintypes
 import cv2
 import pyautogui
 
+import game_input as gi  # real-device input via the Interception driver
+
 from game_window import find_game_window, focus_game_window
 import screen  # shared primary-monitor capture + panel matching
 
@@ -125,11 +127,11 @@ def _click_repair():
 
 def _click_at(x, y):
     _focus_game_window()
-    pyautogui.moveTo(x, y, duration=0.05)
+    gi.move(x, y)
     time.sleep(0.05)
-    pyautogui.mouseDown()
+    gi.down()
     time.sleep(CLICK_HOLD)
-    pyautogui.mouseUp()
+    gi.up()
 
 
 def _click_image(path, confidence=0.8, retries=RETRIES, delay=1.0):
@@ -195,14 +197,14 @@ def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay
 def _press_alt_p():
     """Presses Alt+P (remote warehouse hotkey), holding it for ALT_P_HOLD seconds."""
     _focus_game_window()
-    pyautogui.keyDown('alt')
+    gi.key_down('alt')
     try:
         time.sleep(0.05)
-        pyautogui.keyDown('p')
+        gi.key_down('p')
         time.sleep(ALT_P_HOLD)
-        pyautogui.keyUp('p')
+        gi.key_up('p')
     finally:
-        pyautogui.keyUp('alt')
+        gi.key_up('alt')
     print(f'  [KEY] Alt+P (held {ALT_P_HOLD}s)')
 
 
