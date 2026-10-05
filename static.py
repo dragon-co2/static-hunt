@@ -360,8 +360,7 @@ def _main():
 if __name__ == '__main__':
     # When frozen, an unhandled exception would otherwise close the console
     # window instantly and the error is never seen - print it and wait.
-    if not game_input.ensure_driver():   # driver just installed (or needs a reboot): stop here
-        os._exit(0)
+    game_input.ensure_driver()   # offers to install the driver if missing; never stops the script
     overlay.start()
     _setup_log()
     try:

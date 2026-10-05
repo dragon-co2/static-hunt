@@ -72,36 +72,45 @@ def _run_installer_as_admin():
     return code.value == 0
 
 
+PROMPT_TIMEOUT = 30  # seconds before the install question closes itself (treated as "No")
+
+
+def _ask_yes_no(text, title):
+    """Yes/No box that closes itself after PROMPT_TIMEOUT seconds, so an unattended start never
+    hangs on it. Returns True only for an explicit Yes."""
+    MB_YESNO, MB_ICONQUESTION, MB_TOPMOST, MB_SETFOREGROUND, IDYES = 0x4, 0x20, 0x40000, 0x10000, 6
+    flags = MB_YESNO | MB_ICONQUESTION | MB_TOPMOST | MB_SETFOREGROUND
+    try:  # MessageBoxTimeoutW: same as MessageBoxW plus a timeout in ms (returns 32000 on timeout)
+        answer = ctypes.windll.user32.MessageBoxTimeoutW(None, text, title, flags, 0, PROMPT_TIMEOUT * 1000)
+    except AttributeError:
+        answer = _message_box(text, title, MB_YESNO | MB_ICONQUESTION)
+    return answer == IDYES
+
+
 def ensure_driver():
     """Called once when static.py starts. If the Interception driver isn't active, offers to
-    install it (UAC prompt) and asks for a restart. Returns True to keep running, False if the
-    script should exit so the user can restart Windows first."""
+    install it (UAC prompt; the install bat then offers a restart). Never stops the script:
+    whatever happens, it carries on — without the driver the game just ignores the clicks."""
     if DRIVER:
         return True
-    MB_OK, MB_YESNO, MB_ICONQUESTION, MB_ICONINFO, IDYES = 0x0, 0x4, 0x20, 0x40, 6
-    title = 'Dragon CO2 — input driver'
     if _driver_files_present():
-        _message_box('The Interception driver is installed but not running yet.\n\n'
-                     'Restart Windows, then run the script again.', title, MB_OK | MB_ICONINFO)
-        return False
+        print('[INPUT] driver is installed but not running yet — restart Windows to activate it')
+        return True
     if not os.path.exists(INSTALLER):
         print(f'[INPUT] installer not found: {INSTALLER}')
         return True
-    answer = _message_box('The game only accepts clicks from a real mouse. The Interception '
-                          'driver makes the script\'s clicks count as real ones.\n\n'
-                          'Install it now? (needs administrator rights and a restart)',
-                          title, MB_YESNO | MB_ICONQUESTION)
-    if answer != IDYES:
-        print('[INPUT] driver install declined — continuing without it (the game will ignore clicks)')
+    if not _ask_yes_no('The game only accepts clicks from a real mouse. The Interception '
+                       'driver makes the script\'s clicks count as real ones.\n\n'
+                       'Install it now? (needs administrator rights and a restart)\n\n'
+                       f'This closes by itself in {PROMPT_TIMEOUT} seconds.',
+                       'Dragon CO2 — input driver'):
+        print('[INPUT] driver install skipped — continuing without it (the game will ignore clicks)')
         return True
     if not _run_installer_as_admin():
         print('[INPUT] driver install did not complete (UAC declined or installer failed)')
-        _message_box('The driver was not installed.\n\nThe script will keep running, but the game '
-                     'will ignore its clicks.', title, MB_OK | MB_ICONINFO)
         return True
-    # the bat already offered to restart; if the user said no, just stop here
-    print('[INPUT] driver installed — restart Windows, then run the script again')
-    return False
+    print('[INPUT] driver installed — restart Windows to activate it; continuing for now')
+    return True
 
 
 def move(x, y):
