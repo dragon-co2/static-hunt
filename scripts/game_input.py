@@ -17,6 +17,7 @@ import pyautogui
 from _paths import app_root
 
 INSTALLER = os.path.join(app_root(), 'apps', 'interception', 'install-interception.exe')
+INSTALL_BAT = os.path.join(app_root(), 'install_driver.bat')  # runs INSTALLER, then offers a restart
 _DRIVER_FILES = [os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'drivers', f)
                  for f in ('keyboard.sys', 'mouse.sys')]
 
@@ -43,8 +44,9 @@ def _message_box(text, title, flags):
 
 
 def _run_installer_as_admin():
-    """Runs `install-interception.exe /install` through the UAC prompt and waits for it.
-    Returns True if it ran and exited with code 0."""
+    """Runs install_driver.bat as administrator (one UAC prompt) and waits for it; the bat
+    installs the driver and asks whether to restart now. Falls back to running the installer
+    exe directly if the bat is missing. Returns True if it finished with exit code 0."""
     class SHELLEXECUTEINFO(ctypes.Structure):
         _fields_ = [('cbSize', ctypes.wintypes.DWORD), ('fMask', ctypes.c_ulong),
                     ('hwnd', ctypes.wintypes.HWND), ('lpVerb', ctypes.wintypes.LPCWSTR),
@@ -57,8 +59,10 @@ def _run_installer_as_admin():
 
     SEE_MASK_NOCLOSEPROCESS, SW_SHOW = 0x40, 5
     info = SHELLEXECUTEINFO(cbSize=ctypes.sizeof(SHELLEXECUTEINFO), fMask=SEE_MASK_NOCLOSEPROCESS,
-                            lpVerb='runas', lpFile=INSTALLER, lpParameters='/install',
-                            lpDirectory=os.path.dirname(INSTALLER), nShow=SW_SHOW)
+                            lpVerb='runas',
+                            lpFile=INSTALL_BAT if os.path.exists(INSTALL_BAT) else INSTALLER,
+                            lpParameters=None if os.path.exists(INSTALL_BAT) else '/install',
+                            lpDirectory=app_root(), nShow=SW_SHOW)
     if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(info)) or not info.hProcess:
         return False  # UAC prompt declined, or the installer couldn't start
     ctypes.windll.kernel32.WaitForSingleObject(info.hProcess, 0xFFFFFFFF)
@@ -95,9 +99,8 @@ def ensure_driver():
         _message_box('The driver was not installed.\n\nThe script will keep running, but the game '
                      'will ignore its clicks.', title, MB_OK | MB_ICONINFO)
         return True
+    # the bat already offered to restart; if the user said no, just stop here
     print('[INPUT] driver installed — restart Windows, then run the script again')
-    _message_box('Driver installed.\n\nRestart Windows, then run the script again.',
-                 title, MB_OK | MB_ICONINFO)
     return False
 
 
