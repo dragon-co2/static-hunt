@@ -12,7 +12,7 @@ import screen
 from _paths import app_root
 from game_window import focus_game_window
 
-VIP_CLOSE_OFF = (569, 29)    # X button, from the VIP page's top-left (vip_menu.jpg)
+VIP_CLOSE_OFF = (797, 18)    # X button, from the VIP page's top-left (vip_menu.jpg, new 825x651 design)
 WH_CLOSE_OFF  = (337, 17)    # X button, from the warehouse panel's top-left (warehouse_title.jpg)
 INV_CLOSE_OFF = (187, 442)   # "Close" text, from the inventory panel's top-left (inventory_title.jpg)
 
@@ -20,7 +20,8 @@ CONF_VIP_TOP = 0.9  # VIP page header match; an empty black screen already score
 CLOSE_TRIES  = 3    # clicks per panel before giving up on closing it
 
 _vip = cv2.imread(os.path.join(app_root(), 'reference_images', 'vip_menu.jpg'), cv2.IMREAD_GRAYSCALE)
-_tmpl_vip_top = _vip[:48] if _vip is not None else None  # frame + "VIP" box + X: same on every tab
+VIP_HEADER_H = 36  # top strip of vip_menu.jpg: crown + "VIP" title + X — the same on every tab
+_tmpl_vip_top = _vip[:VIP_HEADER_H] if _vip is not None else None
 
 
 def find_vip(gray=None):

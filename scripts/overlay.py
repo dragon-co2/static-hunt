@@ -34,6 +34,7 @@ TIMER_ENABLED   = bool(_T['ENABLED'])
 CURTAIN_ENABLED = bool(_C['ENABLED'])
 
 _KEY = '#010101'  # background color made fully transparent (must differ from the text colors)
+CURTAIN_COLOR = '#020103'  # looks black; an exact, unusual colour so a capture can tell it's the curtain
 
 _queue = queue.Queue()
 _status = {'text': ''}
@@ -137,7 +138,7 @@ class _Curtain:
         self.win = tk.Toplevel(root)
         self.win.overrideredirect(True)
         self.win.attributes('-topmost', True)
-        self.win.configure(bg='#000000')
+        self.win.configure(bg=CURTAIN_COLOR)
         sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
         self.win.geometry(f'{sw}x{sh}+0+0')
         self.win.update()
@@ -146,6 +147,28 @@ class _Curtain:
         _exclude_from_capture(self.hwnd)
         HWND_TOPMOST, SWP_NOACTIVATE = -1, 0x0010
         ctypes.windll.user32.SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, sw, sh, SWP_NOACTIVATE)
+        self.ok = self._hidden_from_capture()
+        if not self.ok:
+            self.win.destroy()
+
+    def _hidden_from_capture(self):
+        """The capture exclusion isn't honoured everywhere (e.g. inside an RDP session), and a
+        curtain the script can see would blind it. Capture the screen once: if most of it is
+        exactly the curtain's colour, the script sees the curtain — so it must go."""
+        import time
+        import numpy as np
+        import screen
+        self.win.update()
+        time.sleep(0.5)
+        bgr = screen.grab_bgr()
+        r, g, b = (int(CURTAIN_COLOR[i:i + 2], 16) for i in (1, 3, 5))
+        share = float(((bgr[:, :, 2] == r) & (bgr[:, :, 1] == g) & (bgr[:, :, 0] == b)).mean())
+        if share > 0.5:
+            print('[OVERLAY] black screen is visible to the script here (capture exclusion not '
+                  'supported in this session) — turned it off so the script can still see the game')
+            return False
+        print('[OVERLAY] black screen on (hidden from the script)')
+        return True
 
     def keep_on_top(self):
         self.win.attributes('-topmost', True)
@@ -157,6 +180,8 @@ def _run():
     root = tk.Tk()
     root.withdraw()  # invisible owner; each panel is its own Toplevel
     curtain = _Curtain(root) if CURTAIN_ENABLED else None  # created first: the text panels sit above it
+    if curtain and not curtain.ok:
+        curtain = None
     console = _Panel(root, _S) if ENABLED else None
     timers = _Panel(root, _T) if TIMER_ENABLED else None
     lines = []

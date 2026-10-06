@@ -11,6 +11,7 @@ from _paths import app_root
 import screen  # shared primary-monitor capture + panel matching
 import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
 from repaire import open_warehouse  # Alt+P until the warehouse panel is visible
+import panels  # finds the VIP page by its title strip, whichever tab is open
 
 try:
     if not ctypes.windll.user32.IsProcessDPIAware():
@@ -118,7 +119,7 @@ def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay
 
 def run_new_bank_compose():
     """0. Make sure the warehouse is open -> Alt+P until warehouse_title is visible.
-       1. Open the VIP menu  -> validated by vip_menu.jpg appearing.
+       1. Open the VIP menu  -> validated by the VIP page's title strip appearing (any tab).
        2. Open Compose tab   -> validated by deposit.jpg appearing.
     Skips a step whose result is already on screen (e.g. VIP menu left open from last run),
     and stops if a step never validates after TRIALS attempts."""
@@ -129,10 +130,10 @@ def run_new_bank_compose():
     time.sleep(WAIT)
 
     print('[SEQ] vip...')
-    if _is_visible(DEPOSIT_PATH, CONF_DEPOSIT) or _is_visible(VIP_MENU_PATH):
+    if _is_visible(DEPOSIT_PATH, CONF_DEPOSIT) or panels.find_vip():
         print('  [OK] VIP menu already open — skipping')
     elif not _run_step(lambda: _click_image(VIP_BTN_PATH, confidence=CONF_VIP_BTN),
-                       lambda: _is_visible(VIP_MENU_PATH), 'vip_menu.jpg appeared'):
+                       lambda: panels.find_vip() is not None, 'VIP menu appeared'):
         print('[SEQ] Aborted at "vip".')
         return False
     time.sleep(WAIT)
