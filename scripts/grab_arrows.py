@@ -1,25 +1,26 @@
 import os
 import time
+import random
 import ctypes
-import numpy as np
 import cv2
-import mss
 import pyautogui
 
+import game_input as gi  # real-device input via the Interception driver
+
 from _paths import app_root
+import screen  # shared primary-monitor capture + panel matching
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
     ctypes.windll.user32.SetProcessDPIAware()
 
-pyautogui.FAILSAFE = True
+pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop the script
 pyautogui.PAUSE    = 0
 
 _DIR = os.path.join(app_root(), 'reference_images')
-INVENTORY_TITLE_PATH = os.path.join(_DIR, 'inventory_title.jpg')
-WAREHOUSE_TITLE_PATH = os.path.join(_DIR, 'warehouse_title.jpg')
 ARROW_PATH           = os.path.join(_DIR, 'arrow.jpg')
+
 
 INV_OFFSET_X = 18
 INV_OFFSET_Y = 10
@@ -28,12 +29,12 @@ INV_SLOT_H   = 43
 INV_COLS     = 5
 INV_ROWS     = 8
 
-WH_OFFSET_X  = 120
-WH_OFFSET_Y  = 40
-WH_SLOT_W    = 43
-WH_SLOT_H    = 43
-WH_COLS      = 5
-WH_ROWS      = 4
+WH_OFFSET_X = 120
+WH_OFFSET_Y = 40
+WH_SLOT_W   = 43
+WH_SLOT_H   = 43
+WH_COLS     = 5
+WH_ROWS     = 4
 
 WH_TAB_X     = 5
 WH_TAB_Y     = 26
@@ -41,28 +42,20 @@ WH_TAB_W     = 110
 WH_TAB_H     = 31
 WH_TAB_COUNT = 7
 
-CONF_INV   = 0.3
-CONF_WH    = 0.35
 CONF_ARROW = 0.5
+CONF_INV   = screen.CONF_INV  # shared with every script (see screen.py)
+CONF_WH    = screen.CONF_WH
 
-ARROW_TAB_INDEX = 6   # warehouse tab #7 (0-indexed)
+BANK_TAB_COUNT = 6  # tabs 0-5 are regular banks (used by init_bank_tab)
+TRIALS         = 5  # attempts per step before giving up on validating it
+TAB_SCAN_WAIT  = 2.0  # seconds to wait after switching warehouse tab before scanning it for arrows
 
-_tmpl_inv = cv2.imread(INVENTORY_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
-_tmpl_wh  = cv2.imread(WAREHOUSE_TITLE_PATH, cv2.IMREAD_GRAYSCALE)
+_tmpl_inv = screen.tmpl_inv
+_tmpl_wh  = screen.tmpl_wh
 _tmpl_arrow = cv2.imread(ARROW_PATH,         cv2.IMREAD_GRAYSCALE)
 
 
-def _find(gray, template, threshold):
-    if template is None:
-        return None
-    th, tw = template.shape[:2]
-    if gray.shape[0] < th or gray.shape[1] < tw:
-        return None
-    res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-    _, val, _, loc = cv2.minMaxLoc(res)
-    if val >= threshold:
-        return (loc[0], loc[1], tw, th)
-    return None
+_find = screen.find
 
 
 def _is_arrow(cell_gray):
@@ -75,9 +68,7 @@ def _is_arrow(cell_gray):
 
 def count_arrows():
     """Counts inventory cells matching arrow.jpg. Returns None if the inventory isn't visible."""
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[0]))
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    gray = _grab_gray()
 
     inv_panel = _find(gray, _tmpl_inv, threshold=CONF_INV)
     if not inv_panel:
@@ -102,17 +93,15 @@ def count_arrows():
 
 
 def _click_at(x, y):
-    pyautogui.moveTo(x, y, duration=0.05)
+    gi.move(x, y)
     time.sleep(0.05)
-    pyautogui.mouseDown()
+    gi.down()
     time.sleep(0.08)
-    pyautogui.mouseUp()
+    gi.up()
 
 
 def _click_warehouse_tab(tab_idx):
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[0]))
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+    gray = _grab_gray()
     wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
     if not wh_panel:
         print('[ARROWS] Warehouse not visible — cannot switch tab.')
@@ -126,36 +115,71 @@ def _click_warehouse_tab(tab_idx):
     return True
 
 
-def _click_arrow_in_warehouse():
-    """Scans the warehouse grid itself (not the whole screen) for a cell matching
-    arrow.jpg and clicks it — avoids accidentally matching an arrow icon elsewhere,
-    e.g. still visible in the inventory panel."""
-    with mss.MSS() as sct:
-        raw = np.array(sct.grab(sct.monitors[0]))
-    gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
+_grab_gray = screen.grab_gray  # primary monitor only (see screen.py)
 
-    wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
-    if not wh_panel:
-        print('  [ARROWS] Warehouse not visible.')
-        return False
 
+def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay=0.5):
+    """Runs `action`, then validates it by polling `check` (up to verify_tries * verify_delay
+    seconds). Prints [OK]/[FAIL]; re-runs the action up to `trials` times until it validates."""
+    for trial in range(1, trials + 1):
+        action()
+        for _ in range(verify_tries):
+            time.sleep(verify_delay)
+            if check():
+                print(f'  [OK] {expect}')
+                return True
+        print(f'  [FAIL] {expect} — not validated (trial {trial}/{trials})')
+    print(f'  [FAIL] {expect} — gave up after {trials} trials.')
+    return False
+
+
+def _panels_visible():
+    gray = _grab_gray()
+    return (_find(gray, _tmpl_wh, threshold=CONF_WH) is not None
+            and _find(gray, _tmpl_inv, threshold=CONF_INV) is not None)
+
+
+def _find_arrow_in_warehouse(gray, wh_panel):
+    """Returns the center of the first warehouse grid cell matching arrow.jpg, or None.
+    Scans only the grid (not the whole screen) so arrows in the inventory never match."""
     wpx, wpy, _, _ = wh_panel
     wox = wpx + WH_OFFSET_X
     woy = wpy + WH_OFFSET_Y
-
     for r in range(WH_ROWS):
         for c in range(WH_COLS):
             x1 = wox + c * WH_SLOT_W
             y1 = woy + r * WH_SLOT_H
             crop = gray[y1:y1 + WH_SLOT_H, x1:x1 + WH_SLOT_W]
             if _is_arrow(crop):
-                x, y = x1 + WH_SLOT_W // 2, y1 + WH_SLOT_H // 2
-                _click_at(x, y)
-                print(f'  [ARROWS] Clicked arrow in warehouse @ ({x},{y})')
-                return True
+                return (x1 + WH_SLOT_W // 2, y1 + WH_SLOT_H // 2)
+    return None
 
-    print('  [ARROWS] arrow.jpg not found in warehouse.')
-    return False
+
+def _arrow_in_inventory():
+    """Returns the center of the first inventory cell holding an arrow, or None."""
+    gray = _grab_gray()
+    inv_panel = _find(gray, _tmpl_inv, threshold=CONF_INV)
+    return _find_arrow_in_inventory(gray, inv_panel) if inv_panel else None
+
+
+def _search_tabs_for_arrow():
+    """Cycles through every warehouse tab and returns the center of the first arrow found
+    in the grid (leaving that tab open), or None if no tab has one."""
+    for tab in range(WH_TAB_COUNT):
+        if not _click_warehouse_tab(tab):
+            return None
+        time.sleep(TAB_SCAN_WAIT)  # let the tab's grid finish loading before scanning it
+        gray = _grab_gray()
+        wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
+        if not wh_panel:
+            return None
+        pos = _find_arrow_in_warehouse(gray, wh_panel)
+        if pos:
+            print(f'  [OK] arrow.jpg found in tab {tab + 1} @ {pos}')
+            return pos
+        print(f'  [ARROWS] no arrow in tab {tab + 1}')
+    print(f'  [FAIL] arrow.jpg not found in any of the {WH_TAB_COUNT} tabs.')
+    return None
 
 
 def _find_arrow_in_inventory(gray, inv_panel):
@@ -172,57 +196,51 @@ def _find_arrow_in_inventory(gray, inv_panel):
     return None
 
 
-def _right_click_arrow_in_inventory(retries=8, delay=0.5):
-    """Right-clicks the arrow stack in the inventory — used to equip it when the
-    inventory had none at all before this grab. Retries for a bit since the item
-    can take a moment to actually land in the inventory after the warehouse click."""
-    for attempt in range(retries):
-        with mss.MSS() as sct:
-            raw = np.array(sct.grab(sct.monitors[0]))
-        gray = cv2.cvtColor(raw, cv2.COLOR_BGRA2GRAY)
-
-        inv_panel = _find(gray, _tmpl_inv, threshold=CONF_INV)
-        if inv_panel:
-            item = _find_arrow_in_inventory(gray, inv_panel)
-            if item:
-                x, y = item
-                pyautogui.moveTo(x, y, duration=0.05)
-                time.sleep(0.05)
-                pyautogui.rightClick()
-                print(f'  [ARROWS] Right-clicked arrow @ ({x},{y})')
-
-                time.sleep(1)
-                pyautogui.keyDown('alt')
-                time.sleep(0.1)
-                pyautogui.moveTo(x, y, duration=0.05)
-                pyautogui.click()
-                time.sleep(0.1)
-                pyautogui.keyUp('alt')
-                print(f'  [ARROWS] Alt+clicked arrow @ ({x},{y})')
-                return True
-
-        time.sleep(delay)
-
-    print('  [ARROWS] No arrow found in inventory to right-click.')
-    return False
+def init_bank_tab(tab_idx=None):
+    """Clicks one of the 6 regular bank tabs (0-5) — used once per account on the first
+    loop to initialize the warehouse view, in case it was left on the arrows tab (tab 7)
+    from a previous run."""
+    if tab_idx is None:
+        tab_idx = random.randrange(BANK_TAB_COUNT)
+    return _click_warehouse_tab(tab_idx)
 
 
 def ensure_arrows():
-    """If the inventory has no arrows at all, opens warehouse tab 7, clicks the arrow
-    stack to grab one, then right-clicks it in the inventory to equip it."""
+    """If the inventory has no arrows at all:
+    1. Validate that the warehouse and inventory panels are both visible.
+    2. Cycle through the warehouse tabs; click the first arrow.jpg found in the grid.
+       -> validated by an arrow appearing in the inventory.
+    3. Right-click that arrow in the inventory to equip it.
+    Each step is retried up to TRIALS times; stops if one never validates."""
+    print('[ARROWS] panels...')
+    if not _run_step(lambda: None, _panels_visible, 'warehouse_title and inventory_title visible'):
+        print('[ARROWS] Aborted — panels not visible.')
+        return False
+
     count = count_arrows()
     if count is None or count > 0:
-        return
+        return True
 
-    print(f'[ARROWS] Empty — grabbing from warehouse tab {ARROW_TAB_INDEX + 1}...')
-    if not _click_warehouse_tab(ARROW_TAB_INDEX):
-        return
-    time.sleep(0.3)
-    if not _click_arrow_in_warehouse():
-        return
+    print('[ARROWS] Empty — searching warehouse tabs...')
+    pos = _search_tabs_for_arrow()
+    if not pos:
+        return False
 
-    time.sleep(0.3)
-    _right_click_arrow_in_inventory()
+    def _click_found_arrow():
+        _click_at(*pos)
+        print(f'  [CLICK] arrow in warehouse @ {pos}')
+
+    if not _run_step(_click_found_arrow, lambda: _arrow_in_inventory() is not None,
+                     'arrow appeared in inventory'):
+        print('[ARROWS] Aborted — arrow never reached the inventory.')
+        return False
+
+    x, y = _arrow_in_inventory()
+    gi.move(x, y)
+    time.sleep(0.05)
+    gi.click_here('right')
+    print(f'  [CLICK] right-clicked arrow in inventory @ ({x},{y})')
+    return True
 
 
 if __name__ == '__main__':

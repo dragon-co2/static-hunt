@@ -3,21 +3,28 @@ import time
 import ctypes
 import pyautogui
 
+import game_input as gi  # real-device input via the Interception driver
+
 from _paths import app_root
+from game_window import focus_game_window
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception:
     ctypes.windll.user32.SetProcessDPIAware()
 
-pyautogui.FAILSAFE = True
+pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop the script
 pyautogui.PAUSE    = 0
 
 _DIR = os.path.join(app_root(), 'reference_images')
 REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
-REVIVE_WAIT  = 1    # seconds to wait after death before the revive button becomes clickable
-REVIVE_RETRY = 1.0   # seconds between re-checks once the wait is over
+
+from dragon_settings import get_settings
+_S = get_settings('revive', {'REVIVE_DELAY': 360})
+
+REVIVE_DELAY = _S['REVIVE_DELAY']  # per desktop: seconds after death is first seen before Revive is clicked
+REVIVE_CHECK = 3                   # seconds to watch for the button to disappear after a click
 
 
 def _locate(path, confidence=0.9):
@@ -28,39 +35,43 @@ def _locate(path, confidence=0.9):
 
 
 def _click_at(x, y):
-    pyautogui.moveTo(x, y, duration=0.05)
+    """Focuses the game first (it ignores the mouse while not the active window), moves there,
+    reports if the cursor didn't actually arrive, then clicks with a 0.1s hold like repair."""
+    if not focus_game_window():
+        print('  [REVIVE] could not bring the game window to the front')
+    gi.move(x, y)
     time.sleep(0.05)
-    pyautogui.mouseDown()
-    time.sleep(0.08)
-    pyautogui.mouseUp()
+    cx, cy = pyautogui.position()
+    if abs(cx - x) > 3 or abs(cy - y) > 3:
+        print(f'  [REVIVE] mouse is at ({cx},{cy}), not ({x},{y}) — move was blocked')
+    gi.down()
+    time.sleep(0.1)
+    gi.up()
+
+
+def is_dead():
+    """True if the revive button is on screen."""
+    return _locate(REVIVE_PATH) is not None
 
 
 def handle_revive():
-    """If revive.jpg is on screen, hovers over it and waits for the respawn timer before
-    clicking — it's visible but not actually clickable right after death.
-    Returns True if a revive was handled, False if there was nothing to do."""
+    """Clicks Revive once (bringing the game to the front first) and watches up to REVIVE_CHECK
+    seconds for the button to disappear. Returns True if the character is alive afterwards (not
+    dead, or revived), False if the button is still there — the caller retries on its next visit.
+    The wait before reviving is REVIVE_DELAY, handled per desktop by static.py."""
     loc = _locate(REVIVE_PATH)
     if not loc:
-        return False
-
+        return True
     x, y = pyautogui.center(loc)
-    print(f'  [REVIVE] Died — hovering at ({x},{y}), waiting {REVIVE_WAIT}s...')
-    pyautogui.moveTo(x, y, duration=0.1)
-    time.sleep(REVIVE_WAIT)
-
-    print('  [REVIVE] Wait done — checking for revive button...')
-    while True:
-        loc = _locate(REVIVE_PATH)
-        if loc:
-            x, y = pyautogui.center(loc)
-            _click_at(x, y)
-            print(f'  [REVIVE] Clicked @ ({x},{y})')
-            break
-        print('  [REVIVE] Not found yet — checking again...')
-        time.sleep(REVIVE_RETRY)
-
-    print('  [REVIVE] Done.')
-    return True
+    print(f'  [REVIVE] clicking Revive @ ({x},{y})')
+    _click_at(x, y)
+    for _ in range(REVIVE_CHECK * 2):
+        time.sleep(0.5)
+        if not _locate(REVIVE_PATH):
+            print('  [REVIVE] revived')
+            return True
+    print('  [REVIVE] button still there — will try again next visit')
+    return False
 
 
 if __name__ == '__main__':

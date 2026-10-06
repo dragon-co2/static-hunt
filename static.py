@@ -1,6 +1,9 @@
 import os
 import time
 import ctypes
+import logging
+import logging.handlers
+import threading
 
 import sys as _sys, os as _os
 if getattr(_sys, 'frozen', False):
@@ -17,13 +20,21 @@ comtypes.client.gen_dir = None
 
 import pyautogui
 from pynput import keyboard as pynput_kb
-from pyvda import get_virtual_desktops
+from pyvda import VirtualDesktop, get_virtual_desktops
 
-from stash2 import stash_items
-from bank_compose import run_compose
-from ingame_autohunt import ingame_autohun_off, ingame_autohun_on
-from revive import handle_revive
+from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
+from revive import handle_revive, is_dead, REVIVE_DELAY
 from grab_arrows import ensure_arrows
+from repaire import run_repair
+from db_scroll import run_db_scroll
+import panels
+import screen
+import game_input
+import overlay
+from game_window import find_game_window, focus_game_window
+import repaire as _rep
+import json
+from dragon_settings import get_settings, override_dir
 
 
 try:
@@ -31,17 +42,30 @@ try:
 except Exception:
     ctypes.windll.user32.SetProcessDPIAware()
 
-pyautogui.FAILSAFE = True
+pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop the script
 pyautogui.PAUSE    = 0
 
-ACCOUNT_NUMBERS = len(get_virtual_desktops())   # number of accounts/desktops to ping-pong between
-
 SWITCH_DELAY = 0.5   # seconds to let the desktop-switch animation finish
-INTERVAL     = 3    # seconds between each switch
 
-ARROWS_INTERVAL = 1400   # seconds between grab_arrows runs, per account
+LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
+LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 MB on disk at most
 
-_last_arrows_check = {}
+_S = get_settings('static', {
+    'FIRST_RUN_REPAIR': True,
+    'REPAIR_INTERVAL':  8000,
+    'VISIT_WAIT':       15,
+    'SERVICE_INTERVAL': 180,
+})
+
+FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair on each desktop's first visit
+REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
+VISIT_WAIT       = _S['VISIT_WAIT']              # seconds to pause at the end of a desktop visit before switching
+SERVICE_INTERVAL = _S['SERVICE_INTERVAL']        # per desktop: seconds between service rounds (bank, arrows, deposit)
+
+_timer_start = {}   # 'repair' -> time.time() the current interval started
+_dead_since = {}    # desktop index -> time.time() its account was first seen dead
+_last_service = {}  # desktop index -> time.time() of its last service round
+TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
 _shift_held = False
 
@@ -68,43 +92,239 @@ def _on_key_press(key):
 pynput_kb.Listener(on_press=_on_key_press, on_release=_on_key_release, daemon=True).start()
 
 
-def _main():
-    print('Starting in 3s...')
+class _Tee:
+    """Mirrors a console stream into the rotating log, timestamping each complete line."""
 
+    def __init__(self, stream, logger):
+        self._stream = stream
+        self._logger = logger
+        self._buf = ''
+        self._lock = threading.Lock()
+
+    def write(self, text):
+        self._stream.write(text)
+        with self._lock:
+            self._buf += text
+            *lines, self._buf = self._buf.split('\n')
+            for line in lines:
+                if line.strip():
+                    self._logger.info(line)
+                    overlay.push(line)
+        return len(text)
+
+    def flush(self):
+        self._stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def _setup_log():
+    """Copies everything printed (stdout + stderr, including crashes) into logs/static.log,
+    rotating it at LOG_MAX_MB so it never grows without bound, and mirrors each line to the
+    on-screen overlay."""
+    base = _os.path.dirname(_sys.executable if getattr(_sys, 'frozen', False) else _os.path.abspath(__file__))
+    log_dir = _os.path.join(base, 'logs')
+    _os.makedirs(log_dir, exist_ok=True)
+
+    handler = logging.handlers.RotatingFileHandler(
+        _os.path.join(log_dir, 'static.log'), maxBytes=LOG_MAX_MB * 1024 * 1024,
+        backupCount=LOG_BACKUPS, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d %H:%M:%S'))
+    logger = logging.getLogger('static')
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    logger.addHandler(handler)
+
+    _sys.stdout = _Tee(_sys.stdout, logger)
+    _sys.stderr = _Tee(_sys.stderr, logger)
+    logger.info('=' * 20 + ' static.py started ' + '=' * 20)
+
+
+def _open_bank_quick():
+    """Alt+P once and up to 3s for the bank (+ inventory) to show. Doubles as the "is this account
+    actually in the game?" check: a disconnected client never opens it."""
+    if _rep._warehouse_open():
+        return True
+    _rep._press_alt_p()
+    for _ in range(6):
+        time.sleep(0.5)
+        if _rep._warehouse_open():
+            return True
+    return False
+
+
+def _service(idx):
+    """Every SERVICE_INTERVAL seconds per desktop (the bank + inventory are open by now):
+    dragonballs -> scroll -> bank, arrows -> grab + equip if none, +N items -> VIP > Compose >
+    Deposit. Each step only clicks when there's something to do."""
+    _last_service[idx] = time.time()
+    run_db_scroll()      # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
+    ensure_arrows()      # no-op unless the inventory has no arrows
+    plus = plus_items_in_inventory()
+    print(f'  [SERVICE] +N items: {", ".join(plus) if plus else "none"}')
+    if plus and run_new_bank_compose():
+        deposit_plus_items()
+
+
+def _fmt_left(seconds):
+    m, s = divmod(max(0, int(seconds)), 60)
+    return f'{m:02d}:{s:02d}'
+
+
+def _load_timer_state():
+    """Restores the countdowns where the previous session left them (closed or crashed):
+    the saved seconds-left pick up again now, as if the script had been paused. Missing or
+    unreadable state, or a saved value longer than the current interval, starts fresh."""
+    try:
+        with open(TIMER_STATE_PATH, encoding='utf-8') as f:
+            saved = json.load(f)
+    except Exception:
+        saved = {}
+    now = time.time()
+    for key, interval in (('repair', REPAIR_INTERVAL),):
+        left = saved.get(key)
+        if not isinstance(left, (int, float)) or not 0 <= left <= interval:
+            left = interval
+        _timer_start[key] = now - (interval - left)
+    if 'repair' in saved:
+        print(f'[TIMER] resumed from last session — repair in {_fmt_left(saved["repair"])}')
+
+
+def _save_timer_state(repair_left):
+    try:
+        _os.makedirs(override_dir(), exist_ok=True)
+        tmp = TIMER_STATE_PATH + '.tmp'
+        with open(tmp, 'w', encoding='utf-8') as f:
+            json.dump({'repair': max(0, round(repair_left))}, f)
+        _os.replace(tmp, TIMER_STATE_PATH)  # atomic: a crash mid-write never leaves a broken file
+    except Exception:
+        pass
+
+
+def _timer_status_loop():
+    """Once a second, shows the repair countdown, each desktop's next service round and any
+    revive countdowns in the on-screen timers panel, and saves the repair timer so the next run
+    can resume from here."""
+    while True:
+        now = time.time()
+        repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
+        lines = [f'Repair {_fmt_left(repair_left)}']
+        for idx, last in sorted(_last_service.items()):
+            left = SERVICE_INTERVAL - (now - last)
+            lines.append(f'Service D{idx + 1} {_fmt_left(left) if left > 0 else "due"}')
+        for idx, since in sorted(_dead_since.items()):
+            lines.append(f'Revive D{idx + 1} {_fmt_left(REVIVE_DELAY - (now - since))}')
+        overlay.set_status('\n'.join(lines))
+        _save_timer_state(repair_left)
+        time.sleep(1)
+
+
+def _revive_gate(idx, total):
+    """Per-desktop death handling. Returns True if the character is alive (carry on with this
+    desktop), False to skip it for now. The first time a desktop is seen dead its clock starts;
+    revive is only attempted once REVIVE_DELAY seconds have passed, and meanwhile the loop moves
+    on so the other desktops keep running."""
+    if not is_dead():
+        if _dead_since.pop(idx, None) is not None:
+            print(f'  [REVIVE] desktop {idx + 1} is alive again')
+        return True
+    now = time.time()
+    since = _dead_since.setdefault(idx, now)
+    left = REVIVE_DELAY - (now - since)
+    if left > 0:
+        print(f'[DESKTOP] {idx + 1}/{total} — dead, revive in {_fmt_left(left)}, skipping')
+        return False
+    if handle_revive():
+        _dead_since.pop(idx, None)
+        return True
+    print(f'[DESKTOP] {idx + 1}/{total} — still dead after clicking Revive, moving on (retry next visit)')
+    return False
+
+
+def _go_to_desktop(idx, retries=3):
+    """Jumps directly to desktop idx + 1 (no Ctrl+Win+arrow stepping), then confirms that's
+    really the current desktop; retries if the switch didn't land."""
+    for attempt in range(1, retries + 1):
+        VirtualDesktop(idx + 1).go()
+        time.sleep(SWITCH_DELAY)
+        actual = VirtualDesktop.current().number
+        if actual == idx + 1:
+            return True
+        print(f'  [DESKTOP] switch to {idx + 1} landed on {actual} — retrying ({attempt}/{retries})')
+    print(f'  [DESKTOP] could not switch to desktop {idx + 1} — continuing anyway')
+    return False
+
+
+def _main():
+    total = len(get_virtual_desktops())         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
+    current = 0                                  # 0-based; always start on desktop 1
+    print(f'[DESKTOP] {total} desktop(s) found — jumping to desktop 1')
+    _go_to_desktop(current)
+
+    print('Starting in 3s...')
     for i in range(3, 0, -1):
         print(f'  {i}...')
         time.sleep(1)
 
-    current   = 0
-    direction = 1
-    start_time = time.time()
+    visited = set()              # desktops seen at least once (first visit may repair)
+    pending_repair = set()       # desktops still owed a repair run in the current pass
+    _load_timer_state()
+    threading.Thread(target=_timer_status_loop, daemon=True, name='timer-status').start()
 
     while True:
-        print(f'[DESKTOP] Processing {current + 1}/{ACCOUNT_NUMBERS}')
-        if not handle_revive():
-            stash_items()
-            handle_revive()
+        now = time.time()
+        if now - _timer_start['repair'] >= REPAIR_INTERVAL:
+            print(f'[TIMER] {REPAIR_INTERVAL}s — repair queued for all desktops')
+            pending_repair = set(range(total))
+            _timer_start['repair'] = now
 
-            now = time.time()
-            if now - _last_arrows_check.get(current, start_time) >= ARROWS_INTERVAL:
-                ensure_arrows()
-                _last_arrows_check[current] = now
+        if current not in visited:
+            visited.add(current)
+            if FIRST_RUN_REPAIR:
+                pending_repair.add(current)
 
-        time.sleep(INTERVAL)
+        try:
+            if not find_game_window():
+                # crashed / closed / frozen: don't click blindly here — move on; anything due stays due
+                print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
+            else:
+                if not focus_game_window():   # the game ignores the mouse until it's the active window
+                    print('  [DESKTOP] could not bring the game window to the front')
+                repair_due = current in pending_repair
+                service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
+                if _revive_gate(current, total) and (repair_due or service_due):
+                    print(f'[DESKTOP] Processing {current + 1}/{total}'
+                          + (' — repair' if repair_due else '') + (' — service' if service_due else ''))
+                    if not _open_bank_quick():
+                        # no response to Alt+P: likely disconnected — skip, retry next visit
+                        print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
+                    else:
+                        if repair_due:
+                            run_repair()
+                            pending_repair.discard(current)
+                        if service_due:
+                            _service(current)
+                        panels.close_all()   # inventory, bank and VIP menu
+                time.sleep(VISIT_WAIT)
+        except OSError as e:
+            # a screen grab refused mid-visit (session locked, or switching screens — e.g. the RDP
+            # session handed back to the console): wait for the screen, then carry on
+            print(f'[DESKTOP] {current + 1}/{total} — screen unavailable ({e}); waiting for it')
+            screen.wait_for_screen()
 
-        next_idx = current + direction
-        if not (0 <= next_idx < ACCOUNT_NUMBERS):
-            direction *= -1
-            next_idx = current + direction
-
-        pyautogui.hotkey('ctrl', 'win', 'right' if direction == 1 else 'left')
-        current = next_idx
-        time.sleep(SWITCH_DELAY)
+        if total < 2:
+            continue
+        current = (current + 1) % total   # after the last desktop, jump straight back to 1
+        _go_to_desktop(current)
 
 
 if __name__ == '__main__':
     # When frozen, an unhandled exception would otherwise close the console
     # window instantly and the error is never seen - print it and wait.
+    game_input.ensure_driver()   # offers to install the driver if missing; never stops the script
+    overlay.start()
+    _setup_log()
     try:
         _main()
     except Exception:
