@@ -9,6 +9,7 @@ One match threshold per panel, used by every script:
   inventory_title.jpg — open ~0.81, closed ~0.12-0.15
 """
 import os
+import time
 
 import cv2
 import mss
@@ -29,16 +30,42 @@ def _primary(sct):
     return next((m for m in sct.monitors[1:] if m.get('is_primary')), sct.monitors[1])
 
 
+RETRY_EVERY = 2  # seconds between capture attempts while the screen is unavailable
+
+
+def _grab_raw():
+    """BGRA capture of the primary monitor. Windows refuses captures for a moment while the
+    session switches screens (e.g. an RDP session handed back to the console with tscon) or
+    while it's locked; instead of crashing, wait here until capturing works again."""
+    waiting = False
+    while True:
+        try:
+            with mss.MSS() as sct:
+                raw = np.array(sct.grab(_primary(sct)))
+            if waiting:
+                print('[SCREEN] screen is available again — carrying on')
+            return raw
+        except Exception as e:  # mss ScreenShotError (BitBlt: Access is denied), etc.
+            if not waiting:
+                print(f'[SCREEN] cannot capture the screen ({e}) — session locked or switching; '
+                      f'retrying every {RETRY_EVERY}s')
+                waiting = True
+            time.sleep(RETRY_EVERY)
+
+
+def wait_for_screen():
+    """Blocks until the screen can be captured (returns at once if it already can)."""
+    _grab_raw()
+
+
 def grab_bgr():
     """Color (BGR) capture of the primary monitor."""
-    with mss.MSS() as sct:
-        return cv2.cvtColor(np.array(sct.grab(_primary(sct))), cv2.COLOR_BGRA2BGR)
+    return cv2.cvtColor(_grab_raw(), cv2.COLOR_BGRA2BGR)
 
 
 def grab_gray():
     """Grayscale capture of the primary monitor."""
-    with mss.MSS() as sct:
-        return cv2.cvtColor(np.array(sct.grab(_primary(sct))), cv2.COLOR_BGRA2GRAY)
+    return cv2.cvtColor(_grab_raw(), cv2.COLOR_BGRA2GRAY)
 
 
 def best(gray, template):

@@ -28,6 +28,7 @@ from grab_arrows import ensure_arrows
 from repaire import run_repair
 from db_scroll import run_db_scroll
 import panels
+import screen
 import game_input
 import overlay
 from game_window import find_game_window, focus_game_window
@@ -283,28 +284,34 @@ def _main():
             if FIRST_RUN_REPAIR:
                 pending_repair.add(current)
 
-        if not find_game_window():
-            # crashed / closed / frozen: don't click blindly here — move on; anything due stays due
-            print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
-        else:
-            if not focus_game_window():   # the game ignores the mouse until it's the active window
-                print('  [DESKTOP] could not bring the game window to the front')
-            repair_due = current in pending_repair
-            service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
-            if _revive_gate(current, total) and (repair_due or service_due):
-                print(f'[DESKTOP] Processing {current + 1}/{total}'
-                      + (' — repair' if repair_due else '') + (' — service' if service_due else ''))
-                if not _open_bank_quick():
-                    # no response to Alt+P: likely disconnected — skip, retry next visit
-                    print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
-                else:
-                    if repair_due:
-                        run_repair()
-                        pending_repair.discard(current)
-                    if service_due:
-                        _service(current)
-                    panels.close_all()   # inventory, bank and VIP menu
-            time.sleep(VISIT_WAIT)
+        try:
+            if not find_game_window():
+                # crashed / closed / frozen: don't click blindly here — move on; anything due stays due
+                print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
+            else:
+                if not focus_game_window():   # the game ignores the mouse until it's the active window
+                    print('  [DESKTOP] could not bring the game window to the front')
+                repair_due = current in pending_repair
+                service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
+                if _revive_gate(current, total) and (repair_due or service_due):
+                    print(f'[DESKTOP] Processing {current + 1}/{total}'
+                          + (' — repair' if repair_due else '') + (' — service' if service_due else ''))
+                    if not _open_bank_quick():
+                        # no response to Alt+P: likely disconnected — skip, retry next visit
+                        print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
+                    else:
+                        if repair_due:
+                            run_repair()
+                            pending_repair.discard(current)
+                        if service_due:
+                            _service(current)
+                        panels.close_all()   # inventory, bank and VIP menu
+                time.sleep(VISIT_WAIT)
+        except OSError as e:
+            # a screen grab refused mid-visit (session locked, or switching screens — e.g. the RDP
+            # session handed back to the console): wait for the screen, then carry on
+            print(f'[DESKTOP] {current + 1}/{total} — screen unavailable ({e}); waiting for it')
+            screen.wait_for_screen()
 
         if total < 2:
             continue

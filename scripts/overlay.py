@@ -26,9 +26,12 @@ _T = get_settings('overlay_timers', {
     'MARGIN':    10,
 })
 
-ENABLED       = bool(_S['ENABLED'])
-LINES         = int(_S['LINES'])
-TIMER_ENABLED = bool(_T['ENABLED'])
+_C = get_settings('overlay_curtain', {'ENABLED': False})
+
+ENABLED         = bool(_S['ENABLED'])
+LINES           = int(_S['LINES'])
+TIMER_ENABLED   = bool(_T['ENABLED'])
+CURTAIN_ENABLED = bool(_C['ENABLED'])
 
 _KEY = '#010101'  # background color made fully transparent (must differ from the text colors)
 
@@ -45,6 +48,14 @@ def push(line):
 def set_status(text):
     """Replaces the whole timers block (multi-line text is fine)."""
     _status['text'] = text
+
+
+def _exclude_from_capture(hwnd):
+    """Hides the window from screen captures (mss / pyautogui / PIL) while it stays visible on
+    the display itself — and so in an RDP session. The script captures the screen to find the
+    game's buttons, so the overlay must never show up in those captures. Windows 10 2004+."""
+    WDA_EXCLUDEFROMCAPTURE = 0x11
+    ctypes.windll.user32.SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)
 
 
 def _make_click_through(win):
@@ -85,6 +96,7 @@ class _Panel:
         self.win.update()
         self.hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id())
         _make_click_through(self.win)
+        _exclude_from_capture(self.hwnd)
         self._place()
 
     def _place(self):
@@ -114,16 +126,44 @@ class _Panel:
         self.win.attributes('-topmost', True)  # stay above the game even after it grabs focus
 
 
+class _Curtain:
+    """Solid black window over the whole primary screen, under the text panels. On the display
+    (and an RDP session watching it) the picture is just black + the log, so RDP has almost
+    nothing to send — while the script's captures don't see it at all (excluded from capture)
+    and clicks pass through to the game."""
+
+    def __init__(self, root):
+        import tkinter as tk
+        self.win = tk.Toplevel(root)
+        self.win.overrideredirect(True)
+        self.win.attributes('-topmost', True)
+        self.win.configure(bg='#000000')
+        sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
+        self.win.geometry(f'{sw}x{sh}+0+0')
+        self.win.update()
+        self.hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id())
+        _make_click_through(self.win)
+        _exclude_from_capture(self.hwnd)
+        HWND_TOPMOST, SWP_NOACTIVATE = -1, 0x0010
+        ctypes.windll.user32.SetWindowPos(self.hwnd, HWND_TOPMOST, 0, 0, sw, sh, SWP_NOACTIVATE)
+
+    def keep_on_top(self):
+        self.win.attributes('-topmost', True)
+
+
 def _run():
     import tkinter as tk
 
     root = tk.Tk()
     root.withdraw()  # invisible owner; each panel is its own Toplevel
+    curtain = _Curtain(root) if CURTAIN_ENABLED else None  # created first: the text panels sit above it
     console = _Panel(root, _S) if ENABLED else None
     timers = _Panel(root, _T) if TIMER_ENABLED else None
     lines = []
 
     def _poll():
+        if curtain:
+            curtain.keep_on_top()  # re-assert first, so the panels re-asserted below stay above it
         if console:
             changed = False
             while True:
@@ -148,7 +188,7 @@ def _run():
 def start():
     """Starts the overlays on their own thread (tkinter lives entirely on that thread)."""
     global _started
-    if _started or not (ENABLED or TIMER_ENABLED):
+    if _started or not (ENABLED or TIMER_ENABLED or CURTAIN_ENABLED):
         return
     _started = True
     threading.Thread(target=_run, daemon=True, name='overlay').start()
