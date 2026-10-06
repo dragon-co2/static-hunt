@@ -34,7 +34,7 @@ CONF_WH    = screen.CONF_WH  # shared with every script (see screen.py)
 WAIT       = 0.5  # seconds between steps
 RETRIES    = 15   # attempts (1s apart) to wait for each UI element to appear
 TRIALS     = 20   # attempts per step before giving up on validating it
-ALT_P_HOLD = 1.0  # seconds to hold Alt+P down when opening the remote warehouse
+ALT_P_HOLD = 0.1  # seconds P is held down (a normal key tap) when opening the remote warehouse
 CLICK_HOLD = 0.1  # seconds to hold the left mouse button down on every click
 
 _wait_if_dead = None  # optional callback set by run_repair(); polled to pause mid-step during a revive
@@ -195,7 +195,7 @@ def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay
 
 
 def _press_alt_p():
-    """Presses Alt+P (remote warehouse hotkey), holding it for ALT_P_HOLD seconds."""
+    """Presses Alt+P (remote warehouse hotkey) as a normal key tap."""
     _focus_game_window()
     gi.key_down('alt')
     try:
@@ -205,7 +205,7 @@ def _press_alt_p():
         gi.key_up('p')
     finally:
         gi.key_up('alt')
-    print(f'  [KEY] Alt+P (held {ALT_P_HOLD}s)')
+    print('  [KEY] Alt+P')
 
 
 def _click_warehouse_x():

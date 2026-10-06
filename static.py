@@ -25,15 +25,13 @@ from pyvda import VirtualDesktop, get_virtual_desktops
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
 from revive import handle_revive, is_dead, REVIVE_DELAY
 from grab_arrows import ensure_arrows
-from repaire import run_repair, open_warehouse
+from repaire import run_repair
 from db_scroll import run_db_scroll
-import scatter
+import panels
 import game_input
 import overlay
 from game_window import find_game_window, focus_game_window
-import new_bank_compose as _nbc
 import repaire as _rep
-import revive as _rev
 import json
 from dragon_settings import get_settings, override_dir
 
@@ -53,21 +51,19 @@ LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 
 
 _S = get_settings('static', {
     'FIRST_RUN_REPAIR': True,
-    'ARROWS_INTERVAL':  1000,
     'REPAIR_INTERVAL':  8000,
-    'VISIT_WAIT':       0,
-    'SCAN_INTERVAL':    60,
+    'VISIT_WAIT':       15,
+    'SERVICE_INTERVAL': 180,
 })
 
-FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair during each desktop's first-visit setup
-ARROWS_INTERVAL  = _S['ARROWS_INTERVAL']         # seconds between grab_arrows passes over all desktops
+FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair on each desktop's first visit
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
 VISIT_WAIT       = _S['VISIT_WAIT']              # seconds to pause at the end of a desktop visit before switching
-SCAN_INTERVAL    = _S['SCAN_INTERVAL']           # per desktop: seconds between inventory scans (+N items, dragonballs)
+SERVICE_INTERVAL = _S['SERVICE_INTERVAL']        # per desktop: seconds between service rounds (bank, arrows, deposit)
 
-_timer_start = {}   # 'arrows' / 'repair' -> time.time() the current interval started
+_timer_start = {}   # 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
-_last_scan = {}     # desktop index -> time.time() of its last inventory scan
+_last_service = {}  # desktop index -> time.time() of its last service round
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
 _shift_held = False
@@ -144,24 +140,30 @@ def _setup_log():
     logger.info('=' * 20 + ' static.py started ' + '=' * 20)
 
 
-def _compose():
-    """Opens the warehouse, VIP menu and Compose tab (each skipped if already showing), then
-    presses Deposit until no +N item is left in the inventory."""
-    if not run_new_bank_compose():
-        return
-    deposit_plus_items()
+def _open_bank_quick():
+    """Alt+P once and up to 3s for the bank (+ inventory) to show. Doubles as the "is this account
+    actually in the game?" check: a disconnected client never opens it."""
+    if _rep._warehouse_open():
+        return True
+    _rep._press_alt_p()
+    for _ in range(6):
+        time.sleep(0.5)
+        if _rep._warehouse_open():
+            return True
+    return False
 
 
-def _scan_inventory(idx):
-    """Every SCAN_INTERVAL seconds per desktop: if the inventory holds +N items, deposit them;
-    if there are enough dragonballs (or a leftover scroll), convert and stash them. Nothing is
-    clicked when neither is the case."""
-    _last_scan[idx] = time.time()
+def _service(idx):
+    """Every SERVICE_INTERVAL seconds per desktop (the bank + inventory are open by now):
+    dragonballs -> scroll -> bank, arrows -> grab + equip if none, +N items -> VIP > Compose >
+    Deposit. Each step only clicks when there's something to do."""
+    _last_service[idx] = time.time()
+    run_db_scroll()      # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
+    ensure_arrows()      # no-op unless the inventory has no arrows
     plus = plus_items_in_inventory()
-    print(f'  [SCAN] +N items: {", ".join(plus) if plus else "none"}')
-    if plus:
-        _compose()
-    run_db_scroll()   # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
+    print(f'  [SERVICE] +N items: {", ".join(plus) if plus else "none"}')
+    if plus and run_new_bank_compose():
+        deposit_plus_items()
 
 
 def _fmt_left(seconds):
@@ -179,67 +181,42 @@ def _load_timer_state():
     except Exception:
         saved = {}
     now = time.time()
-    for key, interval in (('arrows', ARROWS_INTERVAL), ('repair', REPAIR_INTERVAL)):
+    for key, interval in (('repair', REPAIR_INTERVAL),):
         left = saved.get(key)
         if not isinstance(left, (int, float)) or not 0 <= left <= interval:
             left = interval
         _timer_start[key] = now - (interval - left)
-    if saved:
-        print(f'[TIMER] resumed from last session — arrows in {_fmt_left(saved.get("arrows", 0))}, '
-              f'repair in {_fmt_left(saved.get("repair", 0))}')
+    if 'repair' in saved:
+        print(f'[TIMER] resumed from last session — repair in {_fmt_left(saved["repair"])}')
 
 
-def _save_timer_state(arrows_left, repair_left):
+def _save_timer_state(repair_left):
     try:
         _os.makedirs(override_dir(), exist_ok=True)
         tmp = TIMER_STATE_PATH + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump({'arrows': max(0, round(arrows_left)), 'repair': max(0, round(repair_left))}, f)
+            json.dump({'repair': max(0, round(repair_left))}, f)
         _os.replace(tmp, TIMER_STATE_PATH)  # atomic: a crash mid-write never leaves a broken file
     except Exception:
         pass
 
 
 def _timer_status_loop():
-    """Once a second, shows how long until the next grab_arrows and repair passes are queued
-    in the on-screen timers panel (overlay_timers settings), and saves it so the next run can
-    resume from here."""
+    """Once a second, shows the repair countdown, each desktop's next service round and any
+    revive countdowns in the on-screen timers panel, and saves the repair timer so the next run
+    can resume from here."""
     while True:
         now = time.time()
-        arrows_left = ARROWS_INTERVAL - (now - _timer_start['arrows'])
         repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
-        lines = [f'Arrows {_fmt_left(arrows_left)}', f'Repair {_fmt_left(repair_left)}']
-        for idx, last in sorted(_last_scan.items()):   # deposit / dragonball check, per desktop
-            left = SCAN_INTERVAL - (now - last)
-            lines.append(f'Scan D{idx + 1} {_fmt_left(left) if left > 0 else "due"}')
+        lines = [f'Repair {_fmt_left(repair_left)}']
+        for idx, last in sorted(_last_service.items()):
+            left = SERVICE_INTERVAL - (now - last)
+            lines.append(f'Service D{idx + 1} {_fmt_left(left) if left > 0 else "due"}')
         for idx, since in sorted(_dead_since.items()):
             lines.append(f'Revive D{idx + 1} {_fmt_left(REVIVE_DELAY - (now - since))}')
         overlay.set_status('\n'.join(lines))
-        _save_timer_state(arrows_left, repair_left)
+        _save_timer_state(repair_left)
         time.sleep(1)
-
-
-def _in_game_ui_visible():
-    """True if something that only shows while logged in is on screen: the bank panel, the
-    VIP menu, the Compose tab's Deposit button, or the revive button (dead but still online)."""
-    return (_rep._warehouse_open()
-            or _nbc._is_visible(_nbc.VIP_MENU_PATH)
-            or _nbc._is_visible(_nbc.DEPOSIT_PATH, _nbc.CONF_DEPOSIT)
-            or _rev._locate(_rev.REVIVE_PATH) is not None)
-
-
-def _account_online():
-    """Second check after the game window: the window stays open when the account gets
-    disconnected, so also require in-game UI. If none is showing (e.g. a fresh login with every
-    panel closed), press Alt+P once and give the bank 3s to appear before calling it offline."""
-    if _in_game_ui_visible():
-        return True
-    _rep._press_alt_p()
-    for _ in range(6):
-        time.sleep(0.5)
-        if _rep._warehouse_open():
-            return True
-    return False
 
 
 def _revive_gate(idx, total):
@@ -262,21 +239,6 @@ def _revive_gate(idx, total):
         return True
     print(f'[DESKTOP] {idx + 1}/{total} — still dead after clicking Revive, moving on (retry next visit)')
     return False
-
-
-def _first_run(idx):
-    """Full setup, once per desktop on the first visit (the character is alive by now)."""
-    print(f'  [INIT] First visit to desktop {idx + 1} — full setup')
-    if FIRST_RUN_REPAIR:
-        run_repair()
-    else:
-        print('  [INIT] first-run repair turned off in settings — skipping')
-    open_warehouse()
-    _compose()
-    ensure_arrows()
-    run_db_scroll()
-    _last_scan[idx] = time.time()
-    return True
 
 
 def _go_to_desktop(idx, retries=3):
@@ -304,52 +266,45 @@ def _main():
         print(f'  {i}...')
         time.sleep(1)
 
-    initialized = set()          # desktops that already had their first-run setup
-    pending_arrows = set()       # desktops still owed a grab_arrows run in the current pass
+    visited = set()              # desktops seen at least once (first visit may repair)
     pending_repair = set()       # desktops still owed a repair run in the current pass
     _load_timer_state()
     threading.Thread(target=_timer_status_loop, daemon=True, name='timer-status').start()
 
     while True:
         now = time.time()
-        if now - _timer_start['arrows'] >= ARROWS_INTERVAL:
-            print(f'[TIMER] {ARROWS_INTERVAL}s — grab_arrows queued for all desktops')
-            pending_arrows = set(range(total))
-            _timer_start['arrows'] = now
         if now - _timer_start['repair'] >= REPAIR_INTERVAL:
             print(f'[TIMER] {REPAIR_INTERVAL}s — repair queued for all desktops')
             pending_repair = set(range(total))
             _timer_start['repair'] = now
 
+        if current not in visited:
+            visited.add(current)
+            if FIRST_RUN_REPAIR:
+                pending_repair.add(current)
+
         if not find_game_window():
-            # crashed / closed / frozen: don't click blindly here — move on. Its first-run setup
-            # and any queued repair/arrows stay pending until the game is back.
+            # crashed / closed / frozen: don't click blindly here — move on; anything due stays due
             print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
-        elif not _account_online():
-            # window still open but no in-game UI even after Alt+P — likely disconnected
-            print(f'[DESKTOP] {current + 1}/{total} — game open but no in-game UI (disconnected?), skipping')
         else:
             if not focus_game_window():   # the game ignores the mouse until it's the active window
                 print('  [DESKTOP] could not bring the game window to the front')
-            if _revive_gate(current, total):
-                print(f'[DESKTOP] Processing {current + 1}/{total}')
-                if current not in initialized:
-                    _first_run(current)
-                    initialized.add(current)
-                    pending_arrows.discard(current)   # just did both as part of the setup
-                    pending_repair.discard(current)
+            repair_due = current in pending_repair
+            service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
+            if _revive_gate(current, total) and (repair_due or service_due):
+                print(f'[DESKTOP] Processing {current + 1}/{total}'
+                      + (' — repair' if repair_due else '') + (' — service' if service_due else ''))
+                if not _open_bank_quick():
+                    # no response to Alt+P: likely disconnected — skip, retry next visit
+                    print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
                 else:
-                    if current in pending_repair:
+                    if repair_due:
                         run_repair()
                         pending_repair.discard(current)
-                    if time.time() - _last_scan.get(current, 0) >= SCAN_INTERVAL:
-                        _scan_inventory(current)
-                    if current in pending_arrows:
-                        ensure_arrows()
-                        pending_arrows.discard(current)
-
-                scatter.volley()   # one right-click around a random corner of the VIP page
-                time.sleep(VISIT_WAIT)
+                    if service_due:
+                        _service(current)
+                    panels.close_all()   # inventory, bank and VIP menu
+            time.sleep(VISIT_WAIT)
 
         if total < 2:
             continue

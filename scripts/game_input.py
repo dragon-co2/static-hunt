@@ -149,15 +149,52 @@ def click(x, y, button='left', hold=0.1):
     click_here(button, hold)
 
 
+# Keyboard: the game reads keys by hardware scan code. pyautogui sends only virtual-key codes
+# (ignored), and keys sent through the Interception driver were ignored too — but SendInput with
+# KEYEVENTF_SCANCODE works (tested: Alt+P opens the bank). So keys always go this way.
+_NAMED_VK = {'alt': 0x12, 'shift': 0x10, 'ctrl': 0x11, 'esc': 0x1B, 'enter': 0x0D,
+             'tab': 0x09, 'space': 0x20}
+_KEYEVENTF_KEYUP, _KEYEVENTF_SCANCODE, _INPUT_KEYBOARD = 0x0002, 0x0008, 1
+
+
+class _KEYBDINPUT(ctypes.Structure):
+    _fields_ = [('wVk', ctypes.wintypes.WORD), ('wScan', ctypes.wintypes.WORD),
+                ('dwFlags', ctypes.wintypes.DWORD), ('time', ctypes.wintypes.DWORD),
+                ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong))]
+
+
+class _MOUSEINPUT(ctypes.Structure):  # only here so the union has the full INPUT size
+    _fields_ = [('dx', ctypes.wintypes.LONG), ('dy', ctypes.wintypes.LONG),
+                ('mouseData', ctypes.wintypes.DWORD), ('dwFlags', ctypes.wintypes.DWORD),
+                ('time', ctypes.wintypes.DWORD), ('dwExtraInfo', ctypes.POINTER(ctypes.c_ulong))]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [('ki', _KEYBDINPUT), ('mi', _MOUSEINPUT)]
+
+
+class _INPUT(ctypes.Structure):
+    _fields_ = [('type', ctypes.wintypes.DWORD), ('u', _INPUTUNION)]
+
+
+def _scan_code(key):
+    vk = _NAMED_VK.get(key.lower())
+    if vk is None and len(key) == 1 and key.isascii() and key.isalnum():
+        vk = ord(key.upper())  # A-Z / 0-9 virtual-key codes are their ASCII codes, whatever the layout
+    if vk is None:
+        raise ValueError(f'unknown key: {key!r}')
+    return ctypes.windll.user32.MapVirtualKeyW(vk, 0)  # MAPVK_VK_TO_VSC
+
+
+def _send_key(key, up):
+    flags = _KEYEVENTF_SCANCODE | (_KEYEVENTF_KEYUP if up else 0)
+    inp = _INPUT(type=_INPUT_KEYBOARD, u=_INPUTUNION(ki=_KEYBDINPUT(0, _scan_code(key), flags, 0, None)))
+    ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+
+
 def key_down(key):
-    if DRIVER:
-        interception.key_down(key, 0)
-    else:
-        pyautogui.keyDown(key)
+    _send_key(key, up=False)
 
 
 def key_up(key):
-    if DRIVER:
-        interception.key_up(key, 0)
-    else:
-        pyautogui.keyUp(key)
+    _send_key(key, up=True)
