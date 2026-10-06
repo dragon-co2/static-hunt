@@ -293,7 +293,12 @@ def _main():
                     print('  [DESKTOP] could not bring the game window to the front')
                 repair_due = current in pending_repair
                 service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
-                if _revive_gate(current, total) and (repair_due or service_due):
+                alive = _revive_gate(current, total)
+                if alive and not (repair_due or service_due):
+                    # nothing to do this visit — say so, so a quiet log doesn't look like a hang
+                    left = SERVICE_INTERVAL - (time.time() - _last_service.get(current, 0))
+                    print(f'[DESKTOP] {current + 1}/{total} — idle, next service in {_fmt_left(left)}')
+                elif alive:
                     print(f'[DESKTOP] Processing {current + 1}/{total}'
                           + (' — repair' if repair_due else '') + (' — service' if service_due else ''))
                     if not _open_bank_quick():
