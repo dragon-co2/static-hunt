@@ -29,12 +29,13 @@ CONF_PLAY  = 0.8
 CONF_LOGIN = 0.8
 
 # The login form comes in two layouts. Positions are from each image's top-left corner:
-#   user  = right end of the Username box (the caret lands after any remembered text)
-#   pass  = right end of the Password box, left of the show/hide eye icon
+#   user  = ~3/4 along the Username box: past any remembered text (so the caret lands after it),
+#           well clear of the box's edge and its label
+#   pass  = ~3/4 along the Password box, well clear of the show/hide eye icon
 #   login = the Login button
 FORMS = [
-    ('big',   _tmpl_login,       {'user': (318, 90), 'pass': (295, 135), 'login': (236, 280)}),  # 472x362
-    ('small', _tmpl_login_small, {'user': (215, 97), 'pass': (200, 128), 'login': (164, 228)}),  # 331x278
+    ('big',   _tmpl_login,       {'user': (270, 90), 'pass': (250, 135), 'login': (236, 280)}),  # 472x362
+    ('small', _tmpl_login_small, {'user': (175, 97), 'pass': (165, 128), 'login': (164, 228)}),  # 331x278
 ]
 CLEAR_KEYS     = 40           # backspaces to empty a field that might hold a remembered value
 
@@ -115,6 +116,31 @@ def wait_until_loaded():
     return True
 
 
+def _save_debug(layout, box, pos, account):
+    """Saves the login form as typed (just before Login is clicked) with a red cross where each
+    click went, to logs/login_debug_<account>.png — to see if the clicks hit the boxes and the
+    password dots were typed. The password itself only shows as the game's dots."""
+    try:
+        img = screen.grab_bgr()
+        x, y, w, h = box
+        pad = 20
+        crop = img[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad].copy()
+        ox, oy = x - max(0, x - pad), y - max(0, y - pad)
+        for name in ('user', 'pass', 'login'):
+            px, py = pos[name][0] + ox, pos[name][1] + oy
+            cv2.drawMarker(crop, (px, py), (0, 0, 255), cv2.MARKER_CROSS, 18, 2)
+            cv2.putText(crop, name, (px + 8, py - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
+        cv2.putText(crop, f'{layout} form, password {len(account.password)} chars',
+                    (5, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
+        out_dir = os.path.join(app_root(), 'logs')
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir, f'login_debug_{account.slot}.png')
+        cv2.imwrite(path, crop)
+        print(f'[LOGIN] debug picture saved: {path}')
+    except Exception as e:
+        print(f'[LOGIN] could not save the debug picture ({e})')
+
+
 def launch(game_path):
     """Starts the game launcher on the current desktop."""
     print(f'[LOGIN] starting {game_path}')
@@ -153,6 +179,8 @@ def login(account, launch_first=True):
     print(f'[LOGIN] typing username {account.username!r} and the password')
     _fill(box, pos['user'], account.username)
     _fill(box, pos['pass'], account.password)
+    time.sleep(0.3)
+    _save_debug(layout, box, pos, account)
     print('[LOGIN] clicking Login')
     _click(box[0] + pos['login'][0], box[1] + pos['login'][1])
 
