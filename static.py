@@ -323,19 +323,7 @@ def _main():
             if idx:
                 _go_to_desktop(idx)
             try:
-                # open / log in / auto hunt, then this account's first service round right away
-                # (bank, dragonballs, arrows, deposit, close panels) before moving to the next one
-                if _ensure_account(idx, total, accts) and _revive_gate(idx, total):
-                    visited.add(idx)
-                    print(f'[DESKTOP] Processing {idx + 1}/{total} — first service'
-                          + (' + repair' if FIRST_RUN_REPAIR else ''))
-                    if _open_bank_quick():
-                        if FIRST_RUN_REPAIR:
-                            run_repair()
-                        _service(idx)
-                        panels.close_all()
-                    else:
-                        print(f'[DESKTOP] {idx + 1}/{total} — bank did not open, service left for the rounds')
+                _ensure_account(idx, total, accts)   # open / log in / auto hunt — services come in the rounds
             except OSError as e:
                 print(f'[ACCOUNTS] {idx + 1}/{total} — screen unavailable ({e}); waiting for it')
                 screen.wait_for_screen()
