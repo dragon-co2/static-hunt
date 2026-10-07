@@ -152,9 +152,7 @@ def login(account, launch_first=True):
         gi.use_english_layout(hwnd)   # so the typed keys come out as Latin letters
         time.sleep(0.2)
 
-    print(f'[LOGIN] typing username {account.username!r}')
-    n = _fill(box, pos['user'], account.username)
-    print(f'[LOGIN] username typed ({n}/{len(account.username)} chars)')
+    # password first, then username
     if not account.password:
         print('[LOGIN] no password for this account — skipping the password box')
     else:
@@ -162,6 +160,9 @@ def login(account, launch_first=True):
         n = _fill(box, pos['pass'], account.password, secret=True)
         print(f'[LOGIN] password typed ({n}/{len(account.password)} chars)'
               + ('' if n == len(account.password) else ' — some characters could not be typed'))
+    print(f'[LOGIN] typing username {account.username!r}')
+    n = _fill(box, pos['user'], account.username)
+    print(f'[LOGIN] username typed ({n}/{len(account.username)} chars)')
     print('[LOGIN] clicking Login')
     _click(box[0] + pos['login'][0], box[1] + pos['login'][1])
 
