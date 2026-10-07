@@ -215,14 +215,17 @@ def use_english_layout(hwnd):
     ctypes.windll.user32.PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, _us_layout())
 
 
-def type_text(text, delay=0.04):
+def type_text(text, delay=0.04, secret=False):
     """Types `text` key by key as hardware scan codes (US layout; Shift for capitals and symbols).
-    Characters a US keyboard can't type are skipped with a warning."""
+    Characters a US keyboard can't type are skipped with a warning — for a secret (password) the
+    character itself is never printed, only its position. Returns how many characters were typed."""
     hkl = _us_layout()
-    for ch in text:
+    typed = 0
+    for pos, ch in enumerate(text, 1):
         res = ctypes.windll.user32.VkKeyScanExW(ord(ch), hkl)
         if res == -1 or (res & 0xFFFF) == 0xFFFF:
-            print(f'[INPUT] cannot type character {ch!r} on a US keyboard — skipped')
+            what = f'character #{pos}' if secret else f'character {ch!r}'
+            print(f'[INPUT] cannot type {what} on a US keyboard — skipped')
             continue
         vk, shift = res & 0xFF, bool(res & 0x100)
         scan = ctypes.windll.user32.MapVirtualKeyExW(vk, 0, hkl)  # MAPVK_VK_TO_VSC
@@ -233,7 +236,9 @@ def type_text(text, delay=0.04):
         _send_scan(scan, up=True)
         if shift:
             key_up('shift')
+        typed += 1
         time.sleep(delay)
+    return typed
 
 
 def press(key, times=1, delay=0.03):

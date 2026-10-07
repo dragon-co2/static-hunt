@@ -98,12 +98,13 @@ def _click(x, y):
     time.sleep(0.3)
 
 
-def _fill(box, field_end, text):
-    """Clicks at the right end of a field (caret after any saved text), clears it, types `text`."""
+def _fill(box, field_end, text, secret=False):
+    """Clicks at the right end of a field (caret after any saved text), clears it, types `text`.
+    Returns how many characters were typed."""
     fx, fy = box[0] + field_end[0], box[1] + field_end[1]
     _click(fx, fy)
     gi.press('backspace', CLEAR_KEYS, delay=0.01)
-    gi.type_text(text)
+    return gi.type_text(text, secret=secret)
 
 
 def wait_until_loaded():
@@ -114,31 +115,6 @@ def wait_until_loaded():
         return False
     time.sleep(SETTLE)
     return True
-
-
-def _save_debug(layout, box, pos, account):
-    """Saves the login form as typed (just before Login is clicked) with a red cross where each
-    click went, to logs/login_debug_<account>.png — to see if the clicks hit the boxes and the
-    password dots were typed. The password itself only shows as the game's dots."""
-    try:
-        img = screen.grab_bgr()
-        x, y, w, h = box
-        pad = 20
-        crop = img[max(0, y - pad):y + h + pad, max(0, x - pad):x + w + pad].copy()
-        ox, oy = x - max(0, x - pad), y - max(0, y - pad)
-        for name in ('user', 'pass', 'login'):
-            px, py = pos[name][0] + ox, pos[name][1] + oy
-            cv2.drawMarker(crop, (px, py), (0, 0, 255), cv2.MARKER_CROSS, 18, 2)
-            cv2.putText(crop, name, (px + 8, py - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 1)
-        cv2.putText(crop, f'{layout} form, password {len(account.password)} chars',
-                    (5, 14), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 255), 1)
-        out_dir = os.path.join(app_root(), 'logs')
-        os.makedirs(out_dir, exist_ok=True)
-        path = os.path.join(out_dir, f'login_debug_{account.slot}.png')
-        cv2.imwrite(path, crop)
-        print(f'[LOGIN] debug picture saved: {path}')
-    except Exception as e:
-        print(f'[LOGIN] could not save the debug picture ({e})')
 
 
 def launch(game_path):
@@ -176,11 +152,16 @@ def login(account, launch_first=True):
         gi.use_english_layout(hwnd)   # so the typed keys come out as Latin letters
         time.sleep(0.2)
 
-    print(f'[LOGIN] typing username {account.username!r} and the password')
-    _fill(box, pos['user'], account.username)
-    _fill(box, pos['pass'], account.password)
-    time.sleep(0.3)
-    _save_debug(layout, box, pos, account)
+    print(f'[LOGIN] typing username {account.username!r}')
+    n = _fill(box, pos['user'], account.username)
+    print(f'[LOGIN] username typed ({n}/{len(account.username)} chars)')
+    if not account.password:
+        print('[LOGIN] no password for this account — skipping the password box')
+    else:
+        print(f'[LOGIN] typing password ({len(account.password)} chars)')
+        n = _fill(box, pos['pass'], account.password, secret=True)
+        print(f'[LOGIN] password typed ({n}/{len(account.password)} chars)'
+              + ('' if n == len(account.password) else ' — some characters could not be typed'))
     print('[LOGIN] clicking Login')
     _click(box[0] + pos['login'][0], box[1] + pos['login'][1])
 

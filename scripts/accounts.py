@@ -42,11 +42,16 @@ def load():
         user = (s[f'ACCOUNT_{i}_USER'] or '').strip()
         if not user:
             continue
-        password = secret.unprotect(s[f'ACCOUNT_{i}_PASS'])
-        if not password:
-            print(f'[ACCOUNTS] account {i} ({user}): no usable saved password — skipped '
-                  '(set it again in the settings on this PC)')
+        stored = s[f'ACCOUNT_{i}_PASS']
+        if not stored:
+            print(f'[ACCOUNTS] account {i} ({user}): no password saved — skipped')
             continue
+        password = secret.unprotect(stored)
+        if not password:
+            print(f'[ACCOUNTS] account {i} ({user}): could not decrypt the saved password (saved on '
+                  'another PC or Windows user?) — skipped; set it again in the settings on this PC')
+            continue
+        print(f'[ACCOUNTS] account {i} ({user}): password decrypted ({len(password)} chars)')
         out.append(Account(i, len(out) + 1, user, password))
     return out
 
