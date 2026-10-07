@@ -152,7 +152,7 @@ def click(x, y, button='left', hold=0.1):
 # Keyboard: the game reads keys by hardware scan code. pyautogui sends only virtual-key codes
 # (ignored), and keys sent through the Interception driver were ignored too — but SendInput with
 # KEYEVENTF_SCANCODE works (tested: Alt+P opens the bank). So keys always go this way.
-_NAMED_VK = {'alt': 0x12, 'shift': 0x10, 'ctrl': 0x11, 'esc': 0x1B, 'enter': 0x0D,
+_NAMED_VK = {'alt': 0x12, 'shift': 0x10, 'ctrl': 0x11, 'esc': 0x1B, 'enter': 0x0D, 'backspace': 0x08,
              'tab': 0x09, 'space': 0x20}
 _KEYEVENTF_KEYUP, _KEYEVENTF_SCANCODE, _INPUT_KEYBOARD = 0x0002, 0x0008, 1
 
@@ -186,10 +186,63 @@ def _scan_code(key):
     return ctypes.windll.user32.MapVirtualKeyW(vk, 0)  # MAPVK_VK_TO_VSC
 
 
-def _send_key(key, up):
+def _send_scan(scan, up):
     flags = _KEYEVENTF_SCANCODE | (_KEYEVENTF_KEYUP if up else 0)
-    inp = _INPUT(type=_INPUT_KEYBOARD, u=_INPUTUNION(ki=_KEYBDINPUT(0, _scan_code(key), flags, 0, None)))
+    inp = _INPUT(type=_INPUT_KEYBOARD, u=_INPUTUNION(ki=_KEYBDINPUT(0, scan, flags, 0, None)))
     ctypes.windll.user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+
+
+def _send_key(key, up):
+    _send_scan(_scan_code(key), up)
+
+
+_US_LAYOUT = None
+
+
+def _us_layout():
+    """HKL of the US English layout (loaded, not activated) — maps characters to physical keys
+    the same way whatever layout the PC is set to (e.g. Arabic)."""
+    global _US_LAYOUT
+    if _US_LAYOUT is None:
+        _US_LAYOUT = ctypes.windll.user32.LoadKeyboardLayoutW('00000409', 0)
+    return _US_LAYOUT
+
+
+def use_english_layout(hwnd):
+    """Asks the window to switch its input language to US English, so the scan codes typed into
+    it come out as Latin letters, not as the keys' Arabic (or other) characters."""
+    WM_INPUTLANGCHANGEREQUEST = 0x0050
+    ctypes.windll.user32.PostMessageW(hwnd, WM_INPUTLANGCHANGEREQUEST, 0, _us_layout())
+
+
+def type_text(text, delay=0.04):
+    """Types `text` key by key as hardware scan codes (US layout; Shift for capitals and symbols).
+    Characters a US keyboard can't type are skipped with a warning."""
+    hkl = _us_layout()
+    for ch in text:
+        res = ctypes.windll.user32.VkKeyScanExW(ord(ch), hkl)
+        if res == -1 or (res & 0xFFFF) == 0xFFFF:
+            print(f'[INPUT] cannot type character {ch!r} on a US keyboard — skipped')
+            continue
+        vk, shift = res & 0xFF, bool(res & 0x100)
+        scan = ctypes.windll.user32.MapVirtualKeyExW(vk, 0, hkl)  # MAPVK_VK_TO_VSC
+        if shift:
+            key_down('shift')
+        _send_scan(scan, up=False)
+        time.sleep(0.02)
+        _send_scan(scan, up=True)
+        if shift:
+            key_up('shift')
+        time.sleep(delay)
+
+
+def press(key, times=1, delay=0.03):
+    """Taps a named key (e.g. 'backspace', 'enter') `times` times."""
+    for _ in range(times):
+        key_down(key)
+        time.sleep(0.02)
+        key_up(key)
+        time.sleep(delay)
 
 
 def key_down(key):

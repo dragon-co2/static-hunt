@@ -209,6 +209,16 @@
     font-family: var(--mono);
     font-size: 18px;
   }
+  .axis-row input[type="text"], .axis-row input[type="password"] {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 18px;
+  }
   .axis-row select {
     flex: 1;
     padding: 8px 10px;
@@ -319,6 +329,8 @@ function isInt(meta) { return meta.type === 'int'; }
 function isChoice(meta) { return meta.type === 'choice'; }
 function isColor(meta) { return meta.type === 'color'; }
 function isBool(meta) { return meta.type === 'bool'; }
+function isText(meta) { return meta.type === 'text' || meta.type === 'password' || meta.type === 'file'; }
+const PASSWORD_MASK = '__saved__';  // the server sends this instead of a stored password
 
 function fmtNumber(value, meta) {
   if (isInt(meta)) return String(Math.round(value));
@@ -530,6 +542,60 @@ function applySectionEnabled(script) {
   }
 }
 
+// Text box for type "text", masked box for type "password". A stored password never reaches the
+// page: it shows as an empty box with a "saved" hint, and only typing a new one replaces it.
+function makeTextRow(script, name, meta) {
+  const row = document.createElement('div');
+  row.className = 'axis-row';
+  const input = document.createElement('input');
+  input.type = meta.type === 'password' ? 'password' : 'text';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  const value = state[script][name] || '';
+  if (meta.type === 'password' && value === PASSWORD_MASK) {
+    input.value = '';
+    input.placeholder = 'saved \u2014 type to change';
+  } else {
+    input.value = value;
+    input.placeholder = meta.type === 'password' ? 'not set' : '';
+  }
+  input.addEventListener('input', () => {
+    // a password box emptied by hand goes back to "keep the saved one"
+    state[script][name] = (meta.type === 'password' && input.value === '' && input.placeholder.startsWith('saved'))
+      ? PASSWORD_MASK : input.value;
+    markDirty(true);
+    refreshFieldRow(script, name);
+  });
+  row.appendChild(input);
+  if (meta.type === 'file') {
+    // the page can't see real file paths, so the server shows Windows' own Open dialog
+    const browse = document.createElement('button');
+    browse.className = 'reset-btn';
+    browse.textContent = 'Browse\u2026';
+    browse.addEventListener('click', async () => {
+      browse.disabled = true;
+      try {
+        const res = await fetch('/api/pick-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filter: meta.filter || '', current: input.value }),
+        });
+        const data = await res.json();
+        if (data.path) {
+          input.value = data.path;
+          state[script][name] = data.path;
+          markDirty(true);
+          refreshFieldRow(script, name);
+        }
+      } finally {
+        browse.disabled = false;
+      }
+    });
+    row.appendChild(browse);
+  }
+  return row;
+}
+
 function fillControl(control, script, name, meta) {
   if (isBool(meta)) {
     control.appendChild(makeToggleRow(script, name));
@@ -538,6 +604,8 @@ function fillControl(control, script, name, meta) {
     control.appendChild(makeAxisRow(script, name, 1, 'Y', meta));
   } else if (isChoice(meta) || isColor(meta)) {
     control.appendChild(makeValueRow(script, name, meta));
+  } else if (isText(meta)) {
+    control.appendChild(makeTextRow(script, name, meta));
   } else {
     control.appendChild(makeAxisRow(script, name, null, '', meta));
   }

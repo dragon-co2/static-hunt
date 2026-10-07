@@ -34,6 +34,60 @@
       "desc": "Per desktop: how often to do a service round — press Alt+P (bank + inventory), turn 10 dragonballs into a scroll and stash it, grab and equip arrows if there are none, deposit +N items through VIP > Compose, then close the inventory, bank and VIP menu. Between rounds a visit only checks for death."
     }
   },
+  "accounts": {
+    "__title__": "Accounts",
+    "ENABLED": {
+      "type": "bool",
+      "default": false,
+      "desc": "Run up to 4 game accounts, one per desktop (account 1 on desktop 1, ...). When on, the script opens and logs into each account, logs back in after a crash, and turns on auto hunt. Passwords are stored encrypted for this Windows user only."
+    },
+    "GAME_PATH": {
+      "type": "file",
+      "default": "",
+      "filter": "Programs (*.exe)|*.exe",
+      "desc": "The game's launcher (e.g. Play.exe). Used to open an account's game when its desktop has none running — at start and after a crash."
+    },
+    "ACCOUNT_1_USER": {
+      "type": "text",
+      "default": "",
+      "desc": "Account 1 (desktop 1): game username. Leave empty to not use this slot."
+    },
+    "ACCOUNT_1_PASS": {
+      "type": "password",
+      "default": "",
+      "desc": "Account 1 (desktop 1): game password. Saved encrypted — it is never shown again; type a new one to change it."
+    },
+    "ACCOUNT_2_USER": {
+      "type": "text",
+      "default": "",
+      "desc": "Account 2 (desktop 2): game username. Leave empty to not use this slot."
+    },
+    "ACCOUNT_2_PASS": {
+      "type": "password",
+      "default": "",
+      "desc": "Account 2 (desktop 2): game password. Saved encrypted — it is never shown again; type a new one to change it."
+    },
+    "ACCOUNT_3_USER": {
+      "type": "text",
+      "default": "",
+      "desc": "Account 3 (desktop 3): game username. Leave empty to not use this slot."
+    },
+    "ACCOUNT_3_PASS": {
+      "type": "password",
+      "default": "",
+      "desc": "Account 3 (desktop 3): game password. Saved encrypted — it is never shown again; type a new one to change it."
+    },
+    "ACCOUNT_4_USER": {
+      "type": "text",
+      "default": "",
+      "desc": "Account 4 (desktop 4): game username. Leave empty to not use this slot."
+    },
+    "ACCOUNT_4_PASS": {
+      "type": "password",
+      "default": "",
+      "desc": "Account 4 (desktop 4): game password. Saved encrypted — it is never shown again; type a new one to change it."
+    }
+  },
   "revive": {
     "__title__": "Revive",
     "REVIVE_DELAY": {

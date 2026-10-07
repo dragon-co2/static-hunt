@@ -30,6 +30,9 @@ from db_scroll import run_db_scroll
 import panels
 import screen
 import game_input
+import accounts
+import login
+import auto_hunt
 import overlay
 from game_window import find_game_window, focus_game_window
 import repaire as _rep
@@ -65,6 +68,8 @@ SERVICE_INTERVAL = _S['SERVICE_INTERVAL']        # per desktop: seconds between 
 _timer_start = {}   # 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
 _last_service = {}  # desktop index -> time.time() of its last service round
+_last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
+LAUNCH_COOLDOWN = 120  # seconds before a desktop's game may be started again after a failed login
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
 _shift_held = False
@@ -242,6 +247,36 @@ def _revive_gate(idx, total):
     return False
 
 
+def _ensure_account(idx, total, accts):
+    """Accounts mode: makes sure desktop idx runs its account, logged in and hunting.
+      - no game window (first run / crash): start the game, log in, turn on auto hunt
+      - game open but on the login form (kicked / disconnected): log in again, auto hunt
+    Returns True when the account is in the game, False to skip this desktop for now."""
+    acc = accts[idx] if idx < len(accts) else None
+    if acc is None:  # more desktops than accounts — nothing to open here
+        return find_game_window() is not None
+
+    if not find_game_window():
+        since = time.time() - _last_launch.get(idx, 0)
+        if since < LAUNCH_COOLDOWN:
+            print(f'[ACCOUNTS] {idx + 1}/{total} — game still not up after a start {int(since)}s ago, '
+                  f'waiting before trying again')
+            return False
+        print(f'[ACCOUNTS] {idx + 1}/{total} — no game running: opening {acc.username}')
+        _last_launch[idx] = time.time()
+        if not login.login(acc, launch_first=True):
+            return False
+        auto_hunt.start_hunting()
+        return True
+
+    if login.form_showing():
+        print(f'[ACCOUNTS] {idx + 1}/{total} — {acc.username} is on the login screen: logging in')
+        if not login.login(acc, launch_first=False):
+            return False
+        auto_hunt.start_hunting()
+    return True
+
+
 def _go_to_desktop(idx, retries=3):
     """Jumps directly to desktop idx + 1 (no Ctrl+Win+arrow stepping), then confirms that's
     really the current desktop; retries if the switch didn't land."""
@@ -257,6 +292,14 @@ def _go_to_desktop(idx, retries=3):
 
 
 def _main():
+    accts = []
+    if accounts.enabled():
+        accts = accounts.load()
+        print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
+        if accts:
+            accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
+        if not accounts.game_path():
+            print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')
     total = len(get_virtual_desktops())         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
     current = 0                                  # 0-based; always start on desktop 1
     print(f'[DESKTOP] {total} desktop(s) found — jumping to desktop 1')
@@ -272,6 +315,34 @@ def _main():
     _load_timer_state()
     threading.Thread(target=_timer_status_loop, daemon=True, name='timer-status').start()
 
+    if accts:
+        # bring-up pass: get every account into the game first, back to back (no service, no
+        # waiting between desktops), then start the normal rounds from desktop 1
+        print(f'[ACCOUNTS] starting up {len(accts)} account(s)')
+        for idx in range(total):
+            if idx:
+                _go_to_desktop(idx)
+            try:
+                # open / log in / auto hunt, then this account's first service round right away
+                # (bank, dragonballs, arrows, deposit, close panels) before moving to the next one
+                if _ensure_account(idx, total, accts) and _revive_gate(idx, total):
+                    visited.add(idx)
+                    print(f'[DESKTOP] Processing {idx + 1}/{total} — first service'
+                          + (' + repair' if FIRST_RUN_REPAIR else ''))
+                    if _open_bank_quick():
+                        if FIRST_RUN_REPAIR:
+                            run_repair()
+                        _service(idx)
+                        panels.close_all()
+                    else:
+                        print(f'[DESKTOP] {idx + 1}/{total} — bank did not open, service left for the rounds')
+            except OSError as e:
+                print(f'[ACCOUNTS] {idx + 1}/{total} — screen unavailable ({e}); waiting for it')
+                screen.wait_for_screen()
+        if total > 1:
+            _go_to_desktop(current)
+        print('[ACCOUNTS] start-up done — starting the rounds')
+
     while True:
         now = time.time()
         if now - _timer_start['repair'] >= REPAIR_INTERVAL:
@@ -285,7 +356,10 @@ def _main():
                 pending_repair.add(current)
 
         try:
-            if not find_game_window():
+            if accts and not _ensure_account(current, total, accts):
+                # accounts mode: couldn't get this desktop's account into the game — try next visit
+                print(f'[DESKTOP] {current + 1}/{total} — account not in game yet, skipping')
+            elif not find_game_window():
                 # crashed / closed / frozen: don't click blindly here — move on; anything due stays due
                 print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
             else:

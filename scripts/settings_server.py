@@ -27,6 +27,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import dragon_settings as ds
+import secret
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = os.path.join(_BASE, 'settings_ui.html')
@@ -54,6 +55,67 @@ def save_overrides(overrides):
     with open(tmp_path, 'w', encoding='utf-8') as f:
         json.dump(overrides, f, ensure_ascii=False, indent=2)
     os.replace(tmp_path, ds.override_path())
+
+
+PASSWORD_MASK = '__saved__'  # what the page gets instead of a stored password — never the real one
+
+
+def _is_password(schema, script, name):
+    meta = schema.get(script, {}).get(name)
+    return isinstance(meta, dict) and meta.get('type') == 'password'
+
+
+def masked_overrides(overrides, schema):
+    """Overrides as sent to the page: stored passwords replaced by PASSWORD_MASK."""
+    out = {}
+    for script, fields in overrides.items():
+        out[script] = {name: (PASSWORD_MASK if _is_password(schema, script, name) and value else value)
+                       for name, value in fields.items()}
+    return out
+
+
+def _protect_passwords(overrides, schema, previous):
+    """Password fields: PASSWORD_MASK keeps the previously stored (encrypted) value, a new value
+    is encrypted with DPAPI, an empty one is dropped."""
+    for script in list(overrides):
+        for name in list(overrides[script]):
+            if not _is_password(schema, script, name):
+                continue
+            value = overrides[script][name]
+            if value == PASSWORD_MASK:
+                kept = previous.get(script, {}).get(name)
+                if kept:
+                    overrides[script][name] = kept
+                else:
+                    del overrides[script][name]
+            elif value and not secret.is_protected(value):
+                overrides[script][name] = secret.protect(value)
+        if not overrides[script]:
+            del overrides[script]
+    return overrides
+
+
+def pick_file(filter_spec='All files (*.*)|*.*', start=''):
+    """Shows Windows' own Open File dialog (via PowerShell, so it doesn't care which thread the
+    request arrives on) and returns the chosen path, or '' if cancelled."""
+    def ps_quote(s):
+        return "'" + str(s).replace("'", "''") + "'"
+    start_dir = os.path.dirname(start) if start and os.path.isdir(os.path.dirname(start)) else ''
+    script = (
+        "Add-Type -AssemblyName System.Windows.Forms; "
+        "$d = New-Object System.Windows.Forms.OpenFileDialog; "
+        f"$d.Filter = {ps_quote(filter_spec)}; "
+        + (f"$d.InitialDirectory = {ps_quote(start_dir)}; " if start_dir else '')
+        + "$d.Title = 'Choose the file'; "
+        "$f = New-Object System.Windows.Forms.Form -Property @{TopMost=$true}; "
+        "if ($d.ShowDialog($f) -eq 'OK') { [Console]::Out.Write($d.FileName) }"
+    )
+    try:
+        out = subprocess.run(['powershell', '-NoProfile', '-STA', '-Command', script],
+                             capture_output=True, text=True, timeout=600)
+        return out.stdout.strip()
+    except Exception:
+        return ''
 
 
 def compute_overrides(values, schema):
@@ -130,7 +192,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if self.path == '/api/overrides':
-            self._send_json(load_overrides())
+            self._send_json(masked_overrides(load_overrides(), load_schema()))
             return
 
         if self.path == '/api/override-path':
@@ -145,8 +207,9 @@ class Handler(BaseHTTPRequestHandler):
             values = body.get('values', {})
             schema = load_schema()
             overrides = compute_overrides(values, schema)
+            overrides = _protect_passwords(overrides, schema, load_overrides())
             save_overrides(overrides)
-            self._send_json({'ok': True, 'overrides': overrides})
+            self._send_json({'ok': True, 'overrides': masked_overrides(overrides, schema)})
             return
 
         if self.path == '/api/reset-field':
@@ -159,7 +222,13 @@ class Handler(BaseHTTPRequestHandler):
                 if not overrides[script]:
                     del overrides[script]
                 save_overrides(overrides)
-            self._send_json({'ok': True, 'overrides': overrides})
+            self._send_json({'ok': True, 'overrides': masked_overrides(overrides, load_schema())})
+            return
+
+        if self.path == '/api/pick-file':
+            body = self._read_json_body()
+            self._send_json({'path': pick_file(body.get('filter') or 'All files (*.*)|*.*',
+                                               body.get('current') or '')})
             return
 
         if self.path == '/api/reset-all':
