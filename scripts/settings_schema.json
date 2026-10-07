@@ -199,14 +199,6 @@
       "desc": "Gap in pixels between the countdowns and the edge of the screen."
     }
   },
-  "overlay_curtain": {
-    "__title__": "Black Screen (RDP)",
-    "ENABLED": {
-      "type": "bool",
-      "default": false,
-      "desc": "Cover the screen with black (the log and timers stay visible on top). An RDP session then shows a still picture, so it uses very little internet. The script doesn't see the black screen (it's hidden from its screenshots) and clicks still reach the game. Takes effect when static.py starts."
-    }
-  },
   "db_scroll": {
     "__title__": "Dragonball Scroll",
     "ENABLED": {
