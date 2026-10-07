@@ -28,14 +28,14 @@ _tmpl_hud = cv2.imread(os.path.join(_DIR, 'options_btn.png'), cv2.IMREAD_GRAYSCA
 CONF_PLAY  = 0.8
 CONF_LOGIN = 0.8
 
-# The login form comes in two layouts. Positions are from each image's top-left corner:
-#   user  = ~3/4 along the Username box: past any remembered text (so the caret lands after it),
-#           well clear of the box's edge and its label
-#   pass  = ~3/4 along the Password box, well clear of the show/hide eye icon
+# The login form comes in two layouts (both at 1920x1080). Positions are from each image's
+# top-left corner:
+#   user  = ~3/4 along the Username box: past any remembered text, clear of the box's edge/label
+#   pass  = ~3/4 along the Password box, clear of the show/hide eye icon
 #   login = the Login button
 FORMS = [
-    ('big',   _tmpl_login,       {'user': (270, 90), 'pass': (250, 135), 'login': (236, 280)}),  # 472x362
-    ('small', _tmpl_login_small, {'user': (175, 97), 'pass': (165, 128), 'login': (164, 228)}),  # 331x278
+    ('big',   _tmpl_login,       {'user': (185, 70), 'pass': (175, 105), 'login': (176, 218)}),  # 354x282
+    ('small', _tmpl_login_small, {'user': (140, 78), 'pass': (130, 105), 'login': (140, 195)}),  # 282x243
 ]
 CLEAR_KEYS     = 40           # backspaces to empty a field that might hold a remembered value
 
@@ -197,6 +197,11 @@ def login(account, launch_first=True):
 
 if __name__ == '__main__':
     args = [a for a in sys.argv[1:] if not a.startswith('--')]
+    ok, sw, sh = accounts.screen_ok()
+    if not ok:
+        print(f'[LOGIN] ERROR: the screen is {sw}x{sh}; logging in only works at '
+              f'{accounts.REQUIRED_SCREEN[0]}x{accounts.REQUIRED_SCREEN[1]}')
+        os._exit(1)
     accts = accounts.load()
     if not accts:
         print('[LOGIN] no accounts — turn on Accounts in the settings and fill one in')

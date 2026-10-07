@@ -294,6 +294,18 @@ def _go_to_desktop(idx, retries=3):
 def _main():
     accts = []
     if accounts.enabled():
+        ok, sw, sh = accounts.screen_ok()
+        if not ok:
+            need_w, need_h = accounts.REQUIRED_SCREEN
+            print(f'[ACCOUNTS] ERROR: the screen is {sw}x{sh}, but opening accounts needs {need_w}x{need_h} '
+                  '(the login screen can only be found at that size) — accounts turned OFF for this run')
+            game_input._message_box(
+                f'Accounts are ON in the settings, but this screen is {sw}x{sh}.\n\n'
+                f'Logging in only works at {need_w}x{need_h}. Accounts are turned off for this run; '
+                'the script carries on without opening or logging in accounts.\n\n'
+                f'Set the screen to {need_w}x{need_h} and start the script again.',
+                'Dragon CO2 \u2014 accounts', 0x30)   # MB_ICONWARNING
+    if accounts.enabled() and accounts.screen_ok()[0]:
         accts = accounts.load()
         print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
         if accts:

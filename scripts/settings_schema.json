@@ -39,7 +39,7 @@
     "ENABLED": {
       "type": "bool",
       "default": false,
-      "desc": "Run up to 4 game accounts, one per desktop (account 1 on desktop 1, ...). When on, the script opens and logs into each account, logs back in after a crash, and turns on auto hunt. Passwords are stored encrypted for this Windows user only."
+      "desc": "Run up to 4 game accounts, one per desktop (the first filled-in account on desktop 1, ...). When on, the script opens and logs into each account, logs back in after a crash, and turns on auto hunt. Needs the screen at 1920x1080 — at any other size this is turned off for that run with a warning, since the login screen can't be found. Passwords are stored encrypted for this Windows user only."
     },
     "GAME_PATH": {
       "type": "file",

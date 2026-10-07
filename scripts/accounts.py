@@ -8,6 +8,7 @@ import secret
 from dragon_settings import get_settings
 
 MAX_ACCOUNTS = 4
+REQUIRED_SCREEN = (1920, 1080)  # the login pictures only match at this resolution
 
 _DEFAULTS = {'ENABLED': False, 'GAME_PATH': ''}
 for _i in range(1, MAX_ACCOUNTS + 1):
@@ -48,6 +49,15 @@ def load():
             continue
         out.append(Account(i, len(out) + 1, user, password))
     return out
+
+
+def screen_ok():
+    """(ok, width, height) of the primary screen against REQUIRED_SCREEN."""
+    import mss
+    with mss.MSS() as sct:
+        mon = next((m for m in sct.monitors[1:] if m.get('is_primary')), sct.monitors[1])
+    w, h = mon['width'], mon['height']
+    return (w, h) == REQUIRED_SCREEN, w, h
 
 
 def game_path():
