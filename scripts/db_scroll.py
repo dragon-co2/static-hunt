@@ -122,15 +122,16 @@ def _stash_scrolls(s):
         time.sleep(0.4)
         for x, y in _inventory_cells(_tmpl_scroll, s['CONF_SCROLL']):
             gi.move(x, y)
-            gi.key_down('alt')
-            try:
-                time.sleep(0.1)
-                gi.down()
-                time.sleep(0.08)
-                gi.up()
-                time.sleep(0.1)
-            finally:
-                gi.key_up('alt')
+            with gi.KEYS:
+                gi.key_down('alt')
+                try:
+                    time.sleep(0.1)
+                    gi.down()
+                    time.sleep(0.08)
+                    gi.up()
+                    time.sleep(0.1)
+                finally:
+                    gi.key_up('alt')
             print(f'  [CLICK] Alt+clicked dragonball scroll @ ({x},{y})')
             time.sleep(0.3)
 

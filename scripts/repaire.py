@@ -197,14 +197,15 @@ def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay
 def _press_alt_p():
     """Presses Alt+P (remote warehouse hotkey) as a normal key tap."""
     _focus_game_window()
-    gi.key_down('alt')
-    try:
-        time.sleep(0.05)
-        gi.key_down('p')
-        time.sleep(ALT_P_HOLD)
-        gi.key_up('p')
-    finally:
-        gi.key_up('alt')
+    with gi.KEYS:
+        gi.key_down('alt')
+        try:
+            time.sleep(0.05)
+            gi.key_down('p')
+            time.sleep(ALT_P_HOLD)
+            gi.key_up('p')
+        finally:
+            gi.key_up('alt')
     print('  [KEY] Alt+P')
 
 

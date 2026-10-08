@@ -46,8 +46,8 @@ def _exe_name(hwnd):
 
 def _on_current_desktop(hwnd):
     try:
-        from pyvda import AppView
-        return AppView(hwnd=hwnd).is_on_current_desktop()
+        import desktops
+        return desktops.on_current_desktop(hwnd)
     except Exception:
         return False
 

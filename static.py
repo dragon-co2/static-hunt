@@ -20,7 +20,7 @@ comtypes.client.gen_dir = None
 
 import pyautogui
 from pynput import keyboard as pynput_kb
-from pyvda import VirtualDesktop, get_virtual_desktops
+import desktops
 
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
 from revive import handle_revive, is_dead, REVIVE_DELAY
@@ -34,7 +34,7 @@ import accounts
 import login
 import auto_hunt
 import overlay
-from game_window import find_game_window, focus_game_window
+from game_window import find_game_window, focus_game_window, is_game_window
 import repaire as _rep
 import json
 from dragon_settings import get_settings, override_dir
@@ -58,17 +58,22 @@ _S = get_settings('static', {
     'REPAIR_INTERVAL':  8000,
     'VISIT_WAIT':       15,
     'SERVICE_INTERVAL': 180,
+    'F10_CYCLONE':      False,
 })
 
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair on each desktop's first visit
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
 VISIT_WAIT       = _S['VISIT_WAIT']              # seconds to pause at the end of a desktop visit before switching
 SERVICE_INTERVAL = _S['SERVICE_INTERVAL']        # per desktop: seconds between service rounds (bank, arrows, deposit)
+F10_CYCLONE      = bool(_S['F10_CYCLONE'])       # press F10 (Cyclone) every F10_EVERY seconds while hunting
+F10_EVERY        = 10
 
 _timer_start = {}   # 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
 _last_service = {}  # desktop index -> time.time() of its last service round
 _last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
+_last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
+_f10_desktop = None # desktop index whose game the F10 thread may press F10 in (None = nowhere now)
 LAUNCH_COOLDOWN = 120  # seconds before a desktop's game may be started again after a failed login
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
@@ -277,13 +282,32 @@ def _ensure_account(idx, total, accts):
     return True
 
 
+def _f10_loop():
+    """Background thread: with F10_CYCLONE on, presses F10 every F10_EVERY seconds in the game
+    of the desktop being visited — whatever the visit is doing (bank, VIP...) — as long as its
+    account is alive. Only when a game window is in front, so the key never goes elsewhere."""
+    while True:
+        time.sleep(0.5)
+        idx = _f10_desktop
+        if idx is None or time.time() - _last_f10.get(idx, 0) < F10_EVERY:
+            continue
+        try:
+            if not is_game_window(ctypes.windll.user32.GetForegroundWindow()):
+                continue
+            game_input.press('f10')   # waits while a key combo (e.g. Alt+P) is being sent
+            _last_f10[idx] = time.time()
+        except Exception as e:
+            print(f'  [F10] could not press F10 ({type(e).__name__}: {e})')
+
+
 def _go_to_desktop(idx, retries=3):
     """Jumps directly to desktop idx + 1 (no Ctrl+Win+arrow stepping), then confirms that's
     really the current desktop; retries if the switch didn't land."""
     for attempt in range(1, retries + 1):
-        VirtualDesktop(idx + 1).go()
+        if not desktops.go(idx + 1):        # the desktops stopped answering — don't crash
+            return False
         time.sleep(SWITCH_DELAY)
-        actual = VirtualDesktop.current().number
+        actual = desktops.current()
         if actual == idx + 1:
             return True
         print(f'  [DESKTOP] switch to {idx + 1} landed on {actual} — retrying ({attempt}/{retries})')
@@ -292,6 +316,7 @@ def _go_to_desktop(idx, retries=3):
 
 
 def _main():
+    global _f10_desktop
     accts = []
     if accounts.enabled():
         ok, sw, sh = accounts.screen_ok()
@@ -312,11 +337,14 @@ def _main():
             accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
         if not accounts.game_path():
             print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')
-    total = len(get_virtual_desktops())         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
+    total = desktops.count()         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
     current = 0                                  # 0-based; always start on desktop 1
     print(f'[DESKTOP] {total} desktop(s) found — jumping to desktop 1')
     _go_to_desktop(current)
 
+    if F10_CYCLONE:
+        print(f'[F10] F10_CYCLONE on — pressing F10 every {F10_EVERY}s while hunting')
+        threading.Thread(target=_f10_loop, daemon=True).start()
     print('Starting in 3s...')
     for i in range(3, 0, -1):
         print(f'  {i}...')
@@ -368,6 +396,8 @@ def _main():
                 repair_due = current in pending_repair
                 service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
                 alive = _revive_gate(current, total)
+                if alive:
+                    _f10_desktop = current   # F10_CYCLONE: alive and in game — F10 may go here now
                 if alive and not (repair_due or service_due):
                     # nothing to do this visit — say so, so a quiet log doesn't look like a hang
                     left = SERVICE_INTERVAL - (time.time() - _last_service.get(current, 0))
@@ -392,6 +422,7 @@ def _main():
             print(f'[DESKTOP] {current + 1}/{total} — screen unavailable ({e}); waiting for it')
             screen.wait_for_screen()
 
+        _f10_desktop = None   # stop F10 before leaving (or re-checking) this desktop
         if total < 2:
             continue
         current = (current + 1) % total   # after the last desktop, jump straight back to 1

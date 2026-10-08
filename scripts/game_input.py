@@ -10,6 +10,7 @@ as Administrator, then restart Windows."""
 import ctypes
 import ctypes.wintypes
 import os
+import threading
 import time
 
 import pyautogui
@@ -154,7 +155,12 @@ def click(x, y, button='left', hold=0.1):
 # KEYEVENTF_SCANCODE works (tested: Alt+P opens the bank). So keys always go this way.
 _NAMED_VK = {'alt': 0x12, 'shift': 0x10, 'ctrl': 0x11, 'esc': 0x1B, 'enter': 0x0D, 'backspace': 0x08,
              'tab': 0x09, 'space': 0x20}
+_NAMED_VK.update({f'f{n}': 0x6F + n for n in range(1, 13)})   # F1..F12 = VK 0x70..0x7B
 _KEYEVENTF_KEYUP, _KEYEVENTF_SCANCODE, _INPUT_KEYBOARD = 0x0002, 0x0008, 1
+
+# Held around every key sequence, so keys sent from another thread (static.py's F10 presser)
+# never land in the middle of one — e.g. F10 while Alt is down would become Alt+F10.
+KEYS = threading.RLock()
 
 
 class _KEYBDINPUT(ctypes.Structure):
@@ -219,6 +225,11 @@ def type_text(text, delay=0.04, secret=False):
     """Types `text` key by key as hardware scan codes (US layout; Shift for capitals and symbols).
     Characters a US keyboard can't type are skipped with a warning — for a secret (password) the
     character itself is never printed, only its position. Returns how many characters were typed."""
+    with KEYS:
+        return _type_text(text, delay, secret)
+
+
+def _type_text(text, delay, secret):
     hkl = _us_layout()
     typed = 0
     for pos, ch in enumerate(text, 1):
@@ -243,11 +254,12 @@ def type_text(text, delay=0.04, secret=False):
 
 def press(key, times=1, delay=0.03):
     """Taps a named key (e.g. 'backspace', 'enter') `times` times."""
-    for _ in range(times):
-        key_down(key)
-        time.sleep(0.02)
-        key_up(key)
-        time.sleep(delay)
+    with KEYS:
+        for _ in range(times):
+            key_down(key)
+            time.sleep(0.02)
+            key_up(key)
+            time.sleep(delay)
 
 
 def key_down(key):

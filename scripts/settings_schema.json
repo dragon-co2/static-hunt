@@ -32,6 +32,11 @@
       "unit": "s",
       "default": 180,
       "desc": "Per desktop: how often to do a service round — press Alt+P (bank + inventory), turn 10 dragonballs into a scroll and stash it, grab and equip arrows if there are none, deposit +N items through VIP > Compose, then close the inventory, bank and VIP menu. Between rounds a visit only checks for death."
+    },
+    "F10_CYCLONE": {
+      "type": "bool",
+      "default": false,
+      "desc": "While hunting, press F10 (Cyclone) every 10 seconds on each desktop's game. It is pressed during the pause at the end of each visit (VISIT_WAIT), not while the bank or VIP menu is being used, and not while the character is dead."
     }
   },
   "accounts": {

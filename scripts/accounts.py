@@ -77,14 +77,14 @@ def game_path():
 def sync_desktops(count):
     """Makes the number of virtual desktops exactly `count`: creates the missing ones, removes the
     extra ones from the end (their windows move to desktop 1). Returns the resulting count."""
-    from pyvda import VirtualDesktop, get_virtual_desktops
-    have = len(get_virtual_desktops())
+    import desktops
+    have = desktops.count()
     if have < count:
         for _ in range(count - have):
-            VirtualDesktop.create()
+            desktops.create()
         print(f'[ACCOUNTS] created {count - have} desktop(s) — now {count}')
     elif have > count:
         for n in range(have, count, -1):
-            VirtualDesktop(n).remove(fallback=VirtualDesktop(1))
+            desktops.remove(n)
         print(f'[ACCOUNTS] removed {have - count} extra desktop(s) — now {count}')
-    return len(get_virtual_desktops())
+    return desktops.count()
