@@ -130,8 +130,8 @@ def login(account, launch_first=True):
         if not path:
             print('[LOGIN] GAME_PATH is not set or the file is missing — cannot start the game')
             return False
-        import kill_reply, kill_watch, revive
-        if kill_reply.enabled() or revive.DOUBLE_REVIVE_WAIT:
+        import kill_reply, kill_watch, notify, revive
+        if kill_reply.enabled() or revive.DOUBLE_REVIVE_WAIT or notify.enabled():
             kill_watch.ensure_chat_log(path)   # before login: the game reads it then
         launch(path)
 

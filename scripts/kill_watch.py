@@ -58,6 +58,8 @@ _lock = threading.Lock()
 _names = {}         # our characters: name (lower) -> (name as set, desktop number)
 _pending = {}        # victim (lower) -> [killer, ...] not yet handled by the main loop
 _last_killer = {}    # victim (lower) -> killer of their previous death
+_seen_streak = {}    # victim (lower) -> (killer lower, kills in a row) as seen in the chat
+on_kill = None       # optional listener: on_kill(character, desktop, killer, streak), called at once
 _recent = {}         # chat text -> time.time() first seen (dedupe across game windows)
 _started = False
 _job = None          # Windows job object: the reader dies with this script, even on a crash
@@ -120,7 +122,15 @@ def _on_text(text, character=''):
         return
     with _lock:
         _pending.setdefault(victim.lower(), []).append(killer)
+        last, n = _seen_streak.get(victim.lower(), ('', 0))
+        streak = n + 1 if last == killer.lower() else 1
+        _seen_streak[victim.lower()] = (killer.lower(), streak)
     print(f'[KILL] {ours[0]} (desktop {ours[1]}) was killed by {killer} — handled on the next visit to desktop {ours[1]}')
+    if on_kill:
+        try:
+            on_kill(ours[0], ours[1], killer, streak)
+        except Exception as e:   # a listener problem must never stop the chat reading
+            print(f'[KILL] kill listener failed ({type(e).__name__}: {e})')
 
 
 def _read_loop():

@@ -35,6 +35,7 @@ import login
 import auto_hunt
 import kill_watch
 import kill_reply
+import notify
 import overlay
 from game_window import find_game_window, focus_game_window, is_game_window
 import repaire as _rep
@@ -308,6 +309,14 @@ def _send_due_replies(idx):
             _reply_tries.pop(key, None)
 
 
+def _notify_kill(character, desktop, killer, streak):
+    """kill_watch listener: a Telegram notification as soon as the kill shows in the chat."""
+    wait = REVIVE_DELAY
+    if DOUBLE_REVIVE_WAIT and streak > 1:
+        wait = min(REVIVE_DELAY * 2 ** (streak - 1), MAX_REVIVE_WAIT)
+    notify.kill(character, desktop, killer, streak, wait)
+
+
 def _ensure_account(idx, total, accts):
     """Accounts mode: makes sure desktop idx runs its account, logged in and hunting.
       - no game window (first run / crash): start the game, log in, turn on auto hunt
@@ -391,14 +400,15 @@ def _main():
         print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
         if accts:
             accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
-        if kill_reply.enabled() or DOUBLE_REVIVE_WAIT:
+        if kill_reply.enabled() or DOUBLE_REVIVE_WAIT or notify.enabled():
             names = {a.name: a.desktop for a in accts if a.name}
             if names:
                 kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
+                kill_watch.on_kill = _notify_kill
                 kill_watch.start(names, accounts.game_path())
             else:
-                print('[KILL] Kill reply / double revive wait are on, but no account has a character '
-                      'name set (Accounts tab) — turned off for this run')
+                print('[KILL] Kill reply / double revive wait / notifications are on, but no account '
+                      'has a character name set (Accounts tab) — kill watching off for this run')
         if not accounts.game_path():
             print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')
     total = desktops.count()         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
@@ -409,6 +419,10 @@ def _main():
     if F10_CYCLONE:
         print(f'[F10] F10_CYCLONE on — pressing F10 every {F10_EVERY}s while hunting')
         threading.Thread(target=_f10_loop, daemon=True).start()
+    if notify.enabled():
+        names = [a.name or a.username for a in accts]
+        notify.send(f'\u2705 Dragon CO2 started on {_os.environ.get("COMPUTERNAME", "this PC")} \u2014 '
+                    + (f'{len(names)} account(s): {", ".join(names)}' if names else f'{total} desktop(s)'))
     print('Starting in 3s...')
     for i in range(3, 0, -1):
         print(f'  {i}...')
@@ -503,9 +517,11 @@ if __name__ == '__main__':
     _setup_log()
     try:
         _main()
-    except Exception:
+    except Exception as e:
         import traceback
         traceback.print_exc()
+        notify.send_and_wait(f'\u274C Dragon CO2 stopped on {_os.environ.get("COMPUTERNAME", "this PC")}: '
+                             f'{type(e).__name__}: {e}'[:900])
         if getattr(_sys, 'frozen', False):
             input('\nCrashed - press Enter to close...')
         raise

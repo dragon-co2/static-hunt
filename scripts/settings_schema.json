@@ -172,8 +172,33 @@
     },
     "MESSAGES": {
       "type": "lines",
-      "default": "plz stop\nenough plz\nwtf\nwhy killing me?!\nbro im just hunting\ncome on man, again?\nwhat did i do to you?\nplz let me hunt in peace\nseriously? stop it\ni'm not even fighting back\ndude chill\nwhy me tho?\nleave me alone plz\nok you win, now stop\ni'm just farming here\nnot cool man\ncan we just be friends?\nthere is space for both of us\nbro find someone your level\nreally? again??\ni'm not your target plz\nstop wasting my time\nlet me farm in peace\nok that's enough now\nwhy are you doing this\ngg now stop plz\nis this fun for you?\ni'm just trying to level up\nhey stop killing me\nplease, i'm begging you",
+      "default": "plz stop\nenough plz\nwtf\nwhy killing me?!\nbro im just hunting\n:|\n:/\nplz let me hunt in peace\nstop that!\ndude chill\n????\nleave me alone plz\nstop\nnot cool man\nreally?\nstop wasting ur time\nleave me alone :D\nleave me alone\nyou only good at killing archer?\nyou are so good, play at wars!\nhey stop killing me",
       "desc": "One message per line — each reply picks one line at random. English letters, numbers and symbols only (it is typed on a US keyboard)."
+    }
+  },
+  "telegram": {
+    "__title__": "Notifications",
+    "ENABLED": {
+      "type": "bool",
+      "default": false,
+      "desc": "Send Telegram messages to your phone: when one of your accounts is killed, when the script starts, and if it stops with an error. Set up once: in Telegram talk to @BotFather, send /newbot, pick a name, and paste the token it gives you below. Then open your new bot and send it any message (or add it to a group and write there) — that chat gets the notifications. Kills need the accounts' character names (Accounts tab)."
+    },
+    "BOT_TOKEN": {
+      "type": "password",
+      "default": "",
+      "label": "Bot token",
+      "desc": "The token @BotFather gave you (looks like 1234567890:AAH...). Saved encrypted — never shown again; paste a new one to change it."
+    },
+    "NOTIFY": {
+      "type": "choice",
+      "default": "Every kill",
+      "options": [
+        "Every kill",
+        "Same killer again",
+        "3+ kills in 30 min"
+      ],
+      "label": "Notify on",
+      "desc": "Which kills send a message: every kill; only when the same player kills an account again in a row; or only when an account dies 3 or more times within 30 minutes."
     }
   },
   "overlay": {
