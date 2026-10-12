@@ -23,7 +23,7 @@ from pynput import keyboard as pynput_kb
 import desktops
 
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
-from revive import handle_revive, is_dead, REVIVE_DELAY
+from revive import handle_revive, is_dead, REVIVE_DELAY, DOUBLE_REVIVE_WAIT
 from grab_arrows import ensure_arrows
 from repaire import run_repair
 from db_scroll import run_db_scroll
@@ -33,6 +33,8 @@ import game_input
 import accounts
 import login
 import auto_hunt
+import kill_watch
+import kill_reply
 import overlay
 from game_window import find_game_window, focus_game_window, is_game_window
 import repaire as _rep
@@ -70,6 +72,7 @@ F10_EVERY        = 10
 
 _timer_start = {}   # 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
+_revive_wait = {}   # desktop index -> revive delay for its current death (doubled for a repeat killer)
 _last_service = {}  # desktop index -> time.time() of its last service round
 _last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
 _last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
@@ -238,18 +241,39 @@ def _revive_gate(idx, total):
     if not is_dead():
         if _dead_since.pop(idx, None) is not None:
             print(f'  [REVIVE] desktop {idx + 1} is alive again')
+        _revive_wait.pop(idx, None)
         return True
     now = time.time()
     since = _dead_since.setdefault(idx, now)
-    left = REVIVE_DELAY - (now - since)
+    left = _revive_wait.get(idx, REVIVE_DELAY) - (now - since)
     if left > 0:
         print(f'[DESKTOP] {idx + 1}/{total} — dead, revive in {_fmt_left(left)}, skipping')
         return False
     if handle_revive():
         _dead_since.pop(idx, None)
+        _revive_wait.pop(idx, None)
         return True
     print(f'[DESKTOP] {idx + 1}/{total} — still dead after clicking Revive, moving on (retry next visit)')
     return False
+
+
+def _handle_kills(idx, accts):
+    """Kills of this desktop's character seen in the chat since its last visit: replies to the
+    killer (Kill reply on) and doubles the revive wait when the same player killed it again
+    (DOUBLE_REVIVE_WAIT on)."""
+    acc = accts[idx] if idx < len(accts) else None
+    if not acc or not acc.name:
+        return
+    replied = set()
+    for killer, repeat in kill_watch.take(acc.name):
+        if repeat and DOUBLE_REVIVE_WAIT:
+            _revive_wait[idx] = REVIVE_DELAY * 2
+            print(f'  [KILL] {killer} killed {acc.name} again — revive wait doubled to {_fmt_left(REVIVE_DELAY * 2)}')
+        elif not repeat:
+            _revive_wait.pop(idx, None)
+        if kill_reply.enabled() and killer.lower() not in replied:   # one message per killer per visit
+            replied.add(killer.lower())
+            kill_reply.send(killer)
 
 
 def _ensure_account(idx, total, accts):
@@ -335,6 +359,13 @@ def _main():
         print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
         if accts:
             accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
+        if kill_reply.enabled() or DOUBLE_REVIVE_WAIT:
+            names = [a.name for a in accts if a.name]
+            if names:
+                kill_watch.start(names)
+            else:
+                print('[KILL] Kill reply / double revive wait are on, but no account has a character '
+                      'name set (Accounts tab) — turned off for this run')
         if not accounts.game_path():
             print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')
     total = desktops.count()         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
@@ -395,6 +426,7 @@ def _main():
                     print('  [DESKTOP] could not bring the game window to the front')
                 repair_due = current in pending_repair
                 service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
+                _handle_kills(current, accts)
                 alive = _revive_gate(current, total)
                 if alive:
                     _f10_desktop = current   # F10_CYCLONE: alive and in game — F10 may go here now

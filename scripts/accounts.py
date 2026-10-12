@@ -14,6 +14,7 @@ _DEFAULTS = {'ENABLED': False, 'GAME_PATH': ''}
 for _i in range(1, MAX_ACCOUNTS + 1):
     _DEFAULTS[f'ACCOUNT_{_i}_USER'] = ''
     _DEFAULTS[f'ACCOUNT_{_i}_PASS'] = ''
+    _DEFAULTS[f'ACCOUNT_{_i}_NAME'] = ''
 
 
 @dataclass
@@ -22,9 +23,11 @@ class Account:
     desktop: int     # 1-based virtual desktop it runs on (its position among the filled-in ones)
     username: str
     password: str    # decrypted
+    name: str = ''   # in-game character name (as it shows in the chat), '' if not filled in
 
     def __repr__(self):  # never print the password into the log
-        return f'Account(slot={self.slot}, desktop={self.desktop}, username={self.username!r})'
+        return (f'Account(slot={self.slot}, desktop={self.desktop}, username={self.username!r}, '
+                f'name={self.name!r})')
 
 
 def enabled():
@@ -52,7 +55,8 @@ def load():
                   'another PC or Windows user?) — skipped; set it again in the settings on this PC')
             continue
         print(f'[ACCOUNTS] account {i} ({user}): password decrypted ({len(password)} chars)')
-        out.append(Account(i, len(out) + 1, user, password))
+        name = (s[f'ACCOUNT_{i}_NAME'] or '').strip()
+        out.append(Account(i, len(out) + 1, user, password, name))
     return out
 
 

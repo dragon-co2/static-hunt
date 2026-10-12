@@ -145,6 +145,39 @@
     margin-bottom: 12px;
   }
   .field.modified { border-left-color: var(--modified); }
+
+  /* Fields sharing a schema "group" (e.g. one game account) sit behind a row of tabs. */
+  .group-tabs { margin: 24px 0 12px; }
+  .tab-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .tab-strip button {
+    flex: 1 1 160px;
+    text-align: left;
+    padding: 12px 16px;
+    border: 1px solid var(--border);
+    border-bottom: 3px solid transparent;
+    border-radius: 12px;
+    background: var(--panel);
+    color: var(--text);
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .tab-strip button:hover { background: var(--bg); }
+  .tab-strip button.active { border-bottom-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+  .tab-strip button .tab-sub {
+    display: block; margin-top: 4px;
+    font-family: var(--mono); font-size: 14px; font-weight: 400; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tab-strip button .tab-dot { color: var(--modified); margin-left: 6px; }
+  .group-body { display: none; }
+  .group-body.active { display: block; }
+  .group-tabs.searching .tab-strip { display: none; }
+  .group-tabs.searching .group-body { display: block; }
+  .group-tabs.searching .group-body::before {
+    content: attr(data-group); display: block; margin: 12px 0 8px;
+    font-size: 16px; font-weight: 600; color: var(--muted);
+  }
   .field.locked { opacity: 0.45; }
   .field.locked .field-control, .field.locked .reset-btn { pointer-events: none; }
 
@@ -209,7 +242,7 @@
     font-family: var(--mono);
     font-size: 18px;
   }
-  .axis-row input[type="text"], .axis-row input[type="password"] {
+  .axis-row input[type="text"], .axis-row input[type="password"], .axis-row textarea {
     flex: 1;
     padding: 8px 10px;
     border: 1px solid var(--border);
@@ -219,6 +252,7 @@
     font-family: var(--mono);
     font-size: 18px;
   }
+  .axis-row textarea { resize: vertical; min-height: 120px; line-height: 1.4; }
   .axis-row select {
     flex: 1;
     padding: 8px 10px;
@@ -329,7 +363,7 @@ function isInt(meta) { return meta.type === 'int'; }
 function isChoice(meta) { return meta.type === 'choice'; }
 function isColor(meta) { return meta.type === 'color'; }
 function isBool(meta) { return meta.type === 'bool'; }
-function isText(meta) { return meta.type === 'text' || meta.type === 'password' || meta.type === 'file'; }
+function isText(meta) { return ['text', 'password', 'file', 'lines'].includes(meta.type); }
 const PASSWORD_MASK = '__saved__';  // the server sends this instead of a stored password
 
 function fmtNumber(value, meta) {
@@ -538,17 +572,18 @@ function applySectionEnabled(script) {
   for (const row of $content.querySelectorAll(`.field[data-script="${script}"]`)) {
     if (row.dataset.name === 'ENABLED') continue;
     row.classList.toggle('locked', !enabled);
-    for (const el of row.querySelectorAll('input, select, button')) el.disabled = !enabled;
+    for (const el of row.querySelectorAll('input, select, textarea, button')) el.disabled = !enabled;
   }
 }
 
-// Text box for type "text", masked box for type "password". A stored password never reaches the
-// page: it shows as an empty box with a "saved" hint, and only typing a new one replaces it.
+// Text box for type "text", multi-line box for type "lines" (one entry per line), masked box for
+// type "password". A stored password never reaches the page: it shows as an empty box with a
+// "saved" hint, and only typing a new one replaces it.
 function makeTextRow(script, name, meta) {
   const row = document.createElement('div');
   row.className = 'axis-row';
-  const input = document.createElement('input');
-  input.type = meta.type === 'password' ? 'password' : 'text';
+  const input = document.createElement(meta.type === 'lines' ? 'textarea' : 'input');
+  if (meta.type !== 'lines') input.type = meta.type === 'password' ? 'password' : 'text';
   input.autocomplete = 'off';
   input.spellcheck = false;
   const value = state[script][name] || '';
@@ -617,13 +652,14 @@ function buildFieldRow(script, name) {
   row.className = 'field';
   row.dataset.script = script;
   row.dataset.name = name;
-  row.dataset.search = (name + ' ' + (meta.desc || '')).toLowerCase();
+  row.dataset.search = [name, meta.label, meta.group, meta.desc].filter(Boolean).join(' ').toLowerCase();
 
   const info = document.createElement('div');
   info.className = 'field-info';
   const nameEl = document.createElement('div');
   nameEl.className = 'field-name';
-  nameEl.innerHTML = `<span>${name}</span><span class="badge" hidden>modified</span>`;
+  nameEl.innerHTML = '<span></span><span class="badge" hidden>modified</span>';
+  nameEl.firstChild.textContent = meta.label || name;
   const descEl = document.createElement('div');
   descEl.className = 'field-desc';
   descEl.textContent = meta.desc || '';
@@ -650,6 +686,7 @@ function refreshFieldRow(script, name) {
   if (row) row.classList.toggle('modified', fieldIsModified(script, name));
   const badge = row && row.querySelector('.badge');
   if (badge) badge.hidden = !fieldIsModified(script, name);
+  updateGroupTabs(script);
   updateSidebarCounts();
 }
 
@@ -682,11 +719,70 @@ function renderContent() {
     panel.appendChild(h2);
     panel.appendChild(sub);
 
+    let groups = null;   // the tabs box for the current run of grouped fields
     for (const name of names) {
-      panel.appendChild(buildFieldRow(script, name));
+      const group = schema[script][name].group;
+      if (!group) {
+        groups = null;
+        panel.appendChild(buildFieldRow(script, name));
+        continue;
+      }
+      if (!groups) {
+        groups = document.createElement('div');
+        groups.className = 'group-tabs';
+        const strip = document.createElement('div');
+        strip.className = 'tab-strip';
+        groups.appendChild(strip);
+        panel.appendChild(groups);
+      }
+      let body = [...groups.querySelectorAll('.group-body')].find(b => b.dataset.group === group);
+      if (!body) {
+        body = document.createElement('div');
+        body.className = 'group-body';
+        body.dataset.group = group;
+        groups.appendChild(body);
+        const tab = document.createElement('button');
+        tab.dataset.group = group;
+        tab.addEventListener('click', () => selectGroup(groups, group));
+        groups.querySelector('.tab-strip').appendChild(tab);
+        if (!groups.querySelector('.group-body.active')) selectGroup(groups, group);
+      }
+      body.appendChild(buildFieldRow(script, name));
     }
     $content.appendChild(panel);
+    updateGroupTabs(script);
     applySectionEnabled(script);
+  }
+}
+
+function selectGroup(groups, group) {
+  for (const el of groups.querySelectorAll('.tab-strip button, .group-body')) {
+    el.classList.toggle('active', el.dataset.group === group);
+  }
+}
+
+// Each tab shows its group name, the group's first filled-in text field (e.g. the account's
+// username) or "empty", and a dot while any field in it has unsaved / overridden changes.
+function updateGroupTabs(script) {
+  const panel = $content.querySelector(`.script-panel[data-script="${script}"]`);
+  if (!panel) return;
+  for (const tab of panel.querySelectorAll('.tab-strip button')) {
+    const group = tab.dataset.group;
+    const names = Object.keys(schema[script]).filter(n => n !== '__title__' && schema[script][n].group === group);
+    const first = names.find(n => schema[script][n].type === 'text');
+    const summary = (first && String(state[script][first] || '').trim()) || 'empty';
+    const modified = names.some(n => fieldIsModified(script, n));
+    tab.textContent = group;
+    if (modified) {
+      const dot = document.createElement('span');
+      dot.className = 'tab-dot';
+      dot.textContent = '●';
+      tab.appendChild(dot);
+    }
+    const sub = document.createElement('span');
+    sub.className = 'tab-sub';
+    sub.textContent = summary;
+    tab.appendChild(sub);
   }
 }
 
@@ -695,11 +791,15 @@ function applySearchFilter() {
   const query = $search.value.trim().toLowerCase();
   const panel = $content.querySelector(`.script-panel[data-script="${activeScript}"]`);
   if (!panel) return;
+  for (const groups of panel.querySelectorAll('.group-tabs')) groups.classList.toggle('searching', Boolean(query));
   let anyVisible = false;
   for (const row of panel.querySelectorAll('.field')) {
     const visible = !query || row.dataset.search.includes(query);
     row.style.display = visible ? '' : 'none';
     if (visible) anyVisible = true;
+  }
+  for (const body of panel.querySelectorAll('.group-body')) {
+    body.style.display = query && ![...body.querySelectorAll('.field')].some(r => r.style.display !== 'none') ? 'none' : '';
   }
   let hint = panel.querySelector('.empty-hint');
   if (!anyVisible) {
