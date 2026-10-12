@@ -21,10 +21,11 @@ REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
 
 from dragon_settings import get_settings
-_S = get_settings('revive', {'REVIVE_DELAY': 360, 'DOUBLE_REVIVE_WAIT': False})
+_S = get_settings('revive', {'REVIVE_DELAY': 360, 'DOUBLE_REVIVE_WAIT': False, 'MAX_REVIVE_WAIT': 1800})
 
 REVIVE_DELAY = _S['REVIVE_DELAY']  # per desktop: seconds after death is first seen before Revive is clicked
-DOUBLE_REVIVE_WAIT = bool(_S['DOUBLE_REVIVE_WAIT'])  # same killer twice in a row -> wait 2x REVIVE_DELAY
+DOUBLE_REVIVE_WAIT = bool(_S['DOUBLE_REVIVE_WAIT'])  # same killer again -> the wait doubles each time
+MAX_REVIVE_WAIT = _S['MAX_REVIVE_WAIT']              # ...but never longer than this (seconds)
 REVIVE_CHECK = 3                   # seconds to watch for the button to disappear after a click
 
 

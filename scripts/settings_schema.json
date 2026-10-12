@@ -151,7 +151,16 @@
     "DOUBLE_REVIVE_WAIT": {
       "type": "bool",
       "default": false,
-      "desc": "If the same player kills an account twice in a row, wait twice REVIVE_DELAY before reviving it. Needs the account's character name (Accounts tab)."
+      "desc": "If the same player kills an account again (several times in a row), the wait before reviving doubles each time: REVIVE_DELAY, then 2x, 4x... up to MAX_REVIVE_WAIT. A kill by a different player starts over at REVIVE_DELAY. Needs the account's character name (Accounts tab)."
+    },
+    "MAX_REVIVE_WAIT": {
+      "type": "int",
+      "min": 60,
+      "max": 7200,
+      "step": 60,
+      "unit": "s",
+      "default": 1800,
+      "desc": "With DOUBLE_REVIVE_WAIT on: the longest the doubled revive wait can get (1800 = 30 minutes)."
     }
   },
   "kill_reply": {
@@ -159,23 +168,7 @@
     "ENABLED": {
       "type": "bool",
       "default": false,
-      "desc": "When one of your accounts is killed, whisper the killer a chat message: click Talk, pick Whisper, type their name in the chat bar's left box and a message in the right box, then Enter. If Whisper can't be picked, nothing is sent. Sent the next time the script visits that account's desktop. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
-    },
-    "ONCE_PER_KILLER": {
-      "type": "bool",
-      "default": true,
-      "label": "Send killer a message once",
-      "desc": "Each killer gets only one message per character: if the same player kills that character again, no new message is sent until FORGET_HOURS have passed since the last one. Remembered across restarts (kill_reply_sent.json next to the settings file)."
-    },
-    "FORGET_HOURS": {
-      "type": "int",
-      "min": 1,
-      "max": 72,
-      "step": 1,
-      "unit": "h",
-      "default": 5,
-      "label": "Forget killers after",
-      "desc": "With ONCE_PER_KILLER on: hours after a killer got a message before they are forgotten and may get another one if they kill the same character again."
+      "desc": "When one of your accounts is killed, send the killer a chat message: their name in the chat bar's left box, a message in the right box, then Enter. Sent the next time the script visits that account's desktop. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
     },
     "MESSAGES": {
       "type": "lines",

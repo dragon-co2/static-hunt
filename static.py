@@ -23,7 +23,7 @@ from pynput import keyboard as pynput_kb
 import desktops
 
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
-from revive import handle_revive, is_dead, REVIVE_DELAY, DOUBLE_REVIVE_WAIT
+from revive import handle_revive, is_dead, REVIVE_DELAY, DOUBLE_REVIVE_WAIT, MAX_REVIVE_WAIT
 from grab_arrows import ensure_arrows
 from repaire import run_repair
 from db_scroll import run_db_scroll
@@ -73,6 +73,7 @@ F10_EVERY        = 10
 _timer_start = {}   # 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
 _revive_wait = {}   # desktop index -> revive delay for its current death (doubled for a repeat killer)
+_kill_streak = {}   # desktop index -> kills in a row by the same player (1 = a new killer)
 _last_service = {}  # desktop index -> time.time() of its last service round
 _last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
 _last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
@@ -259,22 +260,46 @@ def _revive_gate(idx, total):
 
 def _handle_kills(idx, accts):
     """Kills of this desktop's character seen in the chat since its last visit: replies to the
-    killer (Kill reply on) and doubles the revive wait when the same player killed it again
-    (DOUBLE_REVIVE_WAIT on)."""
+    killer (Kill reply on), and with DOUBLE_REVIVE_WAIT on doubles the revive wait every time
+    the same player kills it again in a row — REVIVE_DELAY, x2, x4... up to MAX_REVIVE_WAIT.
+    A different killer starts over."""
     acc = accts[idx] if idx < len(accts) else None
     if not acc or not acc.name:
         return
     replied = set()
     for killer, repeat in kill_watch.take(acc.name):
-        if repeat and DOUBLE_REVIVE_WAIT:
-            _revive_wait[idx] = REVIVE_DELAY * 2
-            print(f'  [KILL] {killer} killed {acc.name} again — revive wait doubled to {_fmt_left(REVIVE_DELAY * 2)}')
-        elif not repeat:
+        _kill_streak[idx] = _kill_streak.get(idx, 0) + 1 if repeat else 1
+        streak = _kill_streak[idx]
+        if DOUBLE_REVIVE_WAIT and streak > 1:
+            wait = min(REVIVE_DELAY * 2 ** (streak - 1), MAX_REVIVE_WAIT)
+            _revive_wait[idx] = wait
+            print(f'  [KILL] {killer} killed {acc.name} {streak} times in a row — '
+                  f'revive wait {_fmt_left(wait)}' + (' (the max)' if wait == MAX_REVIVE_WAIT else ''))
+        else:
             _revive_wait.pop(idx, None)
         if kill_reply.enabled() and killer.lower() not in replied:   # one message per killer per visit
             replied.add(killer.lower())
             print(f'  [KILL] desktop {idx + 1}: {acc.name} was killed by {killer} — sending the reply')
-            kill_reply.send(killer, acc.name)
+            kill_reply.send(killer)
+
+
+def _kill_interrupt(where):
+    """True if one of our characters was killed (on any desktop) — the visit stops here so the
+    loop can rush to that desktop and reply. Says so once, with what got cut short."""
+    target = kill_watch.next_desktop()
+    if target is None:
+        return False
+    print(f'  [KILL] a character on desktop {target} was killed — stopping {where} to go there')
+    return True
+
+
+def _wait_visit(seconds):
+    """The end-of-visit pause, cut short as soon as one of our characters is killed."""
+    end = time.time() + seconds
+    while time.time() < end:
+        if kill_watch.next_desktop() is not None:
+            return
+        time.sleep(0.2)
 
 
 def _ensure_account(idx, total, accts):
@@ -416,6 +441,7 @@ def _main():
             if FIRST_RUN_REPAIR:
                 pending_repair.add(current)
 
+        kill_here = kill_watch.next_desktop() == current + 1   # came here for a kill
         try:
             if accts and not _ensure_account(current, total, accts):
                 # accounts mode: couldn't get this desktop's account into the game — try next visit
@@ -443,13 +469,13 @@ def _main():
                         # no response to Alt+P: likely disconnected — skip, retry next visit
                         print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
                     else:
-                        if repair_due:
+                        if repair_due and not _kill_interrupt('the repair'):
                             run_repair()
                             pending_repair.discard(current)
-                        if service_due:
+                        if service_due and not _kill_interrupt('the service'):
                             _service(current)
                         panels.close_all()   # inventory, bank and VIP menu
-                time.sleep(VISIT_WAIT)
+                _wait_visit(VISIT_WAIT)   # ends early if one of our characters gets killed
         except OSError as e:
             # a screen grab refused mid-visit (session locked, or switching screens — e.g. the RDP
             # session handed back to the console): wait for the screen, then carry on
@@ -457,9 +483,21 @@ def _main():
             screen.wait_for_screen()
 
         _f10_desktop = None   # stop F10 before leaving (or re-checking) this desktop
+        if kill_here and kill_watch.next_desktop() == current + 1:
+            # we came for this kill but couldn't reach the game (closed / not logged in): let it
+            # go, or the loop would stay stuck on this desktop
+            dropped = kill_watch.drop(current + 1)
+            print(f'[KILL] desktop {current + 1}: game not reachable — no reply for {dropped} kill(s)')
         if total < 2:
             continue
-        current = (current + 1) % total   # after the last desktop, jump straight back to 1
+        target = kill_watch.next_desktop()   # one of ours was killed: go there first
+        if target is not None and 1 <= target <= total and target - 1 != current:
+            print(f'[KILL] rushing to desktop {target} to reply to the killer')
+            current = target - 1
+        elif target is None or target - 1 != current:
+            current = (current + 1) % total   # after the last desktop, jump straight back to 1
+        else:
+            continue                          # the kill is on this desktop: handle it right here
         _go_to_desktop(current)
 
 
