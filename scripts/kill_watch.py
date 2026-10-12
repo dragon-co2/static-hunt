@@ -7,7 +7,11 @@ line per chat record; a background thread here parses them. The kill messages co
     [System]Victim was killed by Killer!
     [System]Victim has been killed by Killer!
     [System]Killer has killed Victim.
-Only [System] lines count, so a player typing those words in chat can't fake a kill."""
+(and "You were killed by Killer", meaning the character of the game it came from). Lines a
+player typed ("... speaks to ...") never count, so nobody can fake a kill from the chat.
+Every other kill in the server is logged as [CHAT] too (proof the chat is being read), and any
+game line with "kill" in it that doesn't match a known shape is logged as it is, so a new
+message shape shows up in the log. (A death to a monster has no message at all.)"""
 import base64
 import json
 import os
@@ -26,14 +30,16 @@ DEDUPE_FOR   = 120   # seconds: every open game prints the same [System] line �
 
 _NAME = r'(?P<{}>[^\s\[\]]+?)'
 _END  = r'[!.]*\s*(?:\[\d{4}-|$)'   # the line ends with "!" / "." and the "[2026-10-10, 23:24]" time
+_TAG  = r'^\[[A-Za-z]+\]'             # the channel, e.g. [System]
 _PATTERNS = [
-    re.compile(r'^\[System\]' + _NAME.format('victim') + r' (?:was|has been) killed by '
+    re.compile(_TAG + _NAME.format('victim') + r' (?:was|were|has been|have been) killed by '
                + _NAME.format('killer') + _END, re.I),
-    re.compile(r'^\[System\]' + _NAME.format('killer') + r' has killed ' + _NAME.format('victim') + _END, re.I),
+    re.compile(_TAG + _NAME.format('killer') + r' (?:has killed|killed) ' + _NAME.format('victim') + _END, re.I),
 ]
+_PLAYER_TEXT = re.compile(r' speaks to |^\[(?:Talk|World|Whisper|Team|Guild|Friend|Broadcast|Service)\]', re.I)
 
 _lock = threading.Lock()
-_names = set()       # our characters' names, lower-case — kills of anyone else are ignored
+_names = {}         # our characters: name (lower) -> (name as set, desktop number)
 _pending = {}        # victim (lower) -> [killer, ...] not yet handled by the main loop
 _last_killer = {}    # victim (lower) -> killer of their previous death
 _recent = {}         # chat text -> time.time() first seen (dedupe across game windows)
@@ -61,7 +67,10 @@ def _tie_to_us(proc):
 
 
 def parse_kill(text):
-    """(victim, killer) if `text` is a [System] kill message, else None."""
+    """(victim, killer) if `text` is a game kill message, else None. A victim of "You" is
+    returned as "You" — the caller knows whose game it came from."""
+    if _PLAYER_TEXT.search(text):
+        return None
     for pat in _PATTERNS:
         m = pat.search(text.strip())
         if m:
@@ -69,23 +78,33 @@ def parse_kill(text):
     return None
 
 
-def _on_text(text):
+def _on_text(text, character=''):
+    """One chat line from the game window of `character` (its in-game name, '' if unknown)."""
+    kill = parse_kill(text)
+    if kill and kill[0].lower() == 'you':          # "You were killed by X": whose game said it
+        kill = (character, kill[1]) if character else None
     now = time.time()
     with _lock:
-        if text in _recent:
+        key = f'{kill[0].lower()}>{kill[1].lower()}>{text[-20:]}' if kill else text
+        if key in _recent:
             return
         for t in [t for t, at in _recent.items() if now - at > DEDUPE_FOR]:
             del _recent[t]
-        _recent[text] = now
-    kill = parse_kill(text)
+        _recent[key] = now
+    low = text.lower()
     if not kill:
+        if 'kill' in low and not low.startswith('[gm]') and not _PLAYER_TEXT.search(text):
+            print(f'[CHAT] {text.strip()}')   # a kill-ish game line of a shape not known yet
         return
     victim, killer = kill
-    if victim.lower() not in _names:
+    ours = _names.get(victim.lower())
+    if not ours:
+        print(f'[CHAT] {victim} was killed by {killer} (not ours)')   # proves the chat is being read
         return
     with _lock:
         _pending.setdefault(victim.lower(), []).append(killer)
-    print(f'[KILL] {victim} was killed by {killer}')
+    print(f'[KILL] {ours[0]} (desktop {ours[1]}) was killed by {killer} — '
+          f'handled on the next visit to desktop {ours[1]}')
 
 
 def _read_loop():
@@ -108,20 +127,24 @@ def _read_loop():
             if 'status' in msg:
                 print(f'[KILL] chat reader (game pid {msg.get("pid")}): {msg["status"]}')
             elif 'text' in msg:
-                _on_text(base64.b64decode(msg['text']).decode('cp1252', 'replace'))
+                character = base64.b64decode(msg.get('character') or '').decode('cp1252', 'replace')
+                _on_text(base64.b64decode(msg['text']).decode('cp1252', 'replace'), character)
         print(f'[KILL] chat reader stopped (exit {proc.wait()}) — restarting in {RESTART_WAIT}s')
         time.sleep(RESTART_WAIT)
 
 
-def start(names):
-    """Starts watching (once) for kills of the given character names."""
+def start(characters):
+    """Starts watching (once) for kills of our characters: {character name: desktop number}."""
     global _started
     with _lock:
-        _names.update(n.strip().lower() for n in names if n and n.strip())
+        for name, desktop in characters.items():
+            if name and name.strip():
+                _names[name.strip().lower()] = (name.strip(), desktop)
     if _started or not _names:
         return
     _started = True
-    print(f'[KILL] watching the chat for kills of: {", ".join(sorted(_names))}')
+    print('[KILL] watching the chat for kills of: '
+          + ', '.join(f'{n} (desktop {d})' for n, d in sorted(_names.values(), key=lambda v: v[1])))
     threading.Thread(target=_read_loop, daemon=True).start()
 
 

@@ -273,6 +273,7 @@ def _handle_kills(idx, accts):
             _revive_wait.pop(idx, None)
         if kill_reply.enabled() and killer.lower() not in replied:   # one message per killer per visit
             replied.add(killer.lower())
+            print(f'  [KILL] desktop {idx + 1}: {acc.name} was killed by {killer} — sending the reply')
             kill_reply.send(killer)
 
 
@@ -360,7 +361,7 @@ def _main():
         if accts:
             accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
         if kill_reply.enabled() or DOUBLE_REVIVE_WAIT:
-            names = [a.name for a in accts if a.name]
+            names = {a.name: a.desktop for a in accts if a.name}
             if names:
                 kill_watch.start(names)
             else:
