@@ -172,7 +172,7 @@
     },
     "MESSAGES": {
       "type": "lines",
-      "default": "plz stop\nenough plz\nwtf\nwhy killing me?!",
+      "default": "plz stop\nenough plz\nwtf\nwhy killing me?!\nbro im just hunting\ncome on man, again?\nwhat did i do to you?\nplz let me hunt in peace\nseriously? stop it\ni'm not even fighting back\ndude chill\nwhy me tho?\nleave me alone plz\nok you win, now stop\ni'm just farming here\nnot cool man\ncan we just be friends?\nthere is space for both of us\nbro find someone your level\nreally? again??\ni'm not your target plz\nstop wasting my time\nlet me farm in peace\nok that's enough now\nwhy are you doing this\ngg now stop plz\nis this fun for you?\ni'm just trying to level up\nhey stop killing me\nplease, i'm begging you",
       "desc": "One message per line — each reply picks one line at random. English letters, numbers and symbols only (it is typed on a US keyboard)."
     }
   },

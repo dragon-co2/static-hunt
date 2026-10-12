@@ -26,7 +26,39 @@ NAME_BOX = (120 - ANCHOR_X, 12)   # left box  (x 32..140 in chat.jpg): who the m
 TEXT_BOX = (520 - ANCHOR_X, 12)   # right box (x 225..565): the message
 CLEAR_KEYS = 30
 
-_DEFAULTS = {'ENABLED': False, 'MESSAGES': 'plz stop\nenough plz\nwtf\nwhy killing me?!'}
+_MESSAGES = [   # the default MESSAGES: each reply picks one at random
+    "plz stop",
+    "enough plz",
+    "wtf",
+    "why killing me?!",
+    "bro im just hunting",
+    "come on man, again?",
+    "what did i do to you?",
+    "plz let me hunt in peace",
+    "seriously? stop it",
+    "i'm not even fighting back",
+    "dude chill",
+    "why me tho?",
+    "leave me alone plz",
+    "ok you win, now stop",
+    "i'm just farming here",
+    "not cool man",
+    "can we just be friends?",
+    "there is space for both of us",
+    "bro find someone your level",
+    "really? again??",
+    "i'm not your target plz",
+    "stop wasting my time",
+    "let me farm in peace",
+    "ok that's enough now",
+    "why are you doing this",
+    "gg now stop plz",
+    "is this fun for you?",
+    "i'm just trying to level up",
+    "hey stop killing me",
+    "please, i'm begging you",
+]
+_DEFAULTS = {'ENABLED': False, 'MESSAGES': '\n'.join(_MESSAGES)}
 
 
 def enabled():
