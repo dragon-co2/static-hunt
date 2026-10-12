@@ -363,6 +363,7 @@ def _main():
         if kill_reply.enabled() or DOUBLE_REVIVE_WAIT:
             names = {a.name: a.desktop for a in accts if a.name}
             if names:
+                kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
                 kill_watch.start(names)
             else:
                 print('[KILL] Kill reply / double revive wait are on, but no account has a character '

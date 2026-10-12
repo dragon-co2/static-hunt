@@ -133,6 +133,35 @@ def _read_loop():
         time.sleep(RESTART_WAIT)
 
 
+def ensure_chat_log(game_path):
+    """The game only keeps its chat (where the kill messages are read from) when its "save chat
+    log" option is on: LogRecord=1 in each character's log/<server>/<id>/Setup.ini. With it off
+    (LogRecord=0) nothing is ever seen. Turns it on for every character; the game reads it at
+    login, so a game that is already logged in picks it up after its next login."""
+    root = os.path.join(os.path.dirname(game_path), 'log') if game_path else ''
+    if not os.path.isdir(root):
+        return 0
+    changed = 0
+    for folder, _dirs, files in os.walk(root):
+        if 'Setup.ini' not in files:
+            continue
+        path = os.path.join(folder, 'Setup.ini')
+        try:
+            with open(path, 'r', encoding='latin-1', newline='') as f:
+                text = f.read()
+            fixed = re.sub(r'(?m)^LogRecord=0(?=\r?$)', 'LogRecord=1', text)
+            if fixed != text:
+                with open(path, 'w', encoding='latin-1', newline='') as f:
+                    f.write(fixed)
+                changed += 1
+        except OSError as e:
+            print(f'[KILL] could not turn on the chat log in {path} ({e})')
+    if changed:
+        print(f"[KILL] turned on the game's chat log for {changed} character(s) — "
+              'a game that is already in takes it after its next login')
+    return changed
+
+
 def start(characters):
     """Starts watching (once) for kills of our characters: {character name: desktop number}."""
     global _started
