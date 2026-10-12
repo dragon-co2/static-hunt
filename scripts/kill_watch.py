@@ -1,9 +1,15 @@
 """Watches the game's chat for "<our character> was killed by <killer>" and remembers who did it.
 
-The chat is read live from the game's memory by chat_reader.ps1 (read-only: ReadProcessMemory,
-never writes to the game). It runs as a child process for the whole run and prints one JSON
-line per chat record; a background thread here parses them. The kill messages come on the
-[System] channel in a few shapes:
+Two read-only sources, both needing the game's chat log option on (see ensure_chat_log):
+  1. Live: chat_reader.ps1 reads the game's not-yet-saved chat records from its memory
+     (ReadProcessMemory, never writes to the game); it runs as a child process for the whole
+     run and prints one JSON line per record.
+  2. The saved files: every ~31 messages the game moves its records to
+     log/<server>/<id>/CHAT/ChatLog.log and clears them from memory. A message that arrives
+     just as that happens is never seen live — so the new records in those files are read too.
+The same line from both sources (or from several game windows) counts once.
+
+The kill messages come on the [System] channel in a few shapes:
     [System]Victim was killed by Killer!
     [System]Victim has been killed by Killer!
     [System]Killer has killed Victim.
@@ -26,7 +32,17 @@ READER = next((p for p in (os.path.join(os.path.dirname(os.path.abspath(__file__
                            os.path.join(app_root(), 'scripts', 'chat_reader.ps1')) if os.path.exists(p)),
               'chat_reader.ps1')
 RESTART_WAIT = 5     # seconds before restarting the reader if it stops
-DEDUPE_FOR   = 120   # seconds: every open game prints the same [System] line — count it once
+DEDUPE_FOR   = 3600  # seconds a line counts as already seen: every game window shows the same
+                     # [System] line, and the saved file repeats it minutes later. Lines carry
+                     # their minute, so a real second kill is never mistaken for a repeat
+FILE_POLL    = 1     # seconds between checks of the saved chat files
+
+# ChatLog.log record (Conquer.exe ChatLog.cpp): 0x260 bytes = sender[16] | target[16] |
+# date[64] | message[512]. Message byte i is XORed with
+#   name[i % (len(name) - 1)] + server[i % (len(server) - 1)] + (0x5BAACFB // (i + 1)) mod 256
+# where name is '' or the character's name and server is the log/<server> folder name.
+_RECORD, _MSG_AT, _MSG_LEN = 0x260, 0x60, 0x200
+_XOR_TAIL = bytes((0x5BAACFB // (i + 1)) & 0xFF for i in range(_MSG_LEN))
 
 _NAME = r'(?P<{}>[^\s\[\]]+?)'
 _END  = r'[!.]*\s*(?:\[\d{4}-|$)'   # the line ends with "!" / "." and the "[2026-10-10, 23:24]" time
@@ -93,7 +109,8 @@ def _on_text(text, character=''):
         _recent[key] = now
     low = text.lower()
     if not kill:
-        if 'kill' in low and not low.startswith('[gm]') and not _PLAYER_TEXT.search(text):
+        if ('kill' in low and not low.startswith('[gm]') and 'killed a monster' not in low
+                and not _PLAYER_TEXT.search(text)):
             print(f'[CHAT] {text.strip()}')   # a kill-ish game line of a shape not known yet
         return
     victim, killer = kill
@@ -132,6 +149,77 @@ def _read_loop():
         time.sleep(RESTART_WAIT)
 
 
+def _xor_message(enc, name, server):
+    nb = name.encode('latin-1', 'replace')[:16].ljust(16, b'\0')
+    nmod = max(len(name.encode('latin-1', 'replace')), 2) - 1
+    sb = server.encode('latin-1', 'replace') or b'\0'
+    smod = max(len(sb) - 1, 1)
+    return bytes(c ^ ((nb[i % nmod] + sb[i % smod] + _XOR_TAIL[i]) & 0xFF) for i, c in enumerate(enc))
+
+
+def _clean(plain):
+    """A right key leaves the text, a 0 terminator and only zero padding after it."""
+    end = plain.find(0)
+    return end > 0 and not any(plain[end:])
+
+
+def _character_of(folder):
+    """Character name of a log/<server>/<id> folder, from the [<Name>Record] in its Setup.ini."""
+    try:
+        with open(os.path.join(folder, 'Setup.ini'), encoding='latin-1') as f:
+            m = re.search(r'(?m)^\[(.+?)Record\]', f.read())
+            return m.group(1) if m else ''
+    except OSError:
+        return ''
+
+
+def _chat_files(root):
+    """{path of each ChatLog.log: (server, folder)} under the game's log folder."""
+    out = {}
+    for server in os.listdir(root) if os.path.isdir(root) else []:
+        server_dir = os.path.join(root, server)
+        for cid in os.listdir(server_dir) if os.path.isdir(server_dir) else []:
+            path = os.path.join(server_dir, cid, 'CHAT', 'ChatLog.log')
+            if os.path.isfile(path):
+                out[path] = (server, os.path.join(server_dir, cid))
+    return out
+
+
+def _file_loop(game_path):
+    """Reads the records added to each saved chat file since it was last looked at."""
+    root = os.path.join(os.path.dirname(game_path), 'log')
+    seen = {}      # path -> bytes already read (whole records)
+    keys = {}      # path -> the name that decodes it ('' or the character)
+    first = True   # files there at start: skip their history, only read what's added from now
+    while True:
+        try:
+            for path, (server, folder) in _chat_files(root).items():
+                size = os.path.getsize(path) // _RECORD * _RECORD
+                if path not in seen:
+                    seen[path] = size if first else 0
+                if size < seen[path]:          # file started over
+                    seen[path] = 0
+                if size == seen[path]:
+                    continue
+                with open(path, 'rb') as f:
+                    f.seek(seen[path])
+                    data = f.read(size - seen[path])
+                seen[path] = size
+                character = _character_of(folder)
+                for off in range(0, len(data) - _RECORD + 1, _RECORD):
+                    enc = data[off + _MSG_AT: off + _MSG_AT + _MSG_LEN]
+                    for name in [n for n in (keys.get(path), '', character) if n is not None]:
+                        plain = _xor_message(enc, name, server)
+                        if _clean(plain):
+                            keys[path] = name
+                            _on_text(plain[:plain.find(0)].decode('cp1252', 'replace'), character)
+                            break
+        except OSError as e:
+            print(f'[KILL] could not read the chat files ({e})')
+        first = False
+        time.sleep(FILE_POLL)
+
+
 def ensure_chat_log(game_path):
     """The game only keeps its chat (where the kill messages are read from) when its "save chat
     log" option is on: LogRecord=1 in each character's log/<server>/<id>/Setup.ini. With it off
@@ -161,8 +249,9 @@ def ensure_chat_log(game_path):
     return changed
 
 
-def start(characters):
-    """Starts watching (once) for kills of our characters: {character name: desktop number}."""
+def start(characters, game_path=''):
+    """Starts watching (once) for kills of our characters: {character name: desktop number}.
+    `game_path` (the launcher) locates the saved chat files next to it."""
     global _started
     with _lock:
         for name, desktop in characters.items():
@@ -174,6 +263,8 @@ def start(characters):
     print('[KILL] watching the chat for kills of: '
           + ', '.join(f'{n} (desktop {d})' for n, d in sorted(_names.values(), key=lambda v: v[1])))
     threading.Thread(target=_read_loop, daemon=True).start()
+    if game_path:
+        threading.Thread(target=_file_loop, args=(game_path,), daemon=True).start()
 
 
 def take(name):

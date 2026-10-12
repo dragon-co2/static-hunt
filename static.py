@@ -395,7 +395,7 @@ def _main():
             names = {a.name: a.desktop for a in accts if a.name}
             if names:
                 kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
-                kill_watch.start(names)
+                kill_watch.start(names, accounts.game_path())
             else:
                 print('[KILL] Kill reply / double revive wait are on, but no account has a character '
                       'name set (Accounts tab) — turned off for this run')
