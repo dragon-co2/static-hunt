@@ -274,7 +274,7 @@ def _handle_kills(idx, accts):
         if kill_reply.enabled() and killer.lower() not in replied:   # one message per killer per visit
             replied.add(killer.lower())
             print(f'  [KILL] desktop {idx + 1}: {acc.name} was killed by {killer} — sending the reply')
-            kill_reply.send(killer)
+            kill_reply.send(killer, acc.name)
 
 
 def _ensure_account(idx, total, accts):
