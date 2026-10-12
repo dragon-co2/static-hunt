@@ -103,7 +103,7 @@ def _on_text(text, character=''):
         return
     with _lock:
         _pending.setdefault(victim.lower(), []).append(killer)
-    print(f'[KILL] {ours[0]} (desktop {ours[1]}) was killed by {killer} — going to desktop {ours[1]}')
+    print(f'[KILL] {ours[0]} (desktop {ours[1]}) was killed by {killer} — handled on the next visit to desktop {ours[1]}')
 
 
 def _read_loop():
@@ -174,24 +174,6 @@ def start(characters):
     print('[KILL] watching the chat for kills of: '
           + ', '.join(f'{n} (desktop {d})' for n, d in sorted(_names.values(), key=lambda v: v[1])))
     threading.Thread(target=_read_loop, daemon=True).start()
-
-
-def next_desktop():
-    """Desktop number of our character killed longest ago that hasn't been handled yet (taken
-    with take()), or None. static.py rushes there as soon as this isn't None."""
-    with _lock:
-        for key, killers in _pending.items():
-            if killers and key in _names:
-                return _names[key][1]
-    return None
-
-
-def drop(desktop):
-    """Forgets the unhandled kills of the character on `desktop` (its game couldn't be reached).
-    Returns how many were dropped."""
-    with _lock:
-        keys = [k for k, (_n, d) in _names.items() if d == desktop and _pending.get(k)]
-        return sum(len(_pending.pop(k)) for k in keys)
 
 
 def take(name):

@@ -74,6 +74,10 @@ _timer_start = {}   # 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
 _revive_wait = {}   # desktop index -> revive delay for its current death (doubled for a repeat killer)
 _kill_streak = {}   # desktop index -> kills in a row by the same player (1 = a new killer)
+_reply_due = {}     # desktop index -> [killer, ...] to whisper once its character is revived
+_reply_tries = {}   # (desktop index, killer lower) -> failed sends so far
+_messaged = {}      # desktop index -> {killer lower} already messaged (this run only)
+REPLY_TRIES = 3     # failed sends (no chat bar / no Whisper) before giving up on a killer
 _last_service = {}  # desktop index -> time.time() of its last service round
 _last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
 _last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
@@ -259,14 +263,14 @@ def _revive_gate(idx, total):
 
 
 def _handle_kills(idx, accts):
-    """Kills of this desktop's character seen in the chat since its last visit: replies to the
-    killer (Kill reply on), and with DOUBLE_REVIVE_WAIT on doubles the revive wait every time
-    the same player kills it again in a row — REVIVE_DELAY, x2, x4... up to MAX_REVIVE_WAIT.
-    A different killer starts over."""
+    """Kills of this desktop's character seen in the chat since its last visit. With Kill reply
+    on, a killer is queued for one whisper, sent after the revive (_send_due_replies) — once per
+    killer per character for this run; a killer already messaged gets nothing more. With
+    DOUBLE_REVIVE_WAIT on the revive wait doubles every time the same player kills it again in
+    a row — REVIVE_DELAY, x2, x4... up to MAX_REVIVE_WAIT. A different killer starts over."""
     acc = accts[idx] if idx < len(accts) else None
     if not acc or not acc.name:
         return
-    replied = set()
     for killer, repeat in kill_watch.take(acc.name):
         _kill_streak[idx] = _kill_streak.get(idx, 0) + 1 if repeat else 1
         streak = _kill_streak[idx]
@@ -277,29 +281,31 @@ def _handle_kills(idx, accts):
                   f'revive wait {_fmt_left(wait)}' + (' (the max)' if wait == MAX_REVIVE_WAIT else ''))
         else:
             _revive_wait.pop(idx, None)
-        if kill_reply.enabled() and killer.lower() not in replied:   # one message per killer per visit
-            replied.add(killer.lower())
-            print(f'  [KILL] desktop {idx + 1}: {acc.name} was killed by {killer} — sending the reply')
-            kill_reply.send(killer)
+        if not kill_reply.enabled():
+            continue
+        due = _reply_due.setdefault(idx, [])
+        if killer.lower() in _messaged.get(idx, set()):
+            print(f'  [KILL] {killer} was already messaged for {acc.name} — no new message')
+        elif killer.lower() not in (k.lower() for k in due):
+            due.append(killer)
+            print(f'  [KILL] desktop {idx + 1}: will whisper {killer} once {acc.name} is revived')
 
 
-def _kill_interrupt(where):
-    """True if one of our characters was killed (on any desktop) — the visit stops here so the
-    loop can rush to that desktop and reply. Says so once, with what got cut short."""
-    target = kill_watch.next_desktop()
-    if target is None:
-        return False
-    print(f'  [KILL] a character on desktop {target} was killed — stopping {where} to go there')
-    return True
-
-
-def _wait_visit(seconds):
-    """The end-of-visit pause, cut short as soon as one of our characters is killed."""
-    end = time.time() + seconds
-    while time.time() < end:
-        if kill_watch.next_desktop() is not None:
-            return
-        time.sleep(0.2)
+def _send_due_replies(idx):
+    """Right after this desktop's character is alive again: whispers each queued killer once."""
+    due = _reply_due.get(idx)
+    for killer in list(due or []):
+        key = (idx, killer.lower())
+        if kill_reply.send(killer):
+            _messaged.setdefault(idx, set()).add(killer.lower())
+            due.remove(killer)
+            _reply_tries.pop(key, None)
+            continue
+        _reply_tries[key] = _reply_tries.get(key, 0) + 1
+        if _reply_tries[key] >= REPLY_TRIES:
+            print(f'  [KILL] could not message {killer} after {REPLY_TRIES} tries — giving up')
+            due.remove(killer)
+            _reply_tries.pop(key, None)
 
 
 def _ensure_account(idx, total, accts):
@@ -441,7 +447,6 @@ def _main():
             if FIRST_RUN_REPAIR:
                 pending_repair.add(current)
 
-        kill_here = kill_watch.next_desktop() == current + 1   # came here for a kill
         try:
             if accts and not _ensure_account(current, total, accts):
                 # accounts mode: couldn't get this desktop's account into the game — try next visit
@@ -457,6 +462,7 @@ def _main():
                 _handle_kills(current, accts)
                 alive = _revive_gate(current, total)
                 if alive:
+                    _send_due_replies(current)   # Kill reply: whisper the killer after the revive
                     _f10_desktop = current   # F10_CYCLONE: alive and in game — F10 may go here now
                 if alive and not (repair_due or service_due):
                     # nothing to do this visit — say so, so a quiet log doesn't look like a hang
@@ -469,13 +475,13 @@ def _main():
                         # no response to Alt+P: likely disconnected — skip, retry next visit
                         print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
                     else:
-                        if repair_due and not _kill_interrupt('the repair'):
+                        if repair_due:
                             run_repair()
                             pending_repair.discard(current)
-                        if service_due and not _kill_interrupt('the service'):
+                        if service_due:
                             _service(current)
                         panels.close_all()   # inventory, bank and VIP menu
-                _wait_visit(VISIT_WAIT)   # ends early if one of our characters gets killed
+                time.sleep(VISIT_WAIT)
         except OSError as e:
             # a screen grab refused mid-visit (session locked, or switching screens — e.g. the RDP
             # session handed back to the console): wait for the screen, then carry on
@@ -483,21 +489,9 @@ def _main():
             screen.wait_for_screen()
 
         _f10_desktop = None   # stop F10 before leaving (or re-checking) this desktop
-        if kill_here and kill_watch.next_desktop() == current + 1:
-            # we came for this kill but couldn't reach the game (closed / not logged in): let it
-            # go, or the loop would stay stuck on this desktop
-            dropped = kill_watch.drop(current + 1)
-            print(f'[KILL] desktop {current + 1}: game not reachable — no reply for {dropped} kill(s)')
         if total < 2:
             continue
-        target = kill_watch.next_desktop()   # one of ours was killed: go there first
-        if target is not None and 1 <= target <= total and target - 1 != current:
-            print(f'[KILL] rushing to desktop {target} to reply to the killer')
-            current = target - 1
-        elif target is None or target - 1 != current:
-            current = (current + 1) % total   # after the last desktop, jump straight back to 1
-        else:
-            continue                          # the kill is on this desktop: handle it right here
+        current = (current + 1) % total   # after the last desktop, jump straight back to 1
         _go_to_desktop(current)
 
 

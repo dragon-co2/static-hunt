@@ -168,7 +168,7 @@
     "ENABLED": {
       "type": "bool",
       "default": false,
-      "desc": "When one of your accounts is killed, send the killer a chat message: their name in the chat bar's left box, a message in the right box, then Enter. Sent the next time the script visits that account's desktop. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
+      "desc": "When one of your accounts is killed, whisper the killer one chat message, right after that account is revived: click Talk, pick Whisper, type their name in the chat bar's left box and a message in the right box, then Enter. Each killer gets one message per account; if they kill it again, only the revive wait grows (see the Revive tab). Forgotten when the script stops. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
     },
     "MESSAGES": {
       "type": "lines",
