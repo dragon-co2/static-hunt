@@ -34,8 +34,8 @@ CONF_LOGIN = 0.8
 #   pass  = ~3/4 along the Password box, clear of the show/hide eye icon
 #   login = the Login button
 FORMS = [
-    ('big',   _tmpl_login,       {'user': (185, 70), 'pass': (175, 105), 'login': (176, 218)}),  # 354x282
-    ('small', _tmpl_login_small, {'user': (140, 78), 'pass': (130, 105), 'login': (140, 195)}),  # 282x243
+    ('big',   _tmpl_login,       {'user': (240, 137), 'pass': (230, 178), 'login': (175, 323)}),  # 347x352
+    ('small', _tmpl_login_small, {'user': (175, 104), 'pass': (165, 131), 'login': (127, 234)}),  # 254x254
 ]
 CLEAR_KEYS     = 40           # backspaces to empty a field that might hold a remembered value
 
