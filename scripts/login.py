@@ -17,7 +17,7 @@ import accounts
 import game_input as gi
 import screen
 from _paths import app_root
-from game_window import focus_game_window
+from game_window import find_game_window, focus_game_window
 
 _DIR = os.path.join(app_root(), 'reference_images')
 _tmpl_play = cv2.imread(os.path.join(_DIR, 'play.jpg'), cv2.IMREAD_GRAYSCALE)
@@ -44,7 +44,37 @@ WAIT_FORM   = 60   # seconds for the login form after clicking PLAY
 WAIT_ENTER  = 90   # seconds for the login form to go away after clicking Login (usually ~20)
 WAIT_LOADED = 90   # seconds after that for the map to load (the bottom bar's Options button shows)
 SETTLE      = 3    # extra seconds once loaded, before anything clicks in the game
+CRASH_GRACE = 10   # game window gone this long (once the login form was up) = it crashed
 CONF_HUD    = 0.8
+
+
+class GameCrashed(Exception):
+    """The game window went away during the login — it crashed or closed."""
+
+
+class _GameWatch:
+    """Armed once the login form is up (the game's own window): from then on, if no game window
+    is on this desktop for CRASH_GRACE seconds in a row, the game crashed. The grace covers the
+    game swapping to a new process right after Login (its window is gone for a moment)."""
+
+    def __init__(self):
+        self.missing_since = None
+
+    def check(self):
+        if find_game_window():
+            self.missing_since = None
+        elif self.missing_since is None:
+            self.missing_since = time.time()
+        elif time.time() - self.missing_since >= CRASH_GRACE:
+            raise GameCrashed()
+
+
+_watch = None   # the running login's _GameWatch (None until its form is up)
+
+
+def _check_game():
+    if _watch:
+        _watch.check()
 
 
 def _find(template, conf):
@@ -69,6 +99,7 @@ def _wait_form(seconds, gone=False):
     """Polls for the login form (either layout); with gone=True, until neither shows."""
     end = time.time() + seconds
     while time.time() < end:
+        _check_game()
         f = find_form()
         if gone and not f:
             return True
@@ -83,6 +114,7 @@ def _wait_for(template, conf, seconds, gone=False):
     Returns its (x, y, w, h) when it appears / True when it's gone, or None on timeout."""
     end = time.time() + seconds
     while time.time() < end:
+        _check_game()
         found = _find(template, conf)
         if gone and not found:
             return True
@@ -124,7 +156,22 @@ def launch(game_path):
 
 
 def login(account, launch_first=True):
-    """Runs the whole login for `account`. Returns True once the login form has gone away."""
+    """Runs the whole login for `account`. Returns True once it's in the game. If the game
+    crashes on the way (its window disappears), gives up at once so the loop can move on to
+    the next desktop; this one is tried again later."""
+    global _watch
+    try:
+        return _login(account, launch_first)
+    except GameCrashed:
+        print(f'[LOGIN] {account.username}: the game crashed / closed during the login — '
+              'skipping this desktop, it is tried again later')
+        return False
+    finally:
+        _watch = None
+
+
+def _login(account, launch_first):
+    global _watch
     if launch_first:
         path = accounts.game_path()
         if not path:
@@ -149,6 +196,7 @@ def login(account, launch_first=True):
         return False
     layout, box, pos = form
     print(f'[LOGIN] login form ({layout})')
+    _watch = _GameWatch()   # from here on the game window must stay (else it crashed)
 
     hwnd = __import__('game_window').find_game_window()
     if hwnd:
