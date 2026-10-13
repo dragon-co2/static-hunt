@@ -2,11 +2,17 @@
 chat bar's left box, a random line from the 'kill_reply' MESSAGES setting in the right box,
 then Enter. (When to send — once per killer, after the revive — is decided by static.py.)
 
+Who was already messaged is kept in messaged_killers.json next to the settings, shared by all
+the accounts and kept across restarts: a killer gets one message, whichever account they kill,
+until FORGET_AFTER has passed since it — then they're dropped from the file.
+
 The chat bar is found by its right end (the smiley, Clear and Chat buttons — chat.jpg from
 x=565), which never changes; the two boxes are at fixed offsets from there, since their
 contents (old names / half-typed text) would spoil a match on the whole bar."""
+import json
 import os
 import random
+import threading
 import time
 
 import cv2
@@ -14,7 +20,7 @@ import cv2
 import game_input as gi
 import screen
 from _paths import app_root
-from dragon_settings import get_settings
+from dragon_settings import get_settings, override_dir
 from game_window import focus_game_window
 
 _bar = cv2.imread(os.path.join(app_root(), 'reference_images', 'chat.jpg'), cv2.IMREAD_GRAYSCALE)
@@ -56,7 +62,48 @@ _MESSAGES = [   # the default MESSAGES: each reply picks one at random
     "you are so good, play at wars!",
     "hey stop killing me",
 ]
-_DEFAULTS = {'ENABLED': False, 'MESSAGES': '\n'.join(_MESSAGES)}
+_DEFAULTS = {'ENABLED': False, 'SEND_ONCE_EVERYDAY': True, 'MESSAGES': '\n'.join(_MESSAGES)}
+
+
+LOG_PATH = os.path.join(override_dir(), 'messaged_killers.json')
+FORGET_AFTER = 24 * 3600   # seconds a messaged killer stays in the log
+_log_lock = threading.Lock()
+
+
+def _read_log():
+    """{killer lower: {'name', 'character', 'at' (time.time()), 'when' (readable)}}, without the
+    entries older than FORGET_AFTER."""
+    try:
+        with open(LOG_PATH, encoding='utf-8') as f:
+            log = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    now = time.time()
+    return {k: v for k, v in log.items()
+            if isinstance(v, dict) and isinstance(v.get('at'), (int, float)) and now - v['at'] < FORGET_AFTER}
+
+
+def already_messaged(killer):
+    """True if `killer` got a message (from any account) within the last FORGET_AFTER — always
+    False with SEND_ONCE_EVERYDAY off (then they get one after every revive)."""
+    if not get_settings('kill_reply', _DEFAULTS)['SEND_ONCE_EVERYDAY']:
+        return False
+    with _log_lock:
+        return killer.lower() in _read_log()
+
+
+def remember(killer, character):
+    """Logs that `killer` was messaged (for killing `character`); drops the expired entries."""
+    with _log_lock:
+        log = _read_log()
+        log[killer.lower()] = {'name': killer, 'character': character, 'at': time.time(),
+                               'when': time.strftime('%Y-%m-%d %H:%M:%S')}
+        try:
+            os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+            with open(LOG_PATH, 'w', encoding='utf-8') as f:
+                json.dump(log, f, indent=1)
+        except OSError as e:
+            print(f'[KILL] could not save {LOG_PATH} ({e})')
 
 
 def enabled():

@@ -77,7 +77,7 @@ _revive_wait = {}   # desktop index -> revive delay for its current death (doubl
 _kill_streak = {}   # desktop index -> kills in a row by the same player (1 = a new killer)
 _reply_due = {}     # desktop index -> [killer, ...] to whisper once its character is revived
 _reply_tries = {}   # (desktop index, killer lower) -> failed sends so far
-_messaged = {}      # desktop index -> {killer lower} already messaged (this run only)
+# who was already messaged: kill_reply's messaged_killers.json (all accounts, kept for 24h)
 REPLY_TRIES = 3     # failed sends (no chat bar / no Whisper) before giving up on a killer
 _last_service = {}  # desktop index -> time.time() of its last service round
 _last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
@@ -265,8 +265,9 @@ def _revive_gate(idx, total):
 
 def _handle_kills(idx, accts):
     """Kills of this desktop's character seen in the chat since its last visit. With Kill reply
-    on, a killer is queued for one whisper, sent after the revive (_send_due_replies) — once per
-    killer per character for this run; a killer already messaged gets nothing more. With
+    on, a new killer is queued for one whisper, sent after the revive (_send_due_replies) — one
+    message per killer whichever account they kill (logged in messaged_killers.json for 24h);
+    a killer already messaged, or already queued on another desktop, gets nothing more. With
     DOUBLE_REVIVE_WAIT on the revive wait doubles every time the same player kills it again in
     a row — REVIVE_DELAY, x2, x4... up to MAX_REVIVE_WAIT. A different killer starts over."""
     acc = accts[idx] if idx < len(accts) else None
@@ -288,21 +289,27 @@ def _handle_kills(idx, accts):
             _revive_wait.pop(idx, None)
         if not kill_reply.enabled():
             continue
-        due = _reply_due.setdefault(idx, [])
-        if killer.lower() in _messaged.get(idx, set()):
-            print(f'  [KILL] {killer} was already messaged for {acc.name} — no new message')
-        elif killer.lower() not in (k.lower() for k in due):
-            due.append(killer)
+        queued = {k.lower() for due in _reply_due.values() for k in due}
+        if kill_reply.already_messaged(killer):
+            print(f'  [KILL] {killer} was already messaged (in the last 24h) — no new message')
+        elif killer.lower() in queued:
+            print(f'  [KILL] {killer} is already waiting for a message from another account — not again')
+        else:
+            _reply_due.setdefault(idx, []).append(killer)
             print(f'  [KILL] desktop {idx + 1}: will whisper {killer} once {acc.name} is revived')
 
 
-def _send_due_replies(idx):
+def _send_due_replies(idx, accts):
     """Right after this desktop's character is alive again: whispers each queued killer once."""
     due = _reply_due.get(idx)
+    acc = accts[idx] if idx < len(accts) else None
     for killer in list(due or []):
         key = (idx, killer.lower())
+        if kill_reply.already_messaged(killer):   # messaged since it was queued (e.g. a crash-restart)
+            due.remove(killer)
+            continue
         if kill_reply.send(killer):
-            _messaged.setdefault(idx, set()).add(killer.lower())
+            kill_reply.remember(killer, acc.name if acc else f'desktop {idx + 1}')
             due.remove(killer)
             _reply_tries.pop(key, None)
             continue
@@ -481,7 +488,7 @@ def _main():
                 _handle_kills(current, accts)
                 alive = _revive_gate(current, total)
                 if alive:
-                    _send_due_replies(current)   # Kill reply: whisper the killer after the revive
+                    _send_due_replies(current, accts)   # Kill reply: whisper the killer after the revive
                     _f10_desktop = current   # F10_CYCLONE: alive and in game — F10 may go here now
                 if alive and not (repair_due or service_due):
                     # nothing to do this visit — say so, so a quiet log doesn't look like a hang

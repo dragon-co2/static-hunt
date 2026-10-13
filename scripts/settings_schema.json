@@ -174,7 +174,13 @@
     "ENABLED": {
       "type": "bool",
       "default": false,
-      "desc": "When one of your accounts is killed, whisper the killer one chat message, right after that account is revived: click Talk, pick Whisper, type their name in the chat bar's left box and a message in the right box, then Enter. Each killer gets one message per account; if they kill it again, only the revive wait grows (see the Revive tab). Forgotten when the script stops. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
+      "desc": "When one of your accounts is killed, whisper the killer one chat message, right after that account is revived: click Talk, pick Whisper, type their name in the chat bar's left box and a message in the right box, then Enter. How often a killer gets one: see Send once every day. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
+    },
+    "SEND_ONCE_EVERYDAY": {
+      "type": "bool",
+      "default": true,
+      "label": "Send once every day",
+      "desc": "On: each killer gets one message per 24 hours, whichever of your accounts they kill; more kills only make the revive wait grow. Off: they get a message after every revive. Who was messaged is kept in messaged_killers.json next to the settings file (survives restarts)."
     },
     "MESSAGES": {
       "type": "lines",
