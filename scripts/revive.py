@@ -21,12 +21,21 @@ REVIVE_PATH = os.path.join(_DIR, 'revive.jpg')
 
 
 from dragon_settings import get_settings
-_S = get_settings('revive', {'REVIVE_DELAY': 360, 'DOUBLE_REVIVE_WAIT': False, 'MAX_REVIVE_WAIT': 1800,
+_S = get_settings('revive', {'REVIVE_DELAY': 360, 'REVIVE_TIME_MULTIPLIER': 2, 'MAX_REVIVE_WAIT': 1800,
                              'MONSTERS': 'Pheasant*\nBloodyBat*\nBullMonster*\nBullKing*\nHawKing*\nSandMonster*'})
 
 REVIVE_DELAY = _S['REVIVE_DELAY']  # per desktop: seconds after death is first seen before Revive is clicked
-DOUBLE_REVIVE_WAIT = bool(_S['DOUBLE_REVIVE_WAIT'])  # same killer again -> the wait doubles each time
+# same killer again (in a row) -> the wait is multiplied by this each time; 1 = it never grows
+REVIVE_TIME_MULTIPLIER = max(1.0, float(_S['REVIVE_TIME_MULTIPLIER']))
 MAX_REVIVE_WAIT = _S['MAX_REVIVE_WAIT']              # ...but never longer than this (seconds)
+
+
+def revive_wait_for(streak):
+    """Revive wait (seconds) for a death that is the `streak`-th in a row by the same player:
+    REVIVE_DELAY, then x REVIVE_TIME_MULTIPLIER for each repeat, up to MAX_REVIVE_WAIT."""
+    if streak <= 1 or REVIVE_TIME_MULTIPLIER <= 1:
+        return REVIVE_DELAY
+    return int(min(REVIVE_DELAY * REVIVE_TIME_MULTIPLIER ** (streak - 1), max(MAX_REVIVE_WAIT, REVIVE_DELAY)))
 # killers that are monsters (one name per line, * = any characters): revive at once, no reply
 MONSTERS = [m.strip() for m in (_S['MONSTERS'] or '').replace('\\n', '\n').splitlines() if m.strip()]
 REVIVE_CHECK = 3                   # seconds to watch for the button to disappear after a click

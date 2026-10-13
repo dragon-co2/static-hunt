@@ -23,7 +23,8 @@ from pynput import keyboard as pynput_kb
 import desktops
 
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
-from revive import handle_revive, is_dead, REVIVE_DELAY, DOUBLE_REVIVE_WAIT, MAX_REVIVE_WAIT, MONSTERS
+from revive import (handle_revive, is_dead, revive_wait_for, REVIVE_DELAY, REVIVE_TIME_MULTIPLIER,
+                    MAX_REVIVE_WAIT, MONSTERS)
 from grab_arrows import ensure_arrows
 from repaire import run_repair
 from db_scroll import run_db_scroll
@@ -267,9 +268,9 @@ def _handle_kills(idx, accts):
     """Kills of this desktop's character seen in the chat since its last visit. With Kill reply
     on, a new killer is queued for one whisper, sent after the revive (_send_due_replies) — one
     message per killer whichever account they kill (logged in messaged_killers.json for 24h);
-    a killer already messaged, or already queued on another desktop, gets nothing more. With
-    DOUBLE_REVIVE_WAIT on the revive wait doubles every time the same player kills it again in
-    a row — REVIVE_DELAY, x2, x4... up to MAX_REVIVE_WAIT. A different killer starts over."""
+    a killer already messaged, or already queued on another desktop, gets nothing more. The
+    revive wait is multiplied by REVIVE_TIME_MULTIPLIER every time the same player kills it again
+    in a row — REVIVE_DELAY, x2, x4... (with 2) up to MAX_REVIVE_WAIT. A different killer starts over."""
     acc = accts[idx] if idx < len(accts) else None
     if not acc or not acc.name:
         return
@@ -280,8 +281,8 @@ def _handle_kills(idx, accts):
             continue
         _kill_streak[idx] = _kill_streak.get(idx, 0) + 1 if repeat else 1
         streak = _kill_streak[idx]
-        if DOUBLE_REVIVE_WAIT and streak > 1:
-            wait = min(REVIVE_DELAY * 2 ** (streak - 1), MAX_REVIVE_WAIT)
+        wait = revive_wait_for(streak)
+        if wait != REVIVE_DELAY:
             _revive_wait[idx] = wait
             print(f'  [KILL] {killer} killed {acc.name} {streak} times in a row — '
                   f'revive wait {_fmt_left(wait)}' + (' (the max)' if wait == MAX_REVIVE_WAIT else ''))
@@ -322,10 +323,7 @@ def _send_due_replies(idx, accts):
 
 def _notify_kill(character, desktop, killer, streak):
     """kill_watch listener: a Telegram notification as soon as the kill shows in the chat."""
-    wait = REVIVE_DELAY
-    if DOUBLE_REVIVE_WAIT and streak > 1:
-        wait = min(REVIVE_DELAY * 2 ** (streak - 1), MAX_REVIVE_WAIT)
-    notify.kill(character, desktop, killer, streak, wait)
+    notify.kill(character, desktop, killer, streak, revive_wait_for(streak))
 
 
 def _ensure_account(idx, total, accts):
@@ -411,7 +409,7 @@ def _main():
         print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
         if accts:
             accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
-        if kill_reply.enabled() or DOUBLE_REVIVE_WAIT or notify.enabled() or MONSTERS:
+        if kill_reply.enabled() or REVIVE_TIME_MULTIPLIER > 1 or notify.enabled() or MONSTERS:
             names = {a.name: a.desktop for a in accts if a.name}
             if names:
                 kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
@@ -419,7 +417,7 @@ def _main():
                 kill_watch.monsters = MONSTERS
                 kill_watch.start(names, accounts.game_path())
             else:
-                print('[KILL] Kill reply / double revive wait / notifications / monsters are on, but no account '
+                print('[KILL] Kill reply / revive time multiplier / notifications / monsters are on, but no account '
                       'has a character name set (Accounts tab) — kill watching off for this run')
         if not accounts.game_path():
             print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')
