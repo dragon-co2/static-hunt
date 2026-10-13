@@ -49,6 +49,7 @@ CONF_WH    = screen.CONF_WH
 BANK_TAB_COUNT = 6  # tabs 0-5 are regular banks (used by init_bank_tab)
 TRIALS         = 5  # attempts per step before giving up on validating it
 TAB_SCAN_WAIT  = 2.0  # seconds to wait after switching warehouse tab before scanning it for arrows
+PARK_OFF       = (60, 17)  # from the warehouse panel's top-left: empty title bar, left of "Warehouse"
 
 _tmpl_inv = screen.tmpl_inv
 _tmpl_wh  = screen.tmpl_wh
@@ -118,6 +119,14 @@ def _click_warehouse_tab(tab_idx):
 _grab_gray = screen.grab_gray  # primary monitor only (see screen.py)
 
 
+def _park_mouse():
+    """Moves the cursor onto the warehouse's empty title bar — off every tab and cell — so no
+    hover tooltip (e.g. "Click to open the warehouse in ...") covers the grid while it's scanned."""
+    wh_panel = _find(_grab_gray(), _tmpl_wh, threshold=CONF_WH)
+    if wh_panel:
+        gi.move(wh_panel[0] + PARK_OFF[0], wh_panel[1] + PARK_OFF[1])
+
+
 def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay=0.5):
     """Runs `action`, then validates it by polling `check` (up to verify_tries * verify_delay
     seconds). Prints [OK]/[FAIL]; re-runs the action up to `trials` times until it validates."""
@@ -168,6 +177,7 @@ def _search_tabs_for_arrow():
     for tab in range(WH_TAB_COUNT):
         if not _click_warehouse_tab(tab):
             return None
+        _park_mouse()              # the tab's tooltip would cover the first cells
         time.sleep(TAB_SCAN_WAIT)  # let the tab's grid finish loading before scanning it
         gray = _grab_gray()
         wh_panel = _find(gray, _tmpl_wh, threshold=CONF_WH)
@@ -229,6 +239,7 @@ def ensure_arrows():
     def _click_found_arrow():
         _click_at(*pos)
         print(f'  [CLICK] arrow in warehouse @ {pos}')
+        _park_mouse()              # don't leave a cell's tooltip over the panels while checking
 
     if not _run_step(_click_found_arrow, lambda: _arrow_in_inventory() is not None,
                      'arrow appeared in inventory'):

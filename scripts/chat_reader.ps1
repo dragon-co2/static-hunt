@@ -36,7 +36,7 @@ public static class ConquerChatMemory
     [DllImport("kernel32", SetLastError = true)] static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, int size, out IntPtr read);
     [DllImport("kernel32", SetLastError = true)] static extern IntPtr VirtualQueryEx(IntPtr h, IntPtr addr, out MBI info, IntPtr len);
 
-    class Client { public int Pid; public IntPtr Handle; public List<uint> Objects = new List<uint>(); public HashSet<string> Seen = new HashSet<string>(); public DateTime NextScan; public byte[] Character = new byte[0]; public DateTime NextNameRead; }
+    class Client { public int Pid; public IntPtr Handle; public List<uint> Objects = new List<uint>(); public HashSet<string> Seen = new HashSet<string>(); public HashSet<uint> Primed = new HashSet<uint>(); public DateTime NextScan; public byte[] Character = new byte[0]; public DateTime NextNameRead; }
 
     static byte[] ReadCharacterName(IntPtr h)
     {
@@ -136,7 +136,10 @@ public static class ConquerChatMemory
         foreach (uint obj in c.Objects.ToArray())
         {
             var head = Read(c.Handle, obj, ENABLED + 4);
-            if (head == null || BitConverter.ToUInt32(head, 0) != VTABLE) { c.Objects.Remove(obj); Status(c.Pid, "chat object lost; rescanning"); c.NextScan = DateTime.MinValue; continue; }
+            if (head == null || BitConverter.ToUInt32(head, 0) != VTABLE) { c.Objects.Remove(obj); c.Primed.Remove(obj); Status(c.Pid, "chat object lost; rescanning"); c.NextScan = DateTime.MinValue; continue; }
+            // The records already there when a chat object is first read are history (from before
+            // the script started / before this login): remember them without emitting them.
+            bool history = c.Primed.Add(obj);
             uint begin = BitConverter.ToUInt32(head, VEC_BEGIN), end = BitConverter.ToUInt32(head, VEC_END);
             if (begin == 0 || end <= begin) continue;
             int count = (int)((end - begin) / 8);
@@ -152,14 +155,14 @@ public static class ConquerChatMemory
                 var text = CStr(r, 0x30, 0x200);
                 if (text.Length == 0) continue;
                 string key = rec.ToString("x8") + ":" + Convert.ToBase64String(text);
-                if (!c.Seen.Add(key)) continue;
+                if (!c.Seen.Add(key) || history) continue;
                 Emit("{\"pid\":" + c.Pid +
                      ",\"character\":" + Json(Convert.ToBase64String(c.Character)) +
                      ",\"sender\":" + Json(Convert.ToBase64String(CStr(r, 0x10, 0x10))) +
                      ",\"target\":" + Json(Convert.ToBase64String(CStr(r, 0x20, 0x10))) +
                      ",\"text\":" + Json(Convert.ToBase64String(text)) + "}");
             }
-            if (c.Seen.Count > 20000) c.Seen.Clear();
+            if (c.Seen.Count > 20000) { c.Seen.Clear(); c.Primed.Clear(); }   // re-prime: never re-emit what's there
         }
     }
 

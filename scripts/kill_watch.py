@@ -19,6 +19,7 @@ Every other kill in the server is logged as [CHAT] too (proof the chat is being 
 game line with "kill" in it that doesn't match a known shape is logged as it is, so a new
 message shape shows up in the log. (A death to a monster has no message at all.)"""
 import base64
+import datetime
 import fnmatch
 import json
 import os
@@ -37,6 +38,8 @@ DEDUPE_FOR   = 3600  # seconds a line counts as already seen: every game window 
                      # [System] line, and the saved file repeats it minutes later. Lines carry
                      # their minute, so a real second kill is never mistaken for a repeat
 FILE_POLL    = 1     # seconds between checks of the saved chat files
+STALE_AFTER  = 5 * 60   # a kill this much older than the newest chat line seen is old news: ignored
+_STAMP = re.compile(r'\[(\d{4})-(\d{1,2})-(\d{1,2}), (\d{1,2}):(\d{1,2})\]\s*$')   # "[2026-10-13, 11:3]"
 
 # ChatLog.log record (Conquer.exe ChatLog.cpp): 0x260 bytes = sender[16] | target[16] |
 # date[64] | message[512]. Message byte i is XORed with
@@ -68,6 +71,7 @@ def is_monster(name):
     low = (name or '').lower()
     return any(fnmatch.fnmatchcase(low, m.lower()) for m in monsters)
 _recent = {}         # chat text -> time.time() first seen (dedupe across game windows)
+_newest = None       # newest chat-line time seen (the game's clock, from the line's "[date, h:m]")
 _started = False
 _job = None          # Windows job object: the reader dies with this script, even on a crash
 
@@ -103,8 +107,21 @@ def parse_kill(text):
     return None
 
 
+def _stamp(text):
+    m = _STAMP.search(text)
+    if not m:
+        return None
+    try:
+        return datetime.datetime(*map(int, m.groups()))
+    except ValueError:
+        return None
+
+
 def _on_text(text, character=''):
-    """One chat line from the game window of `character` (its in-game name, '' if unknown)."""
+    """One chat line from the game window of `character` (its in-game name, '' if unknown).
+    Kills from before the script started are never acted on: the readers skip what was already
+    there, and a kill line much older than the newest line seen (STALE_AFTER) is ignored."""
+    global _newest
     kill = parse_kill(text)
     if kill and kill[0].lower() == 'you':          # "You were killed by X": whose game said it
         kill = (character, kill[1]) if character else None
@@ -116,6 +133,13 @@ def _on_text(text, character=''):
         for t in [t for t, at in _recent.items() if now - at > DEDUPE_FOR]:
             del _recent[t]
         _recent[key] = now
+        stamp = _stamp(text)
+        if stamp and (_newest is None or stamp > _newest):
+            _newest = stamp
+        stale = bool(stamp and kill and (_newest - stamp).total_seconds() > STALE_AFTER)
+    if stale:
+        print(f'[KILL] ignoring an old kill: {kill[0]} by {kill[1]} at {stamp:%H:%M} (game time)')
+        return
     low = text.lower()
     if not kill:
         if ('kill' in low and not low.startswith('[gm]') and 'killed a monster' not in low
@@ -213,13 +237,13 @@ def _file_loop(game_path):
     root = os.path.join(os.path.dirname(game_path), 'log')
     seen = {}      # path -> bytes already read (whole records)
     keys = {}      # path -> the name that decodes it ('' or the character)
-    first = True   # files there at start: skip their history, only read what's added from now
     while True:
         try:
             for path, (server, folder) in _chat_files(root).items():
                 size = os.path.getsize(path) // _RECORD * _RECORD
-                if path not in seen:
-                    seen[path] = size if first else 0
+                if path not in seen:           # first look at this file (at start or a new one):
+                    seen[path] = size          # skip what's in it, read only what's added from now
+                    continue
                 if size < seen[path]:          # file started over
                     seen[path] = 0
                 if size == seen[path]:
@@ -239,7 +263,6 @@ def _file_loop(game_path):
                             break
         except OSError as e:
             print(f'[KILL] could not read the chat files ({e})')
-        first = False
         time.sleep(FILE_POLL)
 
 
