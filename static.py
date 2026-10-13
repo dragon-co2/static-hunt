@@ -23,7 +23,7 @@ from pynput import keyboard as pynput_kb
 import desktops
 
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
-from revive import handle_revive, is_dead, REVIVE_DELAY, DOUBLE_REVIVE_WAIT, MAX_REVIVE_WAIT
+from revive import handle_revive, is_dead, REVIVE_DELAY, DOUBLE_REVIVE_WAIT, MAX_REVIVE_WAIT, MONSTERS
 from grab_arrows import ensure_arrows
 from repaire import run_repair
 from db_scroll import run_db_scroll
@@ -272,7 +272,11 @@ def _handle_kills(idx, accts):
     acc = accts[idx] if idx < len(accts) else None
     if not acc or not acc.name:
         return
-    for killer, repeat in kill_watch.take(acc.name):
+    for killer, repeat, monster in kill_watch.take(acc.name):
+        if monster:   # killed by a monster (Revive tab > MONSTERS): revive at once, no message
+            _revive_wait[idx] = 0
+            print(f'  [KILL] desktop {idx + 1}: {acc.name} was killed by the monster {killer} — reviving now')
+            continue
         _kill_streak[idx] = _kill_streak.get(idx, 0) + 1 if repeat else 1
         streak = _kill_streak[idx]
         if DOUBLE_REVIVE_WAIT and streak > 1:
@@ -400,14 +404,15 @@ def _main():
         print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
         if accts:
             accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
-        if kill_reply.enabled() or DOUBLE_REVIVE_WAIT or notify.enabled():
+        if kill_reply.enabled() or DOUBLE_REVIVE_WAIT or notify.enabled() or MONSTERS:
             names = {a.name: a.desktop for a in accts if a.name}
             if names:
                 kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
                 kill_watch.on_kill = _notify_kill
+                kill_watch.monsters = MONSTERS
                 kill_watch.start(names, accounts.game_path())
             else:
-                print('[KILL] Kill reply / double revive wait / notifications are on, but no account '
+                print('[KILL] Kill reply / double revive wait / notifications / monsters are on, but no account '
                       'has a character name set (Accounts tab) — kill watching off for this run')
         if not accounts.game_path():
             print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')

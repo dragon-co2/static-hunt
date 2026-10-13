@@ -19,6 +19,7 @@ Every other kill in the server is logged as [CHAT] too (proof the chat is being 
 game line with "kill" in it that doesn't match a known shape is logged as it is, so a new
 message shape shows up in the log. (A death to a monster has no message at all.)"""
 import base64
+import fnmatch
 import json
 import os
 import re
@@ -60,6 +61,12 @@ _pending = {}        # victim (lower) -> [killer, ...] not yet handled by the ma
 _last_killer = {}    # victim (lower) -> killer of their previous death
 _seen_streak = {}    # victim (lower) -> (killer lower, kills in a row) as seen in the chat
 on_kill = None       # optional listener: on_kill(character, desktop, killer, streak), called at once
+monsters = []        # killer names that are monsters (set by static.py; * = any characters)
+
+
+def is_monster(name):
+    low = (name or '').lower()
+    return any(fnmatch.fnmatchcase(low, m.lower()) for m in monsters)
 _recent = {}         # chat text -> time.time() first seen (dedupe across game windows)
 _started = False
 _job = None          # Windows job object: the reader dies with this script, even on a crash
@@ -119,6 +126,12 @@ def _on_text(text, character=''):
     ours = _names.get(victim.lower())
     if not ours:
         print(f'[CHAT] {victim} was killed by {killer} (not ours)')   # proves the chat is being read
+        return
+    if is_monster(killer):   # no streak, no listener (no notification) — just revive at once
+        with _lock:
+            _pending.setdefault(victim.lower(), []).append(killer)
+        print(f'[KILL] {ours[0]} (desktop {ours[1]}) was killed by the monster {killer} — '
+              'revive right away on the next visit, no message')
         return
     with _lock:
         _pending.setdefault(victim.lower(), []).append(killer)
@@ -279,12 +292,16 @@ def start(characters, game_path=''):
 
 def take(name):
     """Kills of character `name` since the last call, oldest first, as
-    [(killer, same_killer_as_their_previous_death), ...]."""
+    [(killer, same_killer_as_their_previous_player_death, is_monster), ...]. A monster's kill
+    doesn't count as a "previous death": a player killing again after it is still a repeat."""
     key = (name or '').strip().lower()
     with _lock:
         killers = _pending.pop(key, [])
         out = []
         for killer in killers:
-            out.append((killer, _last_killer.get(key, '').lower() == killer.lower()))
+            if is_monster(killer):
+                out.append((killer, False, True))
+                continue
+            out.append((killer, _last_killer.get(key, '').lower() == killer.lower(), False))
             _last_killer[key] = killer
     return out

@@ -161,6 +161,12 @@
       "unit": "s",
       "default": 1800,
       "desc": "With DOUBLE_REVIVE_WAIT on: the longest the doubled revive wait can get (1800 = 30 minutes)."
+    },
+    "MONSTERS": {
+      "type": "lines",
+      "default": "Pheasant*\nBloodyBat*\nBullMonster*\nBullKing*\nHawKing*\nSandMonster*",
+      "label": "Monster names",
+      "desc": "Monsters that sometimes kill your accounts, one name per line, as they show in the kill message (\"... was killed by <name>\"). * matches anything, e.g. BullMonster* for BullMonster and BullMonsterL113. Killed by one of these: revive right away (no REVIVE_DELAY wait), no message to it, no notification, and it doesn't break a player's kills-in-a-row count. Needs the accounts' character names (Accounts tab)."
     }
   },
   "kill_reply": {
