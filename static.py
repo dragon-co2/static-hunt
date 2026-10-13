@@ -57,7 +57,7 @@ LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
 LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 MB on disk at most
 
 _S = get_settings('static', {
-    'FIRST_RUN_REPAIR': True,
+    'FIRST_RUN_REPAIR': False,
     'REPAIR_INTERVAL':  8000,
     'VISIT_WAIT':       15,
     'SERVICE_INTERVAL': 180,

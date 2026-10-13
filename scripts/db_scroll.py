@@ -1,7 +1,6 @@
 """Dragonball -> scroll: when the inventory holds MIN_COUNT or more dragonballs, right-clicks one
 (the game turns 10 of them into a dragonball scroll), clicks a random regular warehouse tab,
-then Alt+left-clicks the new scroll.
-Turned on/off with ENABLED under 'db_scroll' in settings_schema.json."""
+then Alt+left-clicks the new scroll. Always on; its numbers are fixed here (no settings)."""
 import os
 import random
 import time
@@ -12,18 +11,16 @@ import pyautogui
 import game_input as gi  # real-device input via the Interception driver
 
 from _paths import app_root
-from dragon_settings import get_settings
 import grab_arrows as _ga  # inventory panel detection + grid layout (INV_* settings)
 
 _DIR = os.path.join(app_root(), 'reference_images')
 DRAGONBALL_PATH = os.path.join(_DIR, 'dragonball.png')
 SCROLL_PATH     = os.path.join(_DIR, 'dragonball_scroll.jpg')
 
-_DEFAULTS = {
-    'ENABLED':     True,
-    'MIN_COUNT':   10,
-    'CONF_DB':     0.85,
-    'CONF_SCROLL': 0.8,
+_S = {
+    'MIN_COUNT':   10,    # dragonballs needed before one is right-clicked into a scroll
+    'CONF_DB':     0.85,  # match score for dragonball.png (empty slots score ~0.7)
+    'CONF_SCROLL': 0.8,   # match score for dragonball_scroll.jpg
 }
 
 TRIALS = 5  # attempts per step before giving up on validating it
@@ -72,13 +69,10 @@ def _run_step(action, check, expect, trials=TRIALS, verify_tries=6, verify_delay
 
 
 def run_db_scroll():
-    """If enabled: converts dragonballs to a scroll when there are at least MIN_COUNT, then —
-    whether it just made one or one was already sitting in the inventory — clicks a random
-    regular warehouse tab and Alt+clicks the scroll.
-    Settings are re-read on every call, so the toggle takes effect without a restart."""
-    s = get_settings('db_scroll', _DEFAULTS)
-    if not s['ENABLED']:
-        return False
+    """Converts dragonballs to a scroll when there are at least MIN_COUNT, then — whether it
+    just made one or one was already sitting in the inventory — clicks a random regular
+    warehouse tab and Alt+clicks the scroll."""
+    s = _S
 
     def _scroll_count():
         return len(_inventory_cells(_tmpl_scroll, s['CONF_SCROLL']))
