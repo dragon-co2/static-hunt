@@ -94,12 +94,21 @@ class _Panel:
         self.justify = {'left': 'left', 'right': 'right'}.get(side, 'center')
         self.color = cfg['COLOR']
         self.shadow = SHADOW_OFFSET if cfg['SHADOW'] else 0
-        self.font = tkfont.Font(root=root, family='Consolas', size=int(cfg['FONT_SIZE']), weight='bold')
-        # a canvas, not a label: the text is drawn twice — the shadow, then the text over it
-        self.canvas = tk.Canvas(self.win, bg=_KEY, highlightthickness=0, bd=0, width=1, height=1)
-        self.canvas.pack()
         self.text = ''
         self.w, self.h = 1, 1
+        self.canvas = self.label = None
+        if self.shadow:
+            # a canvas: the text is drawn twice — the shadow, then the text over it
+            self.font = tkfont.Font(root=root, family='Consolas', size=int(cfg['FONT_SIZE']), weight='bold')
+            self.canvas = tk.Canvas(self.win, bg=_KEY, highlightthickness=0, bd=0, width=1, height=1)
+            self.canvas.pack()
+        else:
+            # no shadow: a plain label, exactly as before the shadow option existed
+            anchor = {'left': 'w', 'right': 'e'}.get(side, 'center')
+            self.label = tk.Label(self.win, text='', fg=self.color, bg=_KEY,
+                                  font=('Consolas', int(cfg['FONT_SIZE']), 'bold'),
+                                  justify=self.justify, anchor=anchor)
+            self.label.pack()
         self.win.update()
         self.hwnd = ctypes.windll.user32.GetParent(self.win.winfo_id())
         _make_click_through(self.win)
@@ -111,7 +120,10 @@ class _Panel:
         straight through SetWindowPos, since Tk alone doesn't reliably move these overrideredirect
         click-through Toplevels."""
         self.win.update_idletasks()
-        w, h = self.w, self.h
+        if self.label:
+            w, h = self.label.winfo_reqwidth(), self.label.winfo_reqheight()
+        else:
+            w, h = self.w, self.h
         sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
         vert, _, horiz = self.position.partition('-')
         if self.position == 'center':
@@ -143,7 +155,10 @@ class _Panel:
     def set_text(self, text):
         if self.text != text:
             self.text = text
-            self._draw()
+            if self.label:
+                self.label.config(text=text)
+            else:
+                self._draw()
             self._place()
 
     def keep_on_top(self):
