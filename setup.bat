@@ -83,6 +83,13 @@ echo   done.
 rem ---------- run_release.exe ----------
 echo.
 echo [3/3] Starting run_release.exe ...
+rem A zip from make_zip.bat holds only this file and .git: unpack the project from .git first.
+rem (Only when run_release.exe is missing - on a folder already in use this never resets anything.)
+if not exist "%~dp0run_release.exe" if exist "%~dp0.git\" (
+    echo   unpacking the project files from .git ...
+    git config --global --add safe.directory "%CD:\=/%" >nul 2>&1
+    git reset -q --hard || goto fail
+)
 if not exist "%~dp0run_release.exe" (
     echo   [ERROR] run_release.exe is not next to this file.
     goto fail
