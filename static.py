@@ -79,6 +79,7 @@ _kill_streak = {}   # desktop index -> kills in a row by the same player (1 = a 
 _reply_due = {}     # desktop index -> [killer, ...] to whisper once its character is revived
 _reply_tries = {}   # (desktop index, killer lower) -> failed sends so far
 _reply_lock = threading.Lock()   # _reply_due is filled by the chat-reading thread (_on_kill)
+_custom_due = {}    # desktop index -> [(player, text, telegram msg id)] typed by you in Telegram
 # who was already messaged: kill_reply's messaged_killers.json (all accounts, kept for 24h)
 REPLY_TRIES = 3     # failed sends (no chat bar / no Whisper) before giving up on a killer
 _last_service = {}  # desktop index -> time.time() of its last service round
@@ -315,8 +316,12 @@ def _send_due_replies(idx, accts):
     for killer in due:
         key = (idx, killer.lower())
         done = kill_reply.already_messaged(killer)   # messaged since it was queued (e.g. a crash-restart)
-        if not done and kill_reply.send(killer):
-            kill_reply.remember(killer, acc.name if acc else f'desktop {idx + 1}')
+        message = None if done else kill_reply.send(killer)
+        if message:
+            who = acc.name if acc else f'desktop {idx + 1}'
+            kill_reply.remember(killer, who)
+            notify.send(f'\U0001F4AC {who} (desktop {idx + 1}) whispered {killer}: "{message}"',
+                        ref={'desktop': idx + 1, 'player': killer, 'character': who})
             done = True
         if not done:
             _reply_tries[key] = _reply_tries.get(key, 0) + 1
@@ -328,6 +333,53 @@ def _send_due_replies(idx, accts):
             with _reply_lock:
                 if killer in _reply_due.get(idx, []):
                     _reply_due[idx].remove(killer)
+
+
+def _on_tg_reply(ref, text, msg_id):
+    """notify listener: you answered a Telegram message about a player — queue the whisper for
+    that account; it goes out on its desktop's next visit while it's alive."""
+    bad = kill_reply.untypeable(text)
+    if bad:
+        notify.send(f'\u274C not sent - a US keyboard can\'t type: {" ".join(sorted(set(bad)))}', reply_to=msg_id)
+        return
+    with _reply_lock:
+        _custom_due.setdefault(ref['desktop'] - 1, []).append((ref['player'], text, msg_id))
+    print(f'[TELEGRAM] queued for desktop {ref["desktop"]}: whisper {ref["player"]}: {text}')
+    notify.send(f'\u23F3 {ref["character"]} will whisper {ref["player"]} on its next visit (when alive)',
+                reply_to=msg_id)
+
+
+def _send_custom_whispers(idx, accts):
+    """Your Telegram replies queued for this desktop: whispers them (character alive, in front)."""
+    with _reply_lock:
+        due = list(_custom_due.get(idx) or [])
+    acc = accts[idx] if idx < len(accts) else None
+    who = acc.name if acc else f'desktop {idx + 1}'
+    for item in due:
+        player, text, msg_id = item
+        key = (idx, 'tg', msg_id)
+        done = False
+        if kill_reply.send(player, message=text):
+            notify.send(f'\u2705 {who} whispered {player}: "{text}"', reply_to=msg_id,
+                        ref={'desktop': idx + 1, 'player': player, 'character': who})
+            done = True
+        else:
+            _reply_tries[key] = _reply_tries.get(key, 0) + 1
+            if _reply_tries[key] >= REPLY_TRIES:
+                notify.send(f'\u274C {who} could not whisper {player} (chat bar / Whisper not found)',
+                            reply_to=msg_id)
+                done = True
+        if done:
+            _reply_tries.pop(key, None)
+            with _reply_lock:
+                if item in _custom_due.get(idx, []):
+                    _custom_due[idx].remove(item)
+
+
+def _on_whisper(sender, character, desktop, text):
+    """kill_watch listener: a player whispered one of our characters -> Telegram (answerable)."""
+    notify.send(f'\U0001F4E8 {sender} \u2192 {character} (desktop {desktop}): {text}',
+                ref={'desktop': desktop, 'player': sender, 'character': character})
 
 
 def _on_kill(character, desktop, killer, streak):
@@ -425,6 +477,9 @@ def _main():
             if names:
                 kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
                 kill_watch.on_kill = _on_kill
+                kill_watch.on_whisper = _on_whisper
+                notify.on_reply = _on_tg_reply
+                notify.listen()
                 kill_watch.monsters = MONSTERS
                 kill_watch.start(names, accounts.game_path())
             else:
@@ -498,6 +553,7 @@ def _main():
                 alive = _revive_gate(current, total)
                 if alive:
                     _send_due_replies(current, accts)   # Kill reply: whisper the killer after the revive
+                    _send_custom_whispers(current, accts)   # whispers you replied in Telegram
                     _f10_desktop = current   # F10_CYCLONE: alive and in game — F10 may go here now
                 if alive and not (repair_due or service_due):
                     # nothing to do this visit — say so, so a quiet log doesn't look like a hang

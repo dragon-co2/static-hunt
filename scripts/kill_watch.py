@@ -64,6 +64,10 @@ _pending = {}        # victim (lower) -> [killer, ...] not yet handled by the ma
 _last_killer = {}    # victim (lower) -> killer of their previous death
 _seen_streak = {}    # victim (lower) -> (killer lower, kills in a row) as seen in the chat
 on_kill = None       # optional listener: on_kill(character, desktop, killer, streak), called at once
+on_whisper = None    # optional listener: on_whisper(sender, character, desktop, text) — a player
+                     # whispered one of our characters
+_WHISPER = re.compile(r'^\[Whisper\](?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+): ?(?P<text>.*?)'
+                      r'\s*(?:\[\d{4}-\d{1,2}-\d{1,2}, \d{1,2}:\d{1,2}\])?\s*$')
 monsters = []        # killer names that are monsters (set by static.py; * = any characters)
 
 
@@ -140,6 +144,10 @@ def _on_text(text, character=''):
     if stale:
         print(f'[KILL] ignoring an old kill: {kill[0]} by {kill[1]} at {stamp:%H:%M} (game time)')
         return
+    w = _WHISPER.match(text.strip())
+    if w:
+        _on_whisper_line(w, stamp)
+        return
     low = text.lower()
     if not kill:
         if ('kill' in low and not low.startswith('[gm]') and 'killed a monster' not in low
@@ -168,6 +176,22 @@ def _on_text(text, character=''):
             on_kill(ours[0], ours[1], killer, streak)
         except Exception as e:   # a listener problem must never stop the chat reading
             print(f'[KILL] kill listener failed ({type(e).__name__}: {e})')
+
+
+def _on_whisper_line(w, stamp):
+    """A [Whisper] line: tells on_whisper when someone else whispered one of our characters."""
+    sender, target, said = w.group('sender'), w.group('target'), w.group('text').strip()
+    ours = _names.get(target.lower())
+    if not ours or sender.lower() in _names or not said:
+        return                                   # not to us, or our own whisper going out
+    if stamp and _newest and (_newest - stamp).total_seconds() > STALE_AFTER:
+        return                                   # old news
+    print(f'[WHISPER] {sender} -> {ours[0]} (desktop {ours[1]}): {said}')
+    if on_whisper:
+        try:
+            on_whisper(sender, ours[0], ours[1], said)
+        except Exception as e:
+            print(f'[WHISPER] whisper listener failed ({type(e).__name__}: {e})')
 
 
 def _read_loop():

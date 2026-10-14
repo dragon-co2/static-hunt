@@ -140,9 +140,16 @@ def _fill(x, y, text):
     return gi.type_text(text)
 
 
-def send(killer):
-    """Whispers a random MESSAGES line to `killer`. True if it was sent."""
-    lines = _messages()
+def untypeable(text):
+    """The characters of `text` a US keyboard can't type (they'd be skipped), in order."""
+    import ctypes
+    hkl = gi._us_layout()
+    return [c for c in text if ctypes.windll.user32.VkKeyScanExW(ord(c), hkl) in (-1, 0xFFFF)]
+
+
+def send(killer, message=None):
+    """Whispers `killer` a random MESSAGES line (or `message`). Returns the text sent, or False."""
+    lines = [message] if message else _messages()
     if not lines:
         print('[KILL] no reply messages set — nothing sent')
         return False
@@ -161,4 +168,4 @@ def send(killer):
         _fill(ax + TEXT_BOX[0], ay + TEXT_BOX[1], message)
         gi.press('enter')
     print(f'[KILL] sent to {killer}: {message!r}')
-    return True
+    return message

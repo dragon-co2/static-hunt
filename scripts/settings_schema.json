@@ -187,6 +187,14 @@
       "label": "Send once every day",
       "desc": "On: each killer gets one message per 24 hours, whichever of your accounts they kill; more kills only make the revive wait grow. Off: they get a message after every revive. Who was messaged is kept in messaged_killers.json next to the settings file (survives restarts)."
     },
+    "FORGET_KILLERS": {
+      "type": "action",
+      "action": "forget_killers",
+      "label": "Forget killers",
+      "button": "Forget killers",
+      "confirm": "Forget every killer that already got a message? They can all get one again.",
+      "desc": "Empties the list of killers who already got a message (messaged_killers.json), so each of them can get a message again. Works right away, even while the script is running."
+    },
     "MESSAGES": {
       "type": "lines",
       "default": "plz stop\nenough plz\nwtf\nwhy killing me?!\nbro im just hunting\n:|\n:/\nplz let me hunt in peace\nstop that!\ndude chill\n????\nleave me alone plz\nstop\nnot cool man\nreally?\nstop wasting ur time\nleave me alone :D\nleave me alone\nyou only good at killing archer?\nyou are so good, play at wars!\nhey stop killing me",

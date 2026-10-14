@@ -231,12 +231,35 @@ class Handler(BaseHTTPRequestHandler):
                                                body.get('current') or '')})
             return
 
+        if self.path == '/api/action':
+            body = self._read_json_body()
+            self._send_json(run_action(body.get('action') or ''))
+            return
+
         if self.path == '/api/reset-all':
             save_overrides({})
             self._send_json({'ok': True, 'overrides': {}})
             return
 
         self._send_json({'error': 'not found'}, status=404)
+
+
+def run_action(action):
+    """Runs a settings-page button (a schema field of type "action"). -> {'ok', 'message'}"""
+    if action == 'forget_killers':
+        # the log kill_reply keeps of killers already messaged; the script re-reads it every time
+        path = os.path.join(ds.override_dir(), 'messaged_killers.json')
+        try:
+            with open(path, encoding='utf-8') as f:
+                count = len(json.load(f))
+        except (OSError, ValueError):
+            count = 0
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return {'ok': True, 'message': f'Forgot {count} killer(s) - they can all get a message again.'}
+    return {'ok': False, 'message': f'Unknown action: {action}'}
 
 
 def find_port():

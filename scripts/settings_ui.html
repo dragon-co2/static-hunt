@@ -363,6 +363,7 @@ function isInt(meta) { return meta.type === 'int'; }
 function isChoice(meta) { return meta.type === 'choice'; }
 function isColor(meta) { return meta.type === 'color'; }
 function isBool(meta) { return meta.type === 'bool'; }
+function isAction(meta) { return meta.type === 'action'; }   // a button, not a saved value
 function isText(meta) { return ['text', 'password', 'file', 'lines'].includes(meta.type); }
 const PASSWORD_MASK = '__saved__';  // the server sends this instead of a stored password
 
@@ -390,7 +391,7 @@ function buildState() {
   for (const script of Object.keys(schema)) {
     state[script] = {};
     for (const name of Object.keys(schema[script])) {
-      if (name === '__title__') continue;
+      if (name === '__title__' || isAction(schema[script][name])) continue;
       state[script][name] = currentValueFor(script, name);
     }
   }
@@ -402,6 +403,7 @@ function markDirty(isDirty) {
 
 function fieldIsModified(script, name) {
   const meta = schema[script][name];
+  if (isAction(meta)) return false;
   return !valuesEqual(state[script][name], meta.default);
 }
 
@@ -631,8 +633,37 @@ function makeTextRow(script, name, meta) {
   return row;
 }
 
+// Button for type "action": asks to confirm, runs it on the server, shows what it did.
+function makeActionRow(meta) {
+  const row = document.createElement('div');
+  row.className = 'axis-row';
+  const btn = document.createElement('button');
+  btn.className = 'danger';
+  btn.textContent = meta.button || meta.label || 'Run';
+  btn.addEventListener('click', async () => {
+    if (meta.confirm && !window.confirm(meta.confirm)) return;
+    btn.disabled = true;
+    try {
+      const res = await fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: meta.action }),
+      });
+      showToast((await res.json()).message || 'Done.');
+    } catch (e) {
+      showToast('Failed -- is the server still running?');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  row.appendChild(btn);
+  return row;
+}
+
 function fillControl(control, script, name, meta) {
-  if (isBool(meta)) {
+  if (isAction(meta)) {
+    control.appendChild(makeActionRow(meta));
+  } else if (isBool(meta)) {
     control.appendChild(makeToggleRow(script, name));
   } else if (isPoint(meta)) {
     control.appendChild(makeAxisRow(script, name, 0, 'X', meta));
@@ -674,6 +705,7 @@ function buildFieldRow(script, name) {
   resetBtn.className = 'reset-btn';
   resetBtn.textContent = 'Reset';
   resetBtn.addEventListener('click', () => resetField(script, name));
+  if (isAction(meta)) resetBtn.style.visibility = 'hidden';   // nothing saved -> nothing to reset
 
   row.appendChild(info);
   row.appendChild(control);
