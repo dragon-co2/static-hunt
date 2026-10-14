@@ -42,6 +42,43 @@ BASE_DIR = base_dir()
 LOCAL_PYTHON_INSTALLER = os.path.join(BASE_DIR, "apps", "python-3.13.0-amd64.exe")
 
 
+def download(url, dest):
+    """Downloads url -> dest. Tries Python's own urllib first; if that fails (typically
+    CERTIFICATE_VERIFY_FAILED on a fresh Windows: this exe's OpenSSL only trusts the root
+    certificates already on the PC, and Windows fetches missing ones only when one of its own
+    programs asks), retries with Windows' curl.exe and then PowerShell - both go through
+    Windows' own TLS, which downloads the missing root certificate by itself."""
+    try:
+        urllib.request.urlretrieve(url, dest)
+        return
+    except Exception as e:
+        print(f"  Python download failed ({e}) - trying Windows' own downloader ...")
+    curl = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "curl.exe")
+    if os.path.exists(curl):
+        if subprocess.run([curl, "-L", "--fail", "-o", dest, url]).returncode == 0:
+            return
+        print("  curl.exe failed - trying PowerShell ...")
+    ps = ("[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; "
+          "$ProgressPreference = 'SilentlyContinue'; "
+          f"Invoke-WebRequest -UseBasicParsing -Uri '{url}' -OutFile '{dest}'")
+    if subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps]).returncode != 0:
+        raise RuntimeError(f"Could not download {url}")
+
+
+def download_text(url):
+    """Like download(), returning the content as text (for small JSON answers)."""
+    path = os.path.join(tempfile.gettempdir(), "run_download.tmp")
+    download(url, path)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
 def _is_real_python(path):
     """Windows ships a fake python.exe stub (the Microsoft Store alias) that
     sits on PATH even when Python isn't actually installed. shutil.which()
@@ -89,7 +126,7 @@ def install_python():
     else:
         installer_path = os.path.join(tempfile.gettempdir(), "python-installer.exe")
         print("  downloading Python installer from python.org ...")
-        urllib.request.urlretrieve(PYTHON_DOWNLOAD_URL, installer_path)
+        download(PYTHON_DOWNLOAD_URL, installer_path)
 
     # Silent, all-users install, adds python + pip to PATH for everyone.
     # (run.exe already runs elevated, so this can write to Program Files.)
@@ -139,8 +176,7 @@ def find_git():
 
 
 def _git_installer_url():
-    with urllib.request.urlopen(GIT_LATEST_RELEASE_API, timeout=30) as resp:
-        data = json.load(resp)
+    data = json.loads(download_text(GIT_LATEST_RELEASE_API))
     for asset in data.get("assets", []):
         name = asset.get("name", "")
         if name.startswith("Git-") and name.endswith("-64-bit.exe"):
@@ -153,7 +189,7 @@ def install_git():
     url = _git_installer_url()
     installer_path = os.path.join(tempfile.gettempdir(), "git-installer.exe")
     print(f"  downloading {url} ...")
-    urllib.request.urlretrieve(url, installer_path)
+    download(url, installer_path)
 
     # Silent Inno Setup install (Git for Windows' installer is Inno Setup based).
     result = subprocess.run([
