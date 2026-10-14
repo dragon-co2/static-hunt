@@ -9,3 +9,6 @@ build.bat
 run.py
 run.exe
 /Interception/
+
+# made by make_zip.bat
+*.zip
