@@ -2,12 +2,11 @@
 run.exe - the one thing you double-click.
 
 Every time it starts, it:
-  1. Makes sure Python is installed (installs it silently if it's missing).
-  2. If (and only if) a .git folder is sitting next to this file, installs
-     git if needed and pulls the latest code. A plain copy of this folder
-     (e.g. handed to someone as a zip, with no .git in it) skips this step
-     entirely - there's nothing to pull, and no reason to install git just
-     for that.
+  1. Makes sure Python and git are installed (installs them silently if
+     they're missing).
+  2. If a .git folder is sitting next to this file, pulls the latest code.
+     A plain copy of this folder (e.g. handed to someone as a zip, with no
+     .git in it) skips the pull - there's nothing to pull from.
   3. pip-installs requirements.txt (this step always needs internet, since
      the packages come from PyPI).
   4. Runs static.py with that Python.
@@ -298,10 +297,10 @@ def try_self_update():
 def main():
     os.chdir(BASE_DIR)
     python_exe = ensure_python()
+    git_exe = ensure_git()   # installed like Python, whether or not this folder is a git checkout
 
     print("\n[1/3] Pulling latest code ...")
     if os.path.isdir(os.path.join(BASE_DIR, ".git")):
-        git_exe = ensure_git()
         if git_exe:
             # On a machine/account git hasn't seen this exact folder on
             # before, it can refuse to touch it ("detected dubious ownership
@@ -318,8 +317,7 @@ def main():
             print("  continuing without git pull - running the code already on disk.")
     else:
         # No .git folder here - this is a plain copy (e.g. someone got a
-        # zipped version of this folder), not a git checkout. Nothing to
-        # pull from, and no reason to bother installing git for that person.
+        # zipped version of this folder), not a git checkout: nothing to pull from.
         print("  no .git folder here - this looks like a standalone copy, skipping.")
 
     try_self_update()
