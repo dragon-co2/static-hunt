@@ -90,6 +90,8 @@ ARROWS_ALERT_EVERY = 3600   # seconds before the same desktop's arrow alert is s
 _last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
 _f10_desktop = None # desktop index whose game the F10 thread may press F10 in (None = nowhere now)
 LAUNCH_COOLDOWN = 120  # seconds before a desktop's game may be started again after a failed login
+_in_game = set()    # desktops whose account has been in the game this run (so losing it = news)
+_down = {}          # desktop index -> [what happened, failure already reported] while it's out
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
 _shift_held = False
@@ -422,6 +424,9 @@ def _ensure_account(idx, total, accts):
         return find_game_window() is not None
 
     if not find_game_window():
+        if idx in _in_game:                    # it was playing: crashed / closed
+            _in_game.discard(idx)
+            _down.setdefault(idx, ['the game crashed / closed', False])
         since = time.time() - _last_launch.get(idx, 0)
         if since < LAUNCH_COOLDOWN:
             print(f'[ACCOUNTS] {idx + 1}/{total} — game still not up after a start {int(since)}s ago, '
@@ -430,16 +435,36 @@ def _ensure_account(idx, total, accts):
         print(f'[ACCOUNTS] {idx + 1}/{total} — no game running: opening {acc.username}')
         _last_launch[idx] = time.time()
         if not login.login(acc, launch_first=True):
-            return False
+            return _back_in_game(idx, acc, False)
         auto_hunt.start_hunting()
-        return True
+        return _back_in_game(idx, acc, True)
 
     if login.form_showing():
+        if idx in _in_game:                    # it was playing: kicked / disconnected
+            _in_game.discard(idx)
+            _down.setdefault(idx, ['was disconnected (back on the login screen)', False])
         print(f'[ACCOUNTS] {idx + 1}/{total} — {acc.username} is on the login screen: logging in')
         if not login.login(acc, launch_first=False):
-            return False
+            return _back_in_game(idx, acc, False)
         auto_hunt.start_hunting()
-    return True
+    return _back_in_game(idx, acc, True)
+
+
+def _back_in_game(idx, acc, ok):
+    """Bookkeeping after _ensure_account: Telegram when an account that dropped out (crash,
+    disconnect) is back in the game - or, once, when getting it back failed. Returns ok."""
+    who = f'{acc.name or acc.username} (desktop {idx + 1})'
+    down = _down.get(idx)
+    if ok:
+        _in_game.add(idx)
+        if down:
+            del _down[idx]
+            notify.send(f'\u267B\uFE0F {who}: {down[0]} \u2014 reopened and back in game')
+    elif down and not down[1]:
+        down[1] = True
+        notify.send(f'\u26A0\uFE0F {who}: {down[0]} \u2014 could not get back in yet, retrying every '
+                    f'{LAUNCH_COOLDOWN // 60} min')
+    return ok
 
 
 def _f10_loop():
@@ -518,10 +543,6 @@ def _main():
     if F10_CYCLONE:
         print(f'[F10] F10_CYCLONE on — pressing F10 every {F10_EVERY}s while hunting')
         threading.Thread(target=_f10_loop, daemon=True).start()
-    if notify.enabled():
-        names = [a.name or a.username for a in accts]
-        notify.send(f'\u2705 Dragon CO2 started on {_os.environ.get("COMPUTERNAME", "this PC")} \u2014 '
-                    + (f'{len(names)} account(s): {", ".join(names)}' if names else f'{total} desktop(s)'))
     print('Starting in 3s...')
     for i in range(3, 0, -1):
         print(f'  {i}...')
