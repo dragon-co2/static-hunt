@@ -131,7 +131,10 @@ def _read_equipped(hwnd):
     """(arrows, '') or (None, why)."""
     if not hwnd:
         return None, 'no game window on this desktop'
-    pid = _pid_of(hwnd)
+    return _read_equipped_pid(_pid_of(hwnd))
+
+
+def _read_equipped_pid(pid):
     handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
     if not handle:
         return None, f'cannot open the game process {pid} (error {ctypes.GetLastError()})'
@@ -156,9 +159,11 @@ def character_name(hwnd=None):
     """Name of the character logged in to the game on this desktop (`hwnd`, else the one found
     on the current desktop), or None (no game / not logged in / unreadable)."""
     hwnd = hwnd or find_game_window()
-    if not hwnd:
-        return None
-    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, _pid_of(hwnd))
+    return _name_pid(_pid_of(hwnd)) if hwnd else None
+
+
+def _name_pid(pid):
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
     if not handle:
         return None
     try:
@@ -178,5 +183,45 @@ def character_name(hwnd=None):
         _kernel32.CloseHandle(handle)
 
 
+class _PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [('dwSize', ctypes.wintypes.DWORD), ('cntUsage', ctypes.wintypes.DWORD),
+                ('th32ProcessID', ctypes.wintypes.DWORD), ('th32DefaultHeapID', ctypes.c_size_t),
+                ('th32ModuleID', ctypes.wintypes.DWORD), ('cntThreads', ctypes.wintypes.DWORD),
+                ('th32ParentProcessID', ctypes.wintypes.DWORD), ('pcPriClassBase', ctypes.c_long),
+                ('dwFlags', ctypes.wintypes.DWORD), ('szExeFile', ctypes.c_wchar * 260)]
+
+
+def game_pids():
+    """Process ids of every running Conquer.exe (whatever desktop its window is on)."""
+    _kernel32.CreateToolhelp32Snapshot.restype = ctypes.wintypes.HANDLE
+    snap = _kernel32.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
+    if not snap or snap == ctypes.wintypes.HANDLE(-1).value:
+        return []
+    pids = []
+    try:
+        entry = _PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(entry)
+        ok = _kernel32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            if entry.szExeFile.lower() == 'conquer.exe':
+                pids.append(entry.th32ProcessID)
+            ok = _kernel32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        _kernel32.CloseHandle(snap)
+    return pids
+
+
+def all_games():
+    """{character name: equipped arrows (None if unreadable)} for every running, logged-in game -
+    read straight from each process, so it works for games on any desktop."""
+    out = {}
+    for pid in game_pids():
+        name = _name_pid(pid)
+        if name:
+            out[name] = _read_equipped_pid(pid)[0]
+    return out
+
+
 if __name__ == '__main__':
     print('character:', character_name(), '| equipped arrows:', equipped_arrows())
+    print('all games:', all_games())

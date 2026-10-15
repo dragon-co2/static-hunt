@@ -95,7 +95,8 @@ _f10_desktop = None # desktop index whose game the F10 thread may press F10 in (
 LAUNCH_COOLDOWN = 120  # seconds before a desktop's game may be started again after a failed login
 _in_game = set()    # desktops whose account has been in the game this run (so losing it = news)
 _char_names = {}    # desktop index -> character name (from the game, else the Accounts tab)
-_arrows_seen = {}   # desktop index -> equipped arrows when last visited (read from memory)
+_arrows_seen = {}   # desktop index -> equipped arrows (read from memory every ARROWS_LIVE_EVERY s)
+ARROWS_LIVE_EVERY = 1   # seconds between reads of every game's arrows (any desktop)
 _down = {}          # desktop index -> [what happened, failure already reported] while it's out
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
@@ -216,6 +217,31 @@ def _arrows_low(idx, arrows):
     if result is not True and time.time() - at < (ARROWS_RETRY_NO if result == NO_PACKS else ARROWS_RETRY):
         return False
     return True
+
+
+def _arrows_live_loop():
+    """Background thread: every ARROWS_LIVE_EVERY seconds reads the equipped arrows of every
+    running game (any desktop - the memory doesn't care which one is in front) and files them
+    under their desktop by character name. Feeds the timers panel and _arrows_jump()."""
+    while True:
+        try:
+            games = game_memory.all_games()
+            for idx, name in list(_char_names.items()):
+                if games.get(name) is not None:
+                    _arrows_seen[idx] = games[name]
+        except Exception as e:
+            print(f'  [ARROWS] live reading failed ({type(e).__name__}: {e})')
+            time.sleep(10)
+        time.sleep(ARROWS_LIVE_EVERY)
+
+
+def _arrows_jump(current, total):
+    """The desktop to go to next because its character is low on arrows (alive, not just tried
+    and failed), or None to carry on in order."""
+    for idx in sorted(_arrows_seen):
+        if idx != current and idx < total and idx not in _dead_since and _arrows_low(idx, _arrows_seen[idx]):
+            return idx
+    return None
 
 
 def _who(idx, accts):
@@ -588,6 +614,7 @@ def _main():
     pending_repair = set()       # desktops still owed a repair run in the current pass
     _load_timer_state()
     threading.Thread(target=_timer_status_loop, daemon=True, name='timer-status').start()
+    threading.Thread(target=_arrows_live_loop, daemon=True, name='arrows-live').start()
 
     if accts:
         # bring-up pass: get every account into the game first, back to back (no service, no
@@ -669,7 +696,12 @@ def _main():
         _f10_desktop = None   # stop F10 before leaving (or re-checking) this desktop
         if total < 2:
             continue
-        current = (current + 1) % total   # after the last desktop, jump straight back to 1
+        low = _arrows_jump(current, total)   # a desktop low on arrows goes first
+        if low is not None:
+            print(f'[ARROWS] desktop {low + 1} has only {_arrows_seen.get(low)} arrow(s) — going there now')
+            current = low
+        else:
+            current = (current + 1) % total   # after the last desktop, jump straight back to 1
         _go_to_desktop(current)
 
 
