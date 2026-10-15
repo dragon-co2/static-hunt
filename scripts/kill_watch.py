@@ -64,9 +64,9 @@ _pending = {}        # victim (lower) -> [killer, ...] not yet handled by the ma
 _last_killer = {}    # victim (lower) -> killer of their previous death
 _seen_streak = {}    # victim (lower) -> (killer lower, kills in a row) as seen in the chat
 on_kill = None       # optional listener: on_kill(character, desktop, killer, streak), called at once
-on_whisper = None    # optional listener: on_whisper(sender, character, desktop, text) — a player
-                     # whispered one of our characters
-_WHISPER = re.compile(r'^\[Whisper\](?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+): ?(?P<text>.*?)'
+on_whisper = None    # optional listener: on_whisper(sender, character, desktop, text, channel) —
+                     # a player wrote to one of our characters (Whisper, or Talk / Team... to them)
+_WHISPER = re.compile(r'^\[(?P<channel>[A-Za-z]+)\](?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+): ?(?P<text>.*?)'
                       r'\s*(?:\[\d{4}-\d{1,2}-\d{1,2}, \d{1,2}:\d{1,2}\])?\s*$')
 monsters = []        # killer names that are monsters (set by static.py; * = any characters)
 
@@ -179,17 +179,19 @@ def _on_text(text, character=''):
 
 
 def _on_whisper_line(w, stamp):
-    """A [Whisper] line: tells on_whisper when someone else whispered one of our characters."""
+    """A "<sender> speaks to <target>: <text>" line on any channel: tells on_whisper when someone
+    else wrote to one of our characters. Lines to "All" never match a character."""
     sender, target, said = w.group('sender'), w.group('target'), w.group('text').strip()
+    channel = w.group('channel')
     ours = _names.get(target.lower())
     if not ours or sender.lower() in _names or not said:
-        return                                   # not to us, or our own whisper going out
+        return                                   # not to us, or our own message going out
     if stamp and _newest and (_newest - stamp).total_seconds() > STALE_AFTER:
         return                                   # old news
-    print(f'[WHISPER] {sender} -> {ours[0]} (desktop {ours[1]}): {said}')
+    print(f'[WHISPER] [{channel}] {sender} -> {ours[0]} (desktop {ours[1]}): {said}')
     if on_whisper:
         try:
-            on_whisper(sender, ours[0], ours[1], said)
+            on_whisper(sender, ours[0], ours[1], said, channel)
         except Exception as e:
             print(f'[WHISPER] whisper listener failed ({type(e).__name__}: {e})')
 

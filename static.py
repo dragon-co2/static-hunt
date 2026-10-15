@@ -401,9 +401,11 @@ def _send_custom_whispers(idx, accts):
                     _custom_due[idx].remove(item)
 
 
-def _on_whisper(sender, character, desktop, text):
-    """kill_watch listener: a player whispered one of our characters -> Telegram (answerable)."""
-    notify.send(f'\U0001F4E8 {sender} \u2192 {character} (desktop {desktop}): {text}',
+def _on_whisper(sender, character, desktop, text, channel='Whisper'):
+    """kill_watch listener: a player wrote to one of our characters (a whisper, or Talk / Team...
+    to them) -> Telegram, answerable: a Reply there is whispered back to them."""
+    via = '' if channel.lower() == 'whisper' else f' [{channel}]'
+    notify.send(f'\U0001F4E8 {sender} \u2192 {character} (desktop {desktop}){via}: {text}',
                 ref={'desktop': desktop, 'player': sender, 'character': character})
 
 
