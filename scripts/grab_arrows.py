@@ -53,6 +53,7 @@ CONF_WH    = screen.CONF_WH
 
 BANK_TAB_COUNT = 6  # tabs 0-5 are regular banks (used by init_bank_tab)
 TRIALS         = 5  # attempts per step before giving up on validating it
+NO_PACKS       = 'no packs'   # ensure_arrows(): every bank tab was searched and none holds arrows
 TAB_SCAN_WAIT  = 2.0  # seconds to wait after switching warehouse tab before scanning it for arrows
 PARK_OFF       = (60, 17)  # from the warehouse panel's top-left: empty title bar, left of "Warehouse"
 
@@ -172,7 +173,8 @@ def _find_arrow_in_warehouse(gray, wh_panel):
 
 def _search_tabs_for_arrow():
     """Cycles through every warehouse tab and returns the center of the first arrow found
-    in the grid (leaving that tab open), or None if no tab has one."""
+    in the grid (leaving that tab open); NO_PACKS if no tab has one; None if the warehouse
+    went away while searching."""
     for tab in range(WH_TAB_COUNT):
         if not _click_warehouse_tab(tab):
             return None
@@ -184,11 +186,11 @@ def _search_tabs_for_arrow():
             return None
         pos = _find_arrow_in_warehouse(gray, wh_panel)
         if pos:
-            print(f'  [OK] arrow.jpg found in tab {tab + 1} @ {pos}')
+            print(f'  [OK] arrow pack found in tab {tab + 1} @ {pos}')
             return pos
         print(f'  [ARROWS] no arrow in tab {tab + 1}')
-    print(f'  [FAIL] arrow.jpg not found in any of the {WH_TAB_COUNT} tabs.')
-    return None
+    print(f'  [FAIL] no arrow pack in any of the {WH_TAB_COUNT} tabs.')
+    return NO_PACKS
 
 
 def init_bank_tab(tab_idx=None):
@@ -209,7 +211,8 @@ def ensure_arrows():
        -> validated by a NEW pack appearing in the inventory (one that wasn't there before).
     3. Right-click that new pack to equip it -> validated by the memory count going back up.
     If the memory can't be read, falls back to the old rule: only when the inventory holds no
-    arrows at all. Each step is retried up to TRIALS times; stops if one never validates."""
+    arrows at all. Each step is retried up to TRIALS times; stops if one never validates.
+    Returns True (enough arrows), NO_PACKS (none left in any bank tab) or False (failed)."""
     need = int(get_settings('static', {'ARROWS_MIN': ARROWS_MIN})['ARROWS_MIN'])
     equipped = game_memory.equipped_arrows()
     if equipped is not None and equipped >= need:
@@ -236,6 +239,8 @@ def ensure_arrows():
                 if all(abs(p[0] - q[0]) > 10 or abs(p[1] - q[1]) > 10 for q in before)]
 
     pos = _search_tabs_for_arrow()
+    if pos == NO_PACKS:
+        return NO_PACKS
     if not pos:
         return False
 

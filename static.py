@@ -25,7 +25,8 @@ import desktops
 from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
 from revive import (handle_revive, is_dead, revive_wait_for, REVIVE_DELAY, REVIVE_TIME_MULTIPLIER,
                     MAX_REVIVE_WAIT, MONSTERS)
-from grab_arrows import ensure_arrows
+from grab_arrows import ensure_arrows, NO_PACKS
+import game_memory
 from repaire import run_repair
 from db_scroll import run_db_scroll
 import panels
@@ -84,6 +85,8 @@ _custom_due = {}    # desktop index -> [(player, text, telegram msg id)] typed b
 REPLY_TRIES = 3     # failed sends (no chat bar / no Whisper) before giving up on a killer
 _last_service = {}  # desktop index -> time.time() of its last service round
 _last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
+_arrows_alerted = {}   # desktop index -> time.time() of its last "out of arrows" Telegram message
+ARROWS_ALERT_EVERY = 3600   # seconds before the same desktop's arrow alert is sent again
 _last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
 _f10_desktop = None # desktop index whose game the F10 thread may press F10 in (None = nowhere now)
 LAUNCH_COOLDOWN = 120  # seconds before a desktop's game may be started again after a failed login
@@ -176,13 +179,33 @@ def _open_bank_quick():
     return False
 
 
-def _service(idx):
+def _check_arrows(idx, who):
+    """ensure_arrows(), plus a Telegram alert (at most once an hour per desktop) when the banks
+    hold no arrow pack any more, or none are equipped and getting a pack failed."""
+    result = ensure_arrows()
+    if result is True:
+        _arrows_alerted.pop(idx, None)   # arrows again: the next outage alerts right away
+        return
+    equipped = game_memory.equipped_arrows()
+    if result != NO_PACKS and equipped != 0:
+        return                           # a passing failure with arrows still on - retried next round
+    if time.time() - _arrows_alerted.get(idx, 0) < ARROWS_ALERT_EVERY:
+        return
+    _arrows_alerted[idx] = time.time()
+    left = 'unknown' if equipped is None else equipped
+    why = 'no arrow packs left in the banks' if result == NO_PACKS else 'out of arrows and could not take a pack'
+    print(f'  [ARROWS] {why} — sending a Telegram alert')
+    notify.send(f'\U0001F3F9 {who} (desktop {idx + 1}): {why} \u2014 {left} arrow(s) equipped')
+
+
+def _service(idx, accts=()):
     """Every SERVICE_INTERVAL seconds per desktop (the bank + inventory are open by now):
     dragonballs -> scroll -> bank, arrows -> grab + equip a pack if few left, +N items -> VIP > Compose >
     Deposit. Each step only clicks when there's something to do."""
     _last_service[idx] = time.time()
     run_db_scroll()      # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
-    ensure_arrows()      # no-op unless fewer than ARROWS_MIN arrows are equipped (read from memory)
+    acc = accts[idx] if idx < len(accts) else None
+    _check_arrows(idx, (acc.name or acc.username) if acc else f'desktop {idx + 1}')   # below ARROWS_MIN equipped: take a pack
     plus = plus_items_in_inventory()
     print(f'  [SERVICE] +N items: {", ".join(plus) if plus else "none"}')
     if plus and run_new_bank_compose():
@@ -570,7 +593,7 @@ def _main():
                             run_repair()
                             pending_repair.discard(current)
                         if service_due:
-                            _service(current)
+                            _service(current, accts)
                         panels.close_all()   # inventory, bank and VIP menu
                 time.sleep(VISIT_WAIT)
         except OSError as e:
