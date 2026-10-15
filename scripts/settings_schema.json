@@ -80,7 +80,7 @@
       "default": "",
       "group": "Account 1",
       "label": "Character name",
-      "desc": "The character's name exactly as it shows in the game chat. Needed for Kill reply and the double revive wait — it's how the script knows a kill message is about this account."
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
     },
     "ACCOUNT_2_USER": {
       "type": "text",
@@ -101,7 +101,7 @@
       "default": "",
       "group": "Account 2",
       "label": "Character name",
-      "desc": "The character's name exactly as it shows in the game chat. Needed for Kill reply and the double revive wait — it's how the script knows a kill message is about this account."
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
     },
     "ACCOUNT_3_USER": {
       "type": "text",
@@ -122,7 +122,7 @@
       "default": "",
       "group": "Account 3",
       "label": "Character name",
-      "desc": "The character's name exactly as it shows in the game chat. Needed for Kill reply and the double revive wait — it's how the script knows a kill message is about this account."
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
     },
     "ACCOUNT_4_USER": {
       "type": "text",
@@ -143,7 +143,7 @@
       "default": "",
       "group": "Account 4",
       "label": "Character name",
-      "desc": "The character's name exactly as it shows in the game chat. Needed for Kill reply and the double revive wait — it's how the script knows a kill message is about this account."
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
     }
   },
   "revive": {

@@ -7,7 +7,8 @@ Conquer.exe has no ASLR, so its globals sit at fixed addresses. Found on the cur
     [hero + 0x0EB0]       -> the item in the arrow slot of the equipment
     item + 0x00           == 0x007FC66C   (the item object's vtable)
     item + 0x1C           =  item type    (1050002 = SpeedArrow; arrows are 1050000..1059999)
-    item + 0x190          =  amount       (arrows left in the pack)"""
+    item + 0x190          =  amount       (arrows left in the pack)
+    [hero + 0x15C]        -> the character's name (16 bytes, cp1252)"""
 import ctypes
 import ctypes.wintypes
 import time
@@ -20,6 +21,7 @@ ITEM_VTABLE  = 0x007FC66C
 ITEM_TYPE    = 0x1C
 ITEM_AMOUNT  = 0x190
 ARROW_TYPES  = range(1050000, 1060000)
+HERO_NAME    = 0x15C
 
 _kernel32 = ctypes.windll.kernel32
 _user32 = ctypes.windll.user32
@@ -86,5 +88,31 @@ def _read_equipped(hwnd):
         _kernel32.CloseHandle(handle)
 
 
+def character_name(hwnd=None):
+    """Name of the character logged in to the game on this desktop (`hwnd`, else the one found
+    on the current desktop), or None (no game / not logged in / unreadable)."""
+    hwnd = hwnd or find_game_window()
+    if not hwnd:
+        return None
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, _pid_of(hwnd))
+    if not handle:
+        return None
+    try:
+        hero = _u32(handle, HERO_PTR)
+        where = _u32(handle, hero + HERO_NAME) if hero else 0
+        if not where:
+            return None
+        buf = ctypes.create_string_buffer(16)
+        read = ctypes.c_size_t()
+        if not _kernel32.ReadProcessMemory(handle, ctypes.c_void_p(where), buf, 16, ctypes.byref(read)):
+            return None
+        name = buf.raw.split(b'\0')[0].decode('cp1252', 'replace').strip()
+        return name if name.isprintable() and 1 < len(name) <= 15 else None
+    except OSError:
+        return None
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
 if __name__ == '__main__':
-    print('equipped arrows:', equipped_arrows())
+    print('character:', character_name(), '| equipped arrows:', equipped_arrows())

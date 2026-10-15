@@ -321,19 +321,30 @@ def ensure_chat_log(game_path):
     return changed
 
 
-def start(characters, game_path=''):
-    """Starts watching (once) for kills of our characters: {character name: desktop number}.
-    `game_path` (the launcher) locates the saved chat files next to it."""
-    global _started
+def set_character(name, desktop):
+    """Desktop `desktop` now runs character `name` (replaces whoever it ran before)."""
+    name = (name or '').strip()
+    if not name:
+        return
     with _lock:
-        for name, desktop in characters.items():
-            if name and name.strip():
-                _names[name.strip().lower()] = (name.strip(), desktop)
-    if _started or not _names:
+        for key in [k for k, (_n, d) in _names.items() if d == desktop and k != name.lower()]:
+            del _names[key]
+        _names[name.lower()] = (name, desktop)
+
+
+def start(characters, game_path=''):
+    """Starts watching (once) for kills of our characters: {character name: desktop number} -
+    may be empty, names can come later through set_character(). `game_path` (the launcher)
+    locates the saved chat files next to it."""
+    global _started
+    for name, desktop in characters.items():
+        set_character(name, desktop)
+    if _started:
         return
     _started = True
     print('[KILL] watching the chat for kills of: '
-          + ', '.join(f'{n} (desktop {d})' for n, d in sorted(_names.values(), key=lambda v: v[1])))
+          + (', '.join(f'{n} (desktop {d})' for n, d in sorted(_names.values(), key=lambda v: v[1]))
+             or 'the characters read from each game once it is logged in'))
     threading.Thread(target=_read_loop, daemon=True).start()
     if game_path:
         threading.Thread(target=_file_loop, args=(game_path,), daemon=True).start()

@@ -91,6 +91,8 @@ _last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
 _f10_desktop = None # desktop index whose game the F10 thread may press F10 in (None = nowhere now)
 LAUNCH_COOLDOWN = 120  # seconds before a desktop's game may be started again after a failed login
 _in_game = set()    # desktops whose account has been in the game this run (so losing it = news)
+_char_names = {}    # desktop index -> character name (from the game, else the Accounts tab)
+_arrows_seen = {}   # desktop index -> equipped arrows when last visited (read from memory)
 _down = {}          # desktop index -> [what happened, failure already reported] while it's out
 TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
 
@@ -250,18 +252,25 @@ def _save_timer_state(repair_left):
 
 
 def _timer_status_loop():
-    """Once a second, shows the repair countdown, each desktop's next service round and any
-    revive countdowns in the on-screen timers panel, and saves the repair timer so the next run
-    can resume from here."""
+    """Once a second, shows the repair countdown and one line per desktop in the on-screen
+    timers panel - "D1(AymanAbolila) Service in 0:30 Arrows:1350" (or "Revive in ..." while it's
+    dead) - and saves the repair timer so the next run can resume from here."""
     while True:
         now = time.time()
         repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
         lines = [f'Repair {_fmt_left(repair_left)}']
-        for idx, last in sorted(_last_service.items()):
-            left = SERVICE_INTERVAL - (now - last)
-            lines.append(f'Service D{idx + 1} {_fmt_left(left) if left > 0 else "due"}')
-        for idx, since in sorted(_dead_since.items()):
-            lines.append(f'Revive D{idx + 1} {_fmt_left(REVIVE_DELAY - (now - since))}')
+        for idx in sorted(set(_last_service) | set(_dead_since) | set(_arrows_seen)):
+            name = _char_names.get(idx)
+            line = f'D{idx + 1}' + (f'({name})' if name else '')
+            if idx in _dead_since:
+                left = _revive_wait.get(idx, REVIVE_DELAY) - (now - _dead_since[idx])
+                line += f' Revive in {_fmt_left(left)}'
+            elif idx in _last_service:
+                left = SERVICE_INTERVAL - (now - _last_service[idx])
+                line += f' Service in {_fmt_left(left)}' if left > 0 else ' Service due'
+            if idx in _arrows_seen:
+                line += f' Arrows:{_arrows_seen[idx]}'
+            lines.append(line)
         overlay.set_status('\n'.join(lines))
         _save_timer_state(repair_left)
         time.sleep(1)
@@ -452,9 +461,29 @@ def _ensure_account(idx, total, accts):
     return _back_in_game(idx, acc, True)
 
 
+def _learn_name(idx, acc):
+    """Reads the logged-in character's name from the game (no need to type it in the Accounts
+    tab) and makes it this account's name everywhere (kills, replies, notifications). The game
+    wins over a different name typed in the settings."""
+    name = game_memory.character_name()
+    if not name or name == acc.name:
+        return
+    if acc.name:
+        print(f'[ACCOUNTS] desktop {idx + 1}: the game shows {name}, not {acc.name} (Accounts tab) — using {name}')
+    else:
+        print(f'[ACCOUNTS] desktop {idx + 1}: character {name} (read from the game)')
+    acc.name = name
+    _char_names[idx] = name
+    kill_watch.set_character(name, idx + 1)
+
+
 def _back_in_game(idx, acc, ok):
     """Bookkeeping after _ensure_account: Telegram when an account that dropped out (crash,
     disconnect) is back in the game - or, once, when getting it back failed. Returns ok."""
+    if ok:
+        _learn_name(idx, acc)
+        if acc.name:
+            _char_names[idx] = acc.name
     who = f'{acc.name or acc.username} (desktop {idx + 1})'
     down = _down.get(idx)
     if ok:
@@ -522,19 +551,16 @@ def _main():
         print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
         if accts:
             accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
-        if kill_reply.enabled() or REVIVE_TIME_MULTIPLIER > 1 or notify.enabled() or MONSTERS:
+        if accts and (kill_reply.enabled() or REVIVE_TIME_MULTIPLIER > 1 or notify.enabled() or MONSTERS):
+            # character names: the Accounts tab's, else read from each game once it's logged in
             names = {a.name: a.desktop for a in accts if a.name}
-            if names:
-                kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
-                kill_watch.on_kill = _on_kill
-                kill_watch.on_whisper = _on_whisper
-                notify.on_reply = _on_tg_reply
-                notify.listen()
-                kill_watch.monsters = MONSTERS
-                kill_watch.start(names, accounts.game_path())
-            else:
-                print('[KILL] Kill reply / revive time multiplier / notifications / monsters are on, but no account '
-                      'has a character name set (Accounts tab) — kill watching off for this run')
+            kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
+            kill_watch.on_kill = _on_kill
+            kill_watch.on_whisper = _on_whisper
+            notify.on_reply = _on_tg_reply
+            notify.listen()
+            kill_watch.monsters = MONSTERS
+            kill_watch.start(names, accounts.game_path())
         if not accounts.game_path():
             print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')
     total = desktops.count()         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
@@ -597,6 +623,9 @@ def _main():
                 service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
                 _handle_kills(current, accts)
                 alive = _revive_gate(current, total)
+                arrows = game_memory.equipped_arrows(tries=1)   # for the timers panel
+                if arrows is not None:
+                    _arrows_seen[current] = arrows
                 if alive:
                     _send_due_replies(current, accts)   # Kill reply: whisper the killer after the revive
                     _send_custom_whispers(current, accts)   # whispers you replied in Telegram
