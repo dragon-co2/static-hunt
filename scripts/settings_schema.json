@@ -31,7 +31,7 @@
       "step": 10,
       "unit": "s",
       "default": 180,
-      "desc": "Per desktop: how often to do a service round — press Alt+P (bank + inventory), turn 10 dragonballs into a scroll and stash it, grab and equip arrows if there are none, deposit +N items through VIP > Compose, then close the inventory, bank and VIP menu. Between rounds a visit only checks for death."
+      "desc": "Per desktop: how often to do a service round (the deposits) - press Alt+P (bank + inventory), turn 10 dragonballs into a scroll and stash it, deposit +N items through VIP > Compose, then close the inventory, bank and VIP menu. Arrows aren't part of it: whenever a desktop is visited with fewer than ARROWS_MIN equipped, a pack is taken from the bank right then."
     },
     "F10_CYCLONE": {
       "type": "bool",
@@ -45,7 +45,7 @@
       "step": 10,
       "default": 100,
       "label": "Arrows minimum",
-      "desc": "During the service round: when the equipped arrow pack has fewer arrows than this (read from the game's memory), take a new pack from the bank - going through the bank tabs one by one, any pack, full or not - and equip it."
+      "desc": "On every visit to a desktop, the equipped arrows are read from the game's memory; when fewer than this, a new pack is taken from the bank right away - going through the bank tabs one by one, any pack, full or not - and equipped. No need to wait for the service round."
     }
   },
   "accounts": {

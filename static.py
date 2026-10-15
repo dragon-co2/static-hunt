@@ -86,6 +86,9 @@ REPLY_TRIES = 3     # failed sends (no chat bar / no Whisper) before giving up o
 _last_service = {}  # desktop index -> time.time() of its last service round
 _last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
 _arrows_alerted = {}   # desktop index -> time.time() of its last "out of arrows" Telegram message
+_arrows_tried = {}     # desktop index -> (time.time(), result) of its last arrow refill attempt
+ARROWS_RETRY    = 60   # seconds before a failed refill is tried again on the same desktop...
+ARROWS_RETRY_NO = 600  # ...or this long when every bank tab came up empty
 ARROWS_ALERT_EVERY = 3600   # seconds before the same desktop's arrow alert is sent again
 _last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
 _f10_desktop = None # desktop index whose game the F10 thread may press F10 in (None = nowhere now)
@@ -187,6 +190,7 @@ def _check_arrows(idx, who):
     """ensure_arrows(), plus a Telegram alert (at most once an hour per desktop) when the banks
     hold no arrow pack any more, or none are equipped and getting a pack failed."""
     result = ensure_arrows()
+    _arrows_tried[idx] = (time.time(), result)
     if result is True:
         _arrows_alerted.pop(idx, None)   # arrows again: the next outage alerts right away
         return
@@ -202,14 +206,30 @@ def _check_arrows(idx, who):
     notify.send(f'\U0001F3F9 {who} (desktop {idx + 1}): {why} \u2014 {left} arrow(s) equipped')
 
 
+def _arrows_low(idx, arrows):
+    """True when this visit should take an arrow pack right away (not waiting for the service
+    round): fewer than ARROWS_MIN equipped, and no failed attempt on this desktop just now."""
+    need = int(get_settings('static', {'ARROWS_MIN': 100})['ARROWS_MIN'])
+    if arrows is None or arrows >= need:
+        return False
+    at, result = _arrows_tried.get(idx, (0, True))
+    if result is not True and time.time() - at < (ARROWS_RETRY_NO if result == NO_PACKS else ARROWS_RETRY):
+        return False
+    return True
+
+
+def _who(idx, accts):
+    acc = accts[idx] if idx < len(accts) else None
+    return (acc.name or acc.username) if acc else f'desktop {idx + 1}'
+
+
 def _service(idx, accts=()):
-    """Every SERVICE_INTERVAL seconds per desktop (the bank + inventory are open by now):
-    dragonballs -> scroll -> bank, arrows -> grab + equip a pack if few left, +N items -> VIP > Compose >
-    Deposit. Each step only clicks when there's something to do."""
+    """Every SERVICE_INTERVAL seconds per desktop (the bank + inventory are open by now): the
+    deposits - dragonballs -> scroll -> bank, +N items -> VIP > Compose > Deposit. Each step only
+    clicks when there's something to do. (Arrows aren't part of it: a pack is taken on any visit
+    where fewer than ARROWS_MIN are equipped - see _arrows_low.)"""
     _last_service[idx] = time.time()
     run_db_scroll()      # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
-    acc = accts[idx] if idx < len(accts) else None
-    _check_arrows(idx, (acc.name or acc.username) if acc else f'desktop {idx + 1}')   # below ARROWS_MIN equipped: take a pack
     plus = plus_items_in_inventory()
     print(f'  [SERVICE] +N items: {", ".join(plus) if plus else "none"}')
     if plus and run_new_bank_compose():
@@ -618,13 +638,15 @@ def _main():
                     _send_due_replies(current, accts)   # Kill reply: whisper the killer after the revive
                     _send_custom_whispers(current, accts)   # whispers you replied in Telegram
                     _f10_desktop = current   # F10_CYCLONE: alive and in game — F10 may go here now
-                if alive and not (repair_due or service_due):
+                arrows_due = alive and _arrows_low(current, arrows)   # fewer than ARROWS_MIN: take a pack now
+                if alive and not (repair_due or service_due or arrows_due):
                     # nothing to do this visit — say so, so a quiet log doesn't look like a hang
                     left = SERVICE_INTERVAL - (time.time() - _last_service.get(current, 0))
                     print(f'[DESKTOP] {current + 1}/{total} — idle, next service in {_fmt_left(left)}')
                 elif alive:
                     print(f'[DESKTOP] Processing {current + 1}/{total}'
-                          + (' — repair' if repair_due else '') + (' — service' if service_due else ''))
+                          + (' — repair' if repair_due else '') + (' — service' if service_due else '')
+                          + (f' — arrows ({arrows} left)' if arrows_due else ''))
                     if not _open_bank_quick():
                         # no response to Alt+P: likely disconnected — skip, retry next visit
                         print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
@@ -632,6 +654,8 @@ def _main():
                         if repair_due:
                             run_repair()
                             pending_repair.discard(current)
+                        if arrows_due:
+                            _check_arrows(current, _who(current, accts))
                         if service_due:
                             _service(current, accts)
                         panels.close_all()   # inventory, bank and VIP menu
