@@ -99,17 +99,6 @@ def _inv_arrows(gray=None):
                      INV_COLS * INV_SLOT_W + 25, INV_ROWS * INV_SLOT_H + 25)
 
 
-def count_arrows():
-    """How many arrow packs the inventory holds. None if the inventory isn't visible."""
-    gray = _grab_gray()
-    if not _find(gray, _tmpl_inv, threshold=CONF_INV):
-        print('[ARROWS] Inventory not visible.')
-        return None
-    count = len(_inv_arrows(gray))
-    print(f'[ARROWS] {count} arrow pack(s) in inventory')
-    return count
-
-
 def _click_at(x, y):
     gi.move(x, y)
     time.sleep(0.05)
@@ -210,12 +199,17 @@ def ensure_arrows():
     2. Cycle through the warehouse tabs; click the first arrow pack found in the grid.
        -> validated by a NEW pack appearing in the inventory (one that wasn't there before).
     3. Right-click that new pack to equip it -> validated by the memory count going back up.
-    If the memory can't be read, falls back to the old rule: only when the inventory holds no
-    arrows at all. Each step is retried up to TRIALS times; stops if one never validates.
+    If the memory can't be read, nothing is taken this round (the reason is logged) - guessing
+    from the screen once took a pack every round. Each step is retried up to TRIALS times; stops
+    if one never validates.
     Returns True (enough arrows), NO_PACKS (none left in any bank tab) or False (failed)."""
     need = int(get_settings('static', {'ARROWS_MIN': ARROWS_MIN})['ARROWS_MIN'])
     equipped = game_memory.equipped_arrows()
-    if equipped is not None and equipped >= need:
+    if equipped is None:
+        print(f'[ARROWS] could not read the equipped arrows ({game_memory.last_error}) — '
+              'not taking a pack this round')
+        return False
+    if equipped >= need:
         print(f'[ARROWS] {equipped} arrow(s) equipped')
         return True
 
@@ -224,13 +218,7 @@ def ensure_arrows():
         print('[ARROWS] Aborted — panels not visible.')
         return False
 
-    if equipped is None:
-        print('[ARROWS] could not read the equipped arrows from the game — checking the inventory instead')
-        count = count_arrows()
-        if count is None or count > 0:
-            return True
-    else:
-        print(f'[ARROWS] only {equipped} arrow(s) equipped (< {need}) — taking a pack from the bank')
+    print(f'[ARROWS] only {equipped} arrow(s) equipped (< {need}) — taking a pack from the bank')
 
     before = _inv_arrows()   # packs already in the bag (e.g. an almost empty one): not the new one
 
@@ -259,16 +247,14 @@ def ensure_arrows():
     gi.click_here('right')
     print(f'  [CLICK] right-clicked the new arrow pack in inventory @ ({x},{y})')
     _park_mouse()
-    if equipped is not None:
-        for _ in range(6):
-            time.sleep(0.5)
-            now = game_memory.equipped_arrows()
-            if now is not None and now >= need:
-                print(f'  [OK] {now} arrow(s) equipped now')
-                return True
-        print(f'  [FAIL] still {game_memory.equipped_arrows()} arrow(s) equipped after equipping the new pack')
-        return False
-    return True
+    for _ in range(6):
+        time.sleep(0.5)
+        now = game_memory.equipped_arrows(tries=1)
+        if now is not None and now >= need:
+            print(f'  [OK] {now} arrow(s) equipped now')
+            return True
+    print(f'  [FAIL] still {game_memory.equipped_arrows()} arrow(s) equipped after equipping the new pack')
+    return False
 
 
 if __name__ == '__main__':

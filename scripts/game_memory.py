@@ -10,6 +10,7 @@ Conquer.exe has no ASLR, so its globals sit at fixed addresses. Found on the cur
     item + 0x190          =  amount       (arrows left in the pack)"""
 import ctypes
 import ctypes.wintypes
+import time
 
 from game_window import find_game_window
 
@@ -24,6 +25,7 @@ _kernel32 = ctypes.windll.kernel32
 _user32 = ctypes.windll.user32
 _kernel32.OpenProcess.restype = ctypes.wintypes.HANDLE
 PROCESS_VM_READ, PROCESS_QUERY_INFORMATION = 0x0010, 0x0400
+last_error = ''   # why the last equipped_arrows() call returned None (for the log)
 
 
 def _u32(handle, address):
@@ -41,29 +43,45 @@ def _pid_of(hwnd):
     return pid.value
 
 
-def equipped_arrows(hwnd=None):
+def equipped_arrows(hwnd=None, tries=3):
     """Arrows left in the equipped pack of the game on this desktop (`hwnd`, else the one found
     on the current desktop): 0 if the arrow slot is empty. None if it can't be read — no game,
-    not logged in, or the memory layout doesn't match (e.g. after a game update)."""
-    hwnd = hwnd or find_game_window()
+    not logged in, or the memory layout doesn't match (e.g. after a game update); then
+    last_error says why. Tries a few times, half a second apart, before giving up."""
+    global last_error
+    for attempt in range(tries):
+        if attempt:
+            time.sleep(0.5)
+        result, last_error = _read_equipped(hwnd or find_game_window())
+        if result is not None:
+            return result
+    return None
+
+
+def _read_equipped(hwnd):
+    """(arrows, '') or (None, why)."""
     if not hwnd:
-        return None
-    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, _pid_of(hwnd))
+        return None, 'no game window on this desktop'
+    pid = _pid_of(hwnd)
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
     if not handle:
-        return None
+        return None, f'cannot open the game process {pid} (error {ctypes.GetLastError()})'
     try:
         hero = _u32(handle, HERO_PTR)
         if not hero:
-            return None
+            return None, f'no character in game process {pid} (not logged in?)'
         item = _u32(handle, hero + ARROW_SLOT)
         if not item:
-            return 0                                   # nothing in the arrow slot
-        if _u32(handle, item) != ITEM_VTABLE or _u32(handle, item + ITEM_TYPE) not in ARROW_TYPES:
-            return None                                # not what we expect there: don't guess
+            return 0, ''                               # nothing in the arrow slot
+        vtable, kind = _u32(handle, item), _u32(handle, item + ITEM_TYPE)
+        if vtable != ITEM_VTABLE or kind not in ARROW_TYPES:
+            return None, f'the arrow slot holds something else (vtable 0x{vtable:x}, type {kind})'
         amount = _u32(handle, item + ITEM_AMOUNT)
-        return amount if amount <= 100000 else None
-    except OSError:
-        return None
+        if amount > 100000:
+            return None, f'unexpected arrow amount {amount}'
+        return amount, ''
+    except OSError as e:
+        return None, f'reading game process {pid} failed ({e})'
     finally:
         _kernel32.CloseHandle(handle)
 
