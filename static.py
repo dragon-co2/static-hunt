@@ -178,11 +178,11 @@ def _open_bank_quick():
 
 def _service(idx):
     """Every SERVICE_INTERVAL seconds per desktop (the bank + inventory are open by now):
-    dragonballs -> scroll -> bank, arrows -> grab + equip if none, +N items -> VIP > Compose >
+    dragonballs -> scroll -> bank, arrows -> grab + equip a pack if few left, +N items -> VIP > Compose >
     Deposit. Each step only clicks when there's something to do."""
     _last_service[idx] = time.time()
     run_db_scroll()      # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
-    ensure_arrows()      # no-op unless the inventory has no arrows
+    ensure_arrows()      # no-op unless fewer than ARROWS_MIN arrows are equipped (read from memory)
     plus = plus_items_in_inventory()
     print(f'  [SERVICE] +N items: {", ".join(plus) if plus else "none"}')
     if plus and run_new_bank_compose():

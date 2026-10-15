@@ -37,6 +37,15 @@
       "type": "bool",
       "default": false,
       "desc": "While hunting, press F10 (Cyclone) every 10 seconds on each desktop's game. It is pressed during the pause at the end of each visit (VISIT_WAIT), not while the bank or VIP menu is being used, and not while the character is dead."
+    },
+    "ARROWS_MIN": {
+      "type": "int",
+      "min": 0,
+      "max": 10000,
+      "step": 10,
+      "default": 100,
+      "label": "Arrows minimum",
+      "desc": "During the service round: when the equipped arrow pack has fewer arrows than this (read from the game's memory), take a new pack from the bank - going through the bank tabs one by one, any pack, full or not - and equip it."
     }
   },
   "accounts": {

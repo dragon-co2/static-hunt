@@ -6,8 +6,10 @@ import cv2
 import pyautogui
 
 import game_input as gi  # real-device input via the Interception driver
+import game_memory  # equipped arrow count, read from the game (read-only)
 
 from _paths import app_root
+from dragon_settings import get_settings
 import screen  # shared primary-monitor capture + panel matching
 
 try:
@@ -19,7 +21,9 @@ pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop 
 pyautogui.PAUSE    = 0
 
 _DIR = os.path.join(app_root(), 'reference_images')
-ARROW_PATH           = os.path.join(_DIR, 'arrow.jpg')
+# an arrow pack's icon WITHOUT its number, so a pack matches whatever amount it holds (9383 as
+# well as 10000). Searched over a whole panel at once, not cell by cell.
+ARROW_ICON_PATH = os.path.join(_DIR, 'arrow_icon.png')
 
 
 INV_OFFSET_X = 18
@@ -42,7 +46,8 @@ WH_TAB_W     = 110
 WH_TAB_H     = 31
 WH_TAB_COUNT = 7
 
-CONF_ARROW = 0.5
+CONF_ICON  = 0.85  # arrow packs score ~0.97-1.00, other items and empty cells < 0.5
+ARROWS_MIN = 100   # default for the General setting: below this many equipped, take a new pack
 CONF_INV   = screen.CONF_INV  # shared with every script (see screen.py)
 CONF_WH    = screen.CONF_WH
 
@@ -53,43 +58,54 @@ PARK_OFF       = (60, 17)  # from the warehouse panel's top-left: empty title ba
 
 _tmpl_inv = screen.tmpl_inv
 _tmpl_wh  = screen.tmpl_wh
-_tmpl_arrow = cv2.imread(ARROW_PATH,         cv2.IMREAD_GRAYSCALE)
+_tmpl_icon = cv2.imread(ARROW_ICON_PATH, cv2.IMREAD_GRAYSCALE)
 
 
 _find = screen.find
 
 
-def _is_arrow(cell_gray):
-    th, tw = _tmpl_arrow.shape[:2]
-    if cell_gray.shape[0] < th or cell_gray.shape[1] < tw:
-        return False
-    res = cv2.matchTemplate(cell_gray, _tmpl_arrow, cv2.TM_CCOEFF_NORMED)
-    return cv2.minMaxLoc(res)[1] >= CONF_ARROW
+def _icons_in(gray, x0, y0, w, h):
+    """Screen centers of every arrow pack icon inside the box (x0, y0, w, h), top-left first."""
+    x0, y0 = max(x0, 0), max(y0, 0)
+    area = gray[y0:y0 + h, x0:x0 + w]
+    th, tw = _tmpl_icon.shape[:2]
+    if area.shape[0] < th or area.shape[1] < tw:
+        return []
+    res = cv2.matchTemplate(area, _tmpl_icon, cv2.TM_CCOEFF_NORMED)
+    hits = []
+    while True:
+        _, score, _, (x, y) = cv2.minMaxLoc(res)
+        if score < CONF_ICON:
+            break
+        hits.append((x0 + x + tw // 2, y0 + y + th // 2))
+        res[max(0, y - 15):y + 15, max(0, x - 15):x + 15] = -1   # don't count this icon again
+    return sorted(hits, key=lambda p: (p[1] // 20, p[0]))
+
+
+def _wh_arrows(gray, wh_panel):
+    """Arrow packs (any amount) in the warehouse grid that's showing."""
+    return _icons_in(gray, wh_panel[0] + WH_OFFSET_X - 5, wh_panel[1] + WH_OFFSET_Y - 5,
+                     WH_COLS * WH_SLOT_W + 25, WH_ROWS * WH_SLOT_H + 25)
+
+
+def _inv_arrows(gray=None):
+    """Arrow packs (any amount) in the inventory; [] if it isn't visible."""
+    gray = _grab_gray() if gray is None else gray
+    inv_panel = _find(gray, _tmpl_inv, threshold=CONF_INV)
+    if not inv_panel:
+        return []
+    return _icons_in(gray, inv_panel[0] + INV_OFFSET_X - 5, inv_panel[1] + INV_OFFSET_Y - 5,
+                     INV_COLS * INV_SLOT_W + 25, INV_ROWS * INV_SLOT_H + 25)
 
 
 def count_arrows():
-    """Counts inventory cells matching arrow.jpg. Returns None if the inventory isn't visible."""
+    """How many arrow packs the inventory holds. None if the inventory isn't visible."""
     gray = _grab_gray()
-
-    inv_panel = _find(gray, _tmpl_inv, threshold=CONF_INV)
-    if not inv_panel:
+    if not _find(gray, _tmpl_inv, threshold=CONF_INV):
         print('[ARROWS] Inventory not visible.')
         return None
-
-    ipx, ipy, _, _ = inv_panel
-    iox = ipx + INV_OFFSET_X
-    ioy = ipy + INV_OFFSET_Y
-
-    count = 0
-    for r in range(INV_ROWS):
-        for c in range(INV_COLS):
-            x1 = iox + c * INV_SLOT_W
-            y1 = ioy + r * INV_SLOT_H
-            crop = gray[y1:y1 + INV_SLOT_H, x1:x1 + INV_SLOT_W]
-            if _is_arrow(crop):
-                count += 1
-
-    print(f'[ARROWS] {count} arrow(s) in inventory')
+    count = len(_inv_arrows(gray))
+    print(f'[ARROWS] {count} arrow pack(s) in inventory')
     return count
 
 
@@ -149,26 +165,9 @@ def _panels_visible():
 
 
 def _find_arrow_in_warehouse(gray, wh_panel):
-    """Returns the center of the first warehouse grid cell matching arrow.jpg, or None.
-    Scans only the grid (not the whole screen) so arrows in the inventory never match."""
-    wpx, wpy, _, _ = wh_panel
-    wox = wpx + WH_OFFSET_X
-    woy = wpy + WH_OFFSET_Y
-    for r in range(WH_ROWS):
-        for c in range(WH_COLS):
-            x1 = wox + c * WH_SLOT_W
-            y1 = woy + r * WH_SLOT_H
-            crop = gray[y1:y1 + WH_SLOT_H, x1:x1 + WH_SLOT_W]
-            if _is_arrow(crop):
-                return (x1 + WH_SLOT_W // 2, y1 + WH_SLOT_H // 2)
-    return None
-
-
-def _arrow_in_inventory():
-    """Returns the center of the first inventory cell holding an arrow, or None."""
-    gray = _grab_gray()
-    inv_panel = _find(gray, _tmpl_inv, threshold=CONF_INV)
-    return _find_arrow_in_inventory(gray, inv_panel) if inv_panel else None
+    """Center of the first arrow pack (any amount) in the warehouse grid, or None."""
+    packs = _wh_arrows(gray, wh_panel)
+    return packs[0] if packs else None
 
 
 def _search_tabs_for_arrow():
@@ -192,20 +191,6 @@ def _search_tabs_for_arrow():
     return None
 
 
-def _find_arrow_in_inventory(gray, inv_panel):
-    ipx, ipy, _, _ = inv_panel
-    iox = ipx + INV_OFFSET_X
-    ioy = ipy + INV_OFFSET_Y
-    for r in range(INV_ROWS):
-        for c in range(INV_COLS):
-            x1 = iox + c * INV_SLOT_W
-            y1 = ioy + r * INV_SLOT_H
-            crop = gray[y1:y1 + INV_SLOT_H, x1:x1 + INV_SLOT_W]
-            if _is_arrow(crop):
-                return (x1 + INV_SLOT_W // 2, y1 + INV_SLOT_H // 2)
-    return None
-
-
 def init_bank_tab(tab_idx=None):
     """Clicks one of the 6 regular bank tabs (0-5) — used once per account on the first
     loop to initialize the warehouse view, in case it was left on the arrows tab (tab 7)
@@ -216,22 +201,40 @@ def init_bank_tab(tab_idx=None):
 
 
 def ensure_arrows():
-    """If the inventory has no arrows at all:
+    """Keeps arrows equipped. How many are left in the equipped pack is read from the game's
+    memory (game_memory); below ARROWS_MIN (General settings) it takes a pack - any amount -
+    from the bank, going through the tabs one by one, and equips it:
     1. Validate that the warehouse and inventory panels are both visible.
-    2. Cycle through the warehouse tabs; click the first arrow.jpg found in the grid.
-       -> validated by an arrow appearing in the inventory.
-    3. Right-click that arrow in the inventory to equip it.
-    Each step is retried up to TRIALS times; stops if one never validates."""
+    2. Cycle through the warehouse tabs; click the first arrow pack found in the grid.
+       -> validated by a NEW pack appearing in the inventory (one that wasn't there before).
+    3. Right-click that new pack to equip it -> validated by the memory count going back up.
+    If the memory can't be read, falls back to the old rule: only when the inventory holds no
+    arrows at all. Each step is retried up to TRIALS times; stops if one never validates."""
+    need = int(get_settings('static', {'ARROWS_MIN': ARROWS_MIN})['ARROWS_MIN'])
+    equipped = game_memory.equipped_arrows()
+    if equipped is not None and equipped >= need:
+        print(f'[ARROWS] {equipped} arrow(s) equipped')
+        return True
+
     print('[ARROWS] panels...')
     if not _run_step(lambda: None, _panels_visible, 'warehouse_title and inventory_title visible'):
         print('[ARROWS] Aborted — panels not visible.')
         return False
 
-    count = count_arrows()
-    if count is None or count > 0:
-        return True
+    if equipped is None:
+        print('[ARROWS] could not read the equipped arrows from the game — checking the inventory instead')
+        count = count_arrows()
+        if count is None or count > 0:
+            return True
+    else:
+        print(f'[ARROWS] only {equipped} arrow(s) equipped (< {need}) — taking a pack from the bank')
 
-    print('[ARROWS] Empty — searching warehouse tabs...')
+    before = _inv_arrows()   # packs already in the bag (e.g. an almost empty one): not the new one
+
+    def _new_packs():
+        return [p for p in _inv_arrows()
+                if all(abs(p[0] - q[0]) > 10 or abs(p[1] - q[1]) > 10 for q in before)]
+
     pos = _search_tabs_for_arrow()
     if not pos:
         return False
@@ -241,16 +244,25 @@ def ensure_arrows():
         print(f'  [CLICK] arrow in warehouse @ {pos}')
         _park_mouse()              # don't leave a cell's tooltip over the panels while checking
 
-    if not _run_step(_click_found_arrow, lambda: _arrow_in_inventory() is not None,
-                     'arrow appeared in inventory'):
+    if not _run_step(_click_found_arrow, lambda: bool(_new_packs()), 'the arrow pack reached the inventory'):
         print('[ARROWS] Aborted — arrow never reached the inventory.')
         return False
 
-    x, y = _arrow_in_inventory()
+    x, y = _new_packs()[0]
     gi.move(x, y)
     time.sleep(0.05)
     gi.click_here('right')
-    print(f'  [CLICK] right-clicked arrow in inventory @ ({x},{y})')
+    print(f'  [CLICK] right-clicked the new arrow pack in inventory @ ({x},{y})')
+    _park_mouse()
+    if equipped is not None:
+        for _ in range(6):
+            time.sleep(0.5)
+            now = game_memory.equipped_arrows()
+            if now is not None and now >= need:
+                print(f'  [OK] {now} arrow(s) equipped now')
+                return True
+        print(f'  [FAIL] still {game_memory.equipped_arrows()} arrow(s) equipped after equipping the new pack')
+        return False
     return True
 
 
