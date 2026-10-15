@@ -1,5 +1,15 @@
-apps/
 __pycache__/
 *.pyc
 build_tmp/
+logs/
 
+app_icon.ico
+# build-time only (they build run_release.exe) - people run setup.bat, then run_release.exe
+build.bat
+run.py
+make_zip.bat
+run.exe
+/Interception/
+
+# made by make_zip.bat
+*.zip
