@@ -9,7 +9,13 @@ Conquer.exe has no ASLR, so its globals sit at fixed addresses. Found on the cur
     item + 0x1C           =  item type    (1050002 = SpeedArrow; arrows are 1050000..1059999)
     item + 0x190          =  amount       (uint16: arrows left in the pack; the 2 bytes after it are
                                            unrelated, so never read it as a 32-bit number)
-    [hero + 0x15C]        -> the character's name (16 bytes, cp1252)"""
+    [hero + 0x15C]        -> the character's name (16 bytes, cp1252)
+    [hero + 0x51C]        =  max HP (as last sent by the server)
+    [hero + 0x980]        -> current HP: a scrambled int array (mode +4, size +8, data +0xC);
+                             HP is entry 1, stored rotated by its slot index
+    hero + 0x5E4          =  current MP: RC6-encrypted (round keys +4..+0xB0, block +0xB4)
+    hero + 0xE38          =  the bag: a deque (start iterator cur/first/last/node, finish iterator)
+                             of 8-byte entries whose first word is the item"""
 import ctypes
 import ctypes.wintypes
 import struct
@@ -22,10 +28,18 @@ from game_window import find_game_window
 HERO_PTR     = 0x008D365C
 ARROW_SLOT   = 0x0EB0
 ITEM_VTABLE  = 0x007FC66C
+ITEM_ID      = 0x0C      # the item's own id (what the server knows it by)
 ITEM_TYPE    = 0x1C
 ITEM_AMOUNT  = 0x190
 ARROW_TYPES  = range(1050000, 1060000)
 HERO_NAME    = 0x15C
+HERO_CP      = 0x10      # CPs (the Shopping Mall's currency); +0x14 = CPs (B)
+HERO_MAX_HP  = 0x51C
+HERO_HP      = 0x980
+HERO_MP      = 0x5E4
+HERO_BAG     = 0xE38
+POTIONS      = {725065: '7StarOintment', 725066: 'SerenityPill',
+                725067: '7StarPouch', 725068: 'SerenityPouch'}
 
 _kernel32 = ctypes.windll.kernel32
 _user32 = ctypes.windll.user32
@@ -183,6 +197,111 @@ def _name_pid(pid):
         _kernel32.CloseHandle(handle)
 
 
+_M32 = 0xFFFFFFFF
+
+
+def _rotl(x, n):
+    n &= 31
+    return ((x << n) | (x >> (32 - n))) & _M32 if n else x
+
+
+def _rotr(x, n):
+    n &= 31
+    return ((x >> n) | (x << (32 - n))) & _M32 if n else x
+
+
+def _read(handle, address, size):
+    buf = ctypes.create_string_buffer(size)
+    read = ctypes.c_size_t()
+    if not _kernel32.ReadProcessMemory(handle, ctypes.c_void_p(address), buf, size, ctypes.byref(read)) \
+            or read.value != size:
+        raise OSError(f'cannot read 0x{address:08x}')
+    return buf.raw
+
+
+def _hp(handle, hero):
+    """Current HP: entry 1 of the game's scrambled int array (the game's own getter, re-done)."""
+    arr = _u32(handle, hero + HERO_HP)
+    mode, size, data = struct.unpack('<III', _read(handle, arr + 4, 12))
+    index = 1
+    if mode == 0:
+        slot = index
+    elif mode == 1:
+        slot = size - index - 1
+    elif mode == 2:
+        slot = index // 2 + ((size >> 1) + 1 if size & 1 else 0)
+    elif mode == 3:
+        slot = index // 2 + (0 if size & 1 else size >> 1)
+    else:
+        raise OSError(f'unknown HP layout {mode}')
+    raw = _u32(handle, data + slot * 4)
+    return _rotr(raw, slot) if mode in (0, 2) else _rotl(raw, slot)
+
+
+def _mp(handle, hero):
+    """Current MP: an RC6 block (20 rounds) decrypted with the round keys stored next to it."""
+    obj = hero + HERO_MP
+    s = struct.unpack('<44I', _read(handle, obj + 4, 44 * 4))
+    a, b, c, d = struct.unpack('<4I', _read(handle, obj + 0xB4, 16))
+    c = (c - s[43]) & _M32
+    a = (a - s[42]) & _M32
+    for r in range(20, 0, -1):
+        a, b, c, d = d, a, b, c
+        u = _rotl((d * (2 * d + 1)) & _M32, 5)
+        t = _rotl((b * (2 * b + 1)) & _M32, 5)
+        c = _rotr((c - s[2 * r + 1]) & _M32, t) ^ u
+        a = _rotr((a - s[2 * r]) & _M32, u) ^ t
+    d = (d - s[1]) & _M32
+    b = (b - s[0]) & _M32
+    return ((((d & 0xFF) << 8 | (c & 0xFF)) << 8 | (b & 0xFF)) << 8) + a
+
+
+def _bag(handle, hero):
+    """Item pointers in the bag (walks the deque from its start to its finish iterator)."""
+    cur, first, last, node, fcur, _, _, fnode = struct.unpack('<8I', _read(handle, hero + HERO_BAG, 32))
+    block = last - first
+    if not 0 < block <= 0x1000:
+        raise OSError('the bag does not look like a deque')
+    items = []
+    for _ in range(64):                      # a bag never spans that many blocks
+        stop = fcur if node == fnode else last
+        items += [_u32(handle, a) for a in range(cur, stop, 8)]
+        if node == fnode:
+            return items
+        node += 4
+        cur = _u32(handle, node)
+        last = cur + block
+    raise OSError('the bag deque never reached its end')
+
+
+def vitals_pid(pid):
+    """{'hp', 'max_hp', 'mp', 'cp', 'bag' (items in it), 'potions': {name: count},
+    'ids': {name: [item id, ...]}} of the character in game process `pid`,
+    or None (not logged in / unreadable)."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        hero = _u32(handle, HERO_PTR)
+        if not hero:
+            return None
+        ids = {kind: [] for kind in POTIONS.values()}
+        bag = _bag(handle, hero)
+        for item in bag:
+            if item and _u32(handle, item) == ITEM_VTABLE:
+                kind = POTIONS.get(_u32(handle, item + ITEM_TYPE))
+                if kind:
+                    ids[kind].append(_u32(handle, item + ITEM_ID))
+        potions = {kind: len(found) for kind, found in ids.items()}
+        return {'hp': _hp(handle, hero), 'max_hp': _u32(handle, hero + HERO_MAX_HP),
+                'mp': _mp(handle, hero), 'cp': _u32(handle, hero + HERO_CP),
+                'bag': sum(1 for item in bag if item), 'potions': potions, 'ids': ids}
+    except (OSError, struct.error):
+        return None
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
 class _PROCESSENTRY32W(ctypes.Structure):
     _fields_ = [('dwSize', ctypes.wintypes.DWORD), ('cntUsage', ctypes.wintypes.DWORD),
                 ('th32ProcessID', ctypes.wintypes.DWORD), ('th32DefaultHeapID', ctypes.c_size_t),
@@ -222,6 +341,17 @@ def all_games():
     return out
 
 
+def all_vitals():
+    """{character name: vitals_pid()} for every running, logged-in game (any desktop)."""
+    out = {}
+    for pid in game_pids():
+        name = _name_pid(pid)
+        if name:
+            out[name] = vitals_pid(pid)
+    return out
+
+
 if __name__ == '__main__':
     print('character:', character_name(), '| equipped arrows:', equipped_arrows())
     print('all games:', all_games())
+    print('vitals:', all_vitals())
