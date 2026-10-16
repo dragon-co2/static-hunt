@@ -1,6 +1,9 @@
 """Whispers the killer a chat message: the channel button (Talk) -> Whisper, their name in the
-chat bar's left box, a random line from the 'kill_reply' MESSAGES setting in the right box,
-then Enter. (When to send — once per killer, after the revive — is decided by static.py.)
+chat bar's left box, a line from the 'kill_reply' MESSAGES setting in the right box, then Enter.
+(When to send — once per killer, after the revive — is decided by static.py.)
+
+Each line is sent once: the ones already sent are kept in used_kill_messages.json (all accounts,
+across restarts) and a random unsent one is picked; once all went out, it starts over.
 
 Who was already messaged is kept in messaged_killers.json next to the settings, shared by all
 the accounts and kept across restarts: a killer gets one message, whichever account they kill,
@@ -106,6 +109,47 @@ def remember(killer, character):
             print(f'[KILL] could not save {LOG_PATH} ({e})')
 
 
+USED_PATH = os.path.join(override_dir(), 'used_kill_messages.json')   # MESSAGES lines already sent
+
+
+def _read_used():
+    try:
+        with open(USED_PATH, encoding='utf-8') as f:
+            used = json.load(f)
+        return used if isinstance(used, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _save_used(used):
+    try:
+        os.makedirs(os.path.dirname(USED_PATH), exist_ok=True)
+        with open(USED_PATH, 'w', encoding='utf-8') as f:
+            json.dump(used, f, indent=1)
+    except OSError as e:
+        print(f'[KILL] could not save {USED_PATH} ({e})')
+
+
+def _pick(lines):
+    """A random MESSAGES line not sent yet (all accounts, kept across restarts). Once every line
+    went out, the round starts over - never with the line that was sent last."""
+    with _log_lock:
+        used = _read_used()
+    fresh = [line for line in lines if line not in used]
+    if not fresh:
+        fresh = [line for line in lines if not used or line != used[-1]] or lines
+    return random.choice(fresh)
+
+
+def _mark_used(message, lines):
+    """Logs that `message` was sent; when that was the last unsent line, the next round starts."""
+    with _log_lock:
+        used = [line for line in _read_used() if line in lines and line != message]
+        if not [line for line in lines if line not in used and line != message]:
+            used = []                       # every line went out: start over (keep only the last)
+        _save_used(used + [message])
+
+
 def enabled():
     return bool(get_settings('kill_reply', _DEFAULTS)['ENABLED'])
 
@@ -148,7 +192,9 @@ def untypeable(text):
 
 
 def send(killer, message=None):
-    """Whispers `killer` a random MESSAGES line (or `message`). Returns the text sent, or False."""
+    """Whispers `killer` a MESSAGES line not sent before (or `message`). Returns the text sent,
+    or False."""
+    custom = bool(message)
     lines = [message] if message else _messages()
     if not lines:
         print('[KILL] no reply messages set — nothing sent')
@@ -159,7 +205,7 @@ def send(killer, message=None):
         print('[KILL] chat bar not found on screen — reply skipped')
         return False
     ax, ay = hit[0], hit[1]
-    message = random.choice(lines)
+    message = lines[0] if custom else _pick(lines)
     with gi.KEYS:   # nothing else (the F10 presser) may type into the chat meanwhile
         if not _pick_whisper(ax, ay):
             print('[KILL] could not switch the chat to Whisper — not sent (never sent on Talk)')
@@ -168,4 +214,6 @@ def send(killer, message=None):
         _fill(ax + TEXT_BOX[0], ay + TEXT_BOX[1], message)
         gi.press('enter')
     print(f'[KILL] sent to {killer}: {message!r}')
+    if not custom:
+        _mark_used(message, lines)
     return message
