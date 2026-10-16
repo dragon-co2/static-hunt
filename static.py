@@ -77,6 +77,7 @@ _timer_start = {}   # 'repair' -> time.time() the current interval started
 _dead_since = {}    # desktop index -> time.time() its account was first seen dead
 _revive_wait = {}   # desktop index -> revive delay for its current death (doubled for a repeat killer)
 _kill_streak = {}   # desktop index -> kills in a row by the same player (1 = a new killer)
+_rev_now = set()    # desktops told from Telegram ("rev" / "revall") to revive without the wait
 _reply_due = {}     # desktop index -> [killer, ...] to whisper once its character is revived
 _reply_tries = {}   # (desktop index, killer lower) -> failed sends so far
 _reply_lock = threading.Lock()   # _reply_due is filled by the chat-reading thread (_on_kill)
@@ -308,7 +309,9 @@ def _timer_status_loop():
         for idx in sorted(set(_last_service) | set(_dead_since) | set(_arrows_seen)):
             name = _char_names.get(idx)
             line = f'D{idx + 1}' + (f'({name})' if name else '')
-            if idx in _dead_since:
+            if idx in _dead_since and idx in _rev_now:
+                line += ' Revive now'
+            elif idx in _dead_since:
                 left = _revive_wait.get(idx, REVIVE_DELAY) - (now - _dead_since[idx])
                 line += f' Revive in {_fmt_left(left)}'
             elif idx in _last_service:
@@ -331,16 +334,20 @@ def _revive_gate(idx, total):
         if _dead_since.pop(idx, None) is not None:
             print(f'  [REVIVE] desktop {idx + 1} is alive again')
         _revive_wait.pop(idx, None)
+        _rev_now.discard(idx)   # a "rev" from Telegram is for the death it was sent about
         return True
     now = time.time()
     since = _dead_since.setdefault(idx, now)
     left = _revive_wait.get(idx, REVIVE_DELAY) - (now - since)
-    if left > 0:
+    if left > 0 and idx in _rev_now:
+        print(f'[DESKTOP] {idx + 1}/{total} — dead, revive wait skipped (Telegram) — reviving now')
+    elif left > 0:
         print(f'[DESKTOP] {idx + 1}/{total} — dead, revive in {_fmt_left(left)}, skipping')
         return False
     if handle_revive():
         _dead_since.pop(idx, None)
         _revive_wait.pop(idx, None)
+        _rev_now.discard(idx)
         return True
     print(f'[DESKTOP] {idx + 1}/{total} — still dead after clicking Revive, moving on (retry next visit)')
     return False
@@ -427,6 +434,26 @@ def _on_tg_reply(ref, text, msg_id):
     print(f'[TELEGRAM] queued for desktop {ref["desktop"]}: whisper {ref["player"]}: {text}')
     notify.send(f'\u23F3 {ref["character"]} will whisper {ref["player"]} on its next visit (when alive)',
                 reply_to=msg_id)
+
+
+def _on_tg_command(command, ref, msg_id):
+    """notify listener: "revall" -> every account revives on its next visit without waiting out
+    its revive time; "rev" (a Reply to a kill message) -> just that account. The loop goes to a
+    dead desktop told to revive before the others (see _rev_jump)."""
+    if command == 'revall':
+        targets = set(_dead_since) | set(range(desktops.count()))
+        what = 'every dead account revives on its next visit (no revive wait)'
+    else:
+        targets = {ref['desktop'] - 1}
+        what = f'{ref["character"]} (desktop {ref["desktop"]}) revives on its next visit (no revive wait)'
+    _rev_now.update(targets)
+    print(f'[TELEGRAM] {command}: {what}')
+    notify.send(f'♻️ {what}', reply_to=msg_id)
+
+
+def _rev_jump(current, total):
+    """A dead desktop told to revive now from Telegram, to visit next - or None."""
+    return next((i for i in sorted(_rev_now & set(_dead_since)) if i != current and i < total), None)
 
 
 def _send_custom_whispers(idx, accts):
@@ -592,6 +619,7 @@ def _main():
             kill_watch.on_kill = _on_kill
             kill_watch.on_whisper = _on_whisper
             notify.on_reply = _on_tg_reply
+            notify.on_command = _on_tg_command
             notify.listen()
             kill_watch.monsters = MONSTERS
             kill_watch.start(names, accounts.game_path())
@@ -696,8 +724,12 @@ def _main():
         _f10_desktop = None   # stop F10 before leaving (or re-checking) this desktop
         if total < 2:
             continue
-        low = _arrows_jump(current, total)   # a desktop low on arrows goes first
-        if low is not None:
+        rev = _rev_jump(current, total)      # a dead desktop told to revive now goes first...
+        low = _arrows_jump(current, total)   # ...then one low on arrows
+        if rev is not None:
+            print(f'[REVIVE] desktop {rev + 1} was told to revive now (Telegram) — going there now')
+            current = rev
+        elif low is not None:
             print(f'[ARROWS] desktop {low + 1} has only {_arrows_seen.get(low)} arrow(s) — going there now')
             current = low
         else:

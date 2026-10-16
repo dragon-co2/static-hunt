@@ -12,6 +12,8 @@ Replies: a notification about a player (a kill, our whisper to them, their whisp
 remembered with who it's about. listen() long-polls getUpdates; when you answer one of those
 messages in Telegram (Reply), on_reply(ref, text, message_id) gets your text — static.py then
 whispers it to that player from that account. Only your own chat is listened to.
+Commands: "revall" revives every dead account without waiting out its revive time; "rev" as a
+Reply to a kill message revives just that account (on_command).
 The bot token is stored DPAPI-encrypted (like account passwords) and never printed."""
 import hashlib
 import json
@@ -42,6 +44,9 @@ _lock = threading.Lock()
 _refs = {}          # Telegram message id -> what it was about ({'desktop', 'player', 'character'})
 REFS_KEPT = 500
 on_reply = None     # listener: on_reply(ref, text, telegram message id) for a Reply to one of ours
+on_command = None   # listener: on_command(command, ref or None, telegram message id) - see COMMANDS
+COMMANDS = ('revall', 'rev')   # "revall" (a plain message): revive every dead account now;
+                               # "rev" (a Reply to a 💀 kill message): revive that account now
 _listening = False
 
 
@@ -210,8 +215,14 @@ def _handle_message(msg):
     answered = (msg.get('reply_to_message') or {}).get('message_id')
     with _lock:
         ref = _refs.get(answered) if answered else None
-    if not answered:
-        send('Reply to a 💀 / 💬 / 📨 message to send that player a whisper.',
+    command = text.lower()
+    if command == 'revall' and on_command:
+        on_command('revall', None, msg['message_id'])
+    elif command == 'rev' and ref and ref.get('kill') and on_command:
+        on_command('rev', ref, msg['message_id'])
+    elif not answered:
+        send('Reply to a 💀 / 💬 / 📨 message to send that player a whisper.\n'
+             '"revall" revives every dead account now; "rev" as a Reply to a 💀 message revives that one.',
              reply_to=msg['message_id'])
     elif not ref:
         send("I don't know who that message is about (it's from before the script started) "
@@ -247,4 +258,4 @@ def kill(character, desktop, killer, streak, revive_wait=None):
         lines.append(f'⚠️ {len(times)} deaths in the last {BURST_WINDOW // 60} min')
     if revive_wait:
         lines.append(f'revive in {int(revive_wait) // 60}:{int(revive_wait) % 60:02d}')
-    send('\n'.join(lines), ref={'desktop': desktop, 'player': killer, 'character': character})
+    send('\n'.join(lines), ref={'desktop': desktop, 'player': killer, 'character': character, 'kill': True})
