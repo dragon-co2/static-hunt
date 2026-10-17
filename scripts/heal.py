@@ -1,8 +1,8 @@
-"""Auto heal for every running account - run it on its own (python heal.py).
+"""Auto heal for every running account - run it on its own (python scripts/heal.py).
 
-Several times a second it reads each game's HP, MP and potions from memory (scripts/
-game_memory.py, read only) and, for any account that needs it, uses the potions from inside the
-game (scripts/game_actions.py) - in the background: no keys, no window in front, no desktop
+Several times a second it reads each game's HP, MP and potions from memory (game_memory.py,
+read only) and, for any account that needs it, uses the potions from inside the game
+(game_actions.py) - in the background: no keys, no window in front, no desktop
 switch, so it never gets in the way of you or static.py:
     7StarOintment (+5000 HP)   when HP is more than HP_MISSING below the max
     SerenityPill  (+5000 MP)   when MP is below MP_MIN_PCT % of the most seen
@@ -13,8 +13,6 @@ game_actions.py WRITES to the game (a small stub runs inside it for each action)
 import os
 import sys
 import time
-
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts'))
 
 import game_actions
 import game_memory
@@ -130,7 +128,7 @@ class _Tee:
 
 
 def main():
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
     os.makedirs(log_dir, exist_ok=True)
     sys.stdout = sys.stderr = _Tee(sys.__stdout__, os.path.join(log_dir, 'heal.log'))
     print(f'[HEAL] watching every game: an ointment when HP is more than {HP_MISSING} below the max, '

@@ -1,11 +1,11 @@
-"""heal.py's auto heal, HP only and one pouch at a time - run it on its own (python heal-test.py).
+"""heal.py's auto heal, HP only and one pouch at a time - run it on its own (python scripts/heal-test.py).
 
 Same drinking as heal.py (same functions, imported from it), with these differences:
   - MP is left alone: no SerenityPill drunk, no SerenityPouch opened or bought
   - a 7StarPouch is opened only once the 7StarOintments are all gone
   - one 7StarPouch is bought from the mall only once the last one is used up (no ointments and
     no pouch left) - so the bag never holds more than one pouch
-Logs to logs/heal-test.log. Like heal.py it WRITES to the game (scripts/game_actions.py)."""
+Logs to logs/heal-test.log. Like heal.py it WRITES to the game (game_actions.py)."""
 import os
 import sys
 import time
@@ -42,7 +42,7 @@ def _restock(pid, name, v):
 
 
 def main():
-    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+    log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
     os.makedirs(log_dir, exist_ok=True)
     sys.stdout = sys.stderr = heal._Tee(sys.__stdout__, os.path.join(log_dir, 'heal-test.log'))
     print(f'[HEAL-TEST] watching every game: an ointment when HP is more than {heal.HP_MISSING} below '
