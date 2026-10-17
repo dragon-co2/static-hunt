@@ -30,7 +30,8 @@ KEEP_HP_POTIONS = 3  # open a 7StarPouch as soon as the 7StarOintments are down 
 KEEP_MP_POTIONS = 3  # open a SerenityPouch as soon as the SerenityPills are down to this many
 POUCH_WAIT  = 0.5    # seconds after opening a pouch for its potions to show up in the bag
 BUY_BELOW   = 3      # buy from the mall once 7StarPouches (or SerenityPouches) are fewer than this
-MP_POUCHES  = 3      # SerenityPouches to keep - only topped up to this; all other room goes to HP
+HP_POUCHES  = 10     # 7StarPouches to keep - only topped up to this, the rest of the bag stays free
+MP_POUCHES  = 3      # SerenityPouches to keep - only topped up to this
 POUCH_OPENS_INTO = 5 # potions in a pouch: the bag needs this many free slots to open one
 KEEP_FREE_SLOTS = 5  # bag slots the purchase leaves empty (for loot)
 BUY_WAIT    = 3      # seconds after a purchase for the bag to show it before buying again
@@ -67,9 +68,9 @@ def _uses_for(name, v):
 
 
 def _restock(pid, name, v):
-    """Buys pouches from the mall once either kind is fewer than BUY_BELOW: SerenityPouches only
-    up to MP_POUCHES, and every other free slot (minus room for opening a pouch and
-    KEEP_FREE_SLOTS for loot) filled with 7StarPouches."""
+    """Buys pouches from the mall once either kind is fewer than BUY_BELOW: SerenityPouches up to
+    MP_POUCHES, 7StarPouches up to HP_POUCHES - never into the room kept for opening a pouch
+    (POUCH_OPENS_INTO) and for loot (KEEP_FREE_SLOTS)."""
     if time.time() - _last_buy.get(name, 0) < BUY_WAIT:
         return
     pots = v['potions']
@@ -78,7 +79,7 @@ def _restock(pid, name, v):
         return
     free = game_actions.BAG_SLOTS - v['bag'] - KEEP_FREE_SLOTS - POUCH_OPENS_INTO
     mp = min(max(MP_POUCHES - pots['SerenityPouch'], 0), max(free, 0)) if mp_low else 0
-    hp = free - mp if hp_low else 0
+    hp = min(max(HP_POUCHES - pots['7StarPouch'], 0), free - mp) if hp_low else 0
     buys = [(kind, n) for kind, n in (('SerenityPouch', mp), ('7StarPouch', hp)) if n > 0]
     if not buys:
         return
