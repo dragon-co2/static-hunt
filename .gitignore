@@ -12,8 +12,8 @@ run.exe
 /Interception/
 
 # local only - they write to the game (ban risk), never shared
-heal.py
-scripts/game_actions.py
+# heal.py
+# scripts/game_actions.py
 
 # made by make_zip.bat
 *.zip
