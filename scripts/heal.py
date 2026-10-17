@@ -18,18 +18,18 @@ import game_actions
 import game_memory
 
 HP_MISSING  = 100   # drink once HP is this much below the max
-MP_MIN_PCT  = 50     # drink a pill once MP is below this % of the highest MP seen
+MP_MIN_PCT  = 90     # drink a pill once MP is below this % of the highest MP seen
 MP_MAX      = 800    # max MP to assume until a higher MP is seen
 CHECK_EVERY = 0.1    # seconds between reads of every game
 DRINK_WAIT  = 0.05   # seconds between checks while an account is being healed
 DRINK_AGAIN = 1.0    # after a potion, the next one of its kind waits until HP / MP moved, or this long
                      # (one message per potion - a flood of them can get the account disconnected)
 KEEP_HP_POTIONS = 3  # open a 7StarPouch as soon as the 7StarOintments are down to this many
-KEEP_MP_POTIONS = 3  # open a SerenityPouch as soon as the SerenityPills are down to this many
+KEEP_MP_POTIONS = 1  # open a SerenityPouch as soon as the SerenityPills are down to this many
 POUCH_WAIT  = 0.5    # seconds after opening a pouch for its potions to show up in the bag
-BUY_BELOW   = 3      # buy from the mall once 7StarPouches (or SerenityPouches) are fewer than this
-HP_POUCHES  = 10     # 7StarPouches to keep - only topped up to this, the rest of the bag stays free
-MP_POUCHES  = 3      # SerenityPouches to keep - only topped up to this
+BUY_BELOW   = 10      # buy from the mall once 7StarPouches (or SerenityPouches) are fewer than this
+HP_POUCHES  = 3     # 7StarPouches to keep - only topped up to this, the rest of the bag stays free
+MP_POUCHES  = 1      # SerenityPouches to keep - only topped up to this
 POUCH_OPENS_INTO = 5 # potions in a pouch: the bag needs this many free slots to open one
 KEEP_FREE_SLOTS = 5  # bag slots the purchase leaves empty (for loot)
 BUY_WAIT    = 3      # seconds after a purchase for the bag to show it before buying again
