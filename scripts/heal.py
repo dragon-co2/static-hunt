@@ -1,4 +1,6 @@
-"""Auto heal for every running account - run it on its own (python scripts/heal.py).
+"""Auto heal - run it on its own (python scripts/heal.py). It opens a small window listing every
+running account; only the ticked ones are healed (the ticks are remembered for the next run in
+heal_accounts.json next to the settings). Closing the window stops it.
 
 Several times a second it reads each game's HP, MP and potions from memory (game_memory.py,
 read only) and, for any account that needs it, uses the potions from inside the game
@@ -10,19 +12,22 @@ switch, so it never gets in the way of you or static.py:
 When the pouches run low (fewer than BUY_BELOW) it buys more from the Shopping Mall: SerenityPouches
 up to MP_POUCHES, every other free slot 7StarPouches.
 game_actions.py WRITES to the game (a small stub runs inside it for each action)."""
+import json
 import os
 import sys
+import threading
 import time
 
 import game_actions
 import game_memory
+from dragon_settings import override_dir
 
 HP_MISSING  = 100   # drink once HP is this much below the max
 MP_MIN_PCT  = 90     # drink a pill once MP is below this % of the highest MP seen
 MP_MAX      = 800    # max MP to assume until a higher MP is seen
 CHECK_EVERY = 0.1    # seconds between reads of every game
 DRINK_WAIT  = 0.05   # seconds between checks while an account is being healed
-DRINK_AGAIN = 1.0    # after a potion, the next one of its kind waits until HP / MP moved, or this long
+DRINK_AGAIN = 0.5    # after a potion, the next one of its kind waits until HP / MP moved, or this long
                      # (one message per potion - a flood of them can get the account disconnected)
 KEEP_HP_POTIONS = 3  # open a 7StarPouch as soon as the 7StarOintments are down to this many
 KEEP_MP_POTIONS = 1  # open a SerenityPouch as soon as the SerenityPills are down to this many
@@ -127,22 +132,124 @@ class _Tee:
         self._stream.flush()
 
 
+CHECKED_PATH = os.path.join(override_dir(), 'heal_accounts.json')   # the ticked accounts, kept across runs
+_checked = set()     # characters ticked in the window - only these are healed
+_seen = {}           # character -> its latest vitals (None while not running), for the window
+_lock = threading.Lock()
+
+
+def _load_checked():
+    try:
+        with open(CHECKED_PATH, encoding='utf-8') as f:
+            return set(json.load(f))
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+def _save_checked():
+    try:
+        os.makedirs(os.path.dirname(CHECKED_PATH), exist_ok=True)
+        with open(CHECKED_PATH, 'w', encoding='utf-8') as f:
+            json.dump(sorted(_checked), f)
+    except OSError as e:
+        print(f'[HEAL] could not save {CHECKED_PATH} ({e})')
+
+
+def _heal_loop():
+    """Background thread: reads every running game; heals only the ticked accounts."""
+    while True:
+        busy = False
+        running = set()
+        try:
+            for pid in game_memory.game_pids():
+                name = game_memory._name_pid(pid)
+                v = game_memory.vitals_pid(pid) if name else None
+                if not name:
+                    continue
+                running.add(name)
+                with _lock:
+                    _seen[name] = v
+                    ticked = name in _checked
+                if not ticked or not v or v['hp'] <= 0:   # not ticked / not readable / dead
+                    continue
+                _restock(pid, name, v)
+                busy = _tend(pid, name, v) or busy
+            with _lock:
+                for name in list(_seen):
+                    if name not in running:
+                        _seen[name] = None
+        except Exception as e:
+            print(f'[HEAL] {type(e).__name__}: {e}')
+            time.sleep(1)
+        time.sleep(DRINK_WAIT if busy else CHECK_EVERY)   # someone is healing: check again right away
+
+
+def _window():
+    """The checklist: one row per account seen running - tick it to heal it."""
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.title('Auto heal')
+    root.attributes('-topmost', True)
+    root.resizable(False, False)
+    tk.Label(root, text='Ticked accounts are healed', font=('Segoe UI', 10, 'bold')).pack(anchor='w', padx=10, pady=(8, 4))
+    rows = tk.Frame(root)
+    rows.pack(fill='x', padx=10)
+    boxes = {}   # character -> (BooleanVar, Label)
+
+    def toggle(name, var):
+        with _lock:
+            (_checked.add if var.get() else _checked.discard)(name)
+        _save_checked()
+        print(f'[HEAL] {name}: ' + ('healing' if var.get() else 'not healing'))
+
+    def tick_all(on):
+        for name, (var, _) in boxes.items():
+            if var.get() != on:
+                var.set(on)
+                toggle(name, var)
+
+    def refresh():
+        with _lock:
+            seen = dict(_seen)
+        for name in sorted(seen, key=str.lower):
+            if name not in boxes:
+                var = tk.BooleanVar(value=name in _checked)
+                row = tk.Frame(rows)
+                row.pack(fill='x', pady=1)
+                tk.Checkbutton(row, text=name, variable=var, width=16, anchor='w',
+                               font=('Segoe UI', 10), command=lambda n=name, v=var: toggle(n, v)).pack(side='left')
+                info = tk.Label(row, font=('Consolas', 9), anchor='w', width=44)
+                info.pack(side='left')
+                boxes[name] = (var, info)
+            v = seen[name]
+            info = boxes[name][1]
+            if v is None:
+                info.config(text='not running', fg='gray')
+            else:
+                p = v['potions']
+                info.config(fg='black', text=f'HP {v["hp"]}/{v["max_hp"]}  MP {v["mp"]}  '
+                                             f'oint {p["7StarOintment"]}+{p["7StarPouch"]}  pill {p["SerenityPill"]}+{p["SerenityPouch"]}')
+        root.after(500, refresh)
+
+    buttons = tk.Frame(root)
+    buttons.pack(fill='x', padx=10, pady=8)
+    tk.Button(buttons, text='All', width=8, command=lambda: tick_all(True)).pack(side='left')
+    tk.Button(buttons, text='None', width=8, command=lambda: tick_all(False)).pack(side='left', padx=6)
+    refresh()
+    root.mainloop()
+
+
 def main():
     log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'logs')
     os.makedirs(log_dir, exist_ok=True)
     sys.stdout = sys.stderr = _Tee(sys.__stdout__, os.path.join(log_dir, 'heal.log'))
-    print(f'[HEAL] watching every game: an ointment when HP is more than {HP_MISSING} below the max, '
-          f'a pill when MP is below {MP_MIN_PCT}%, pouches bought from the mall - Ctrl+C to stop')
-    while True:
-        busy = False
-        for pid in game_memory.game_pids():
-            name = game_memory._name_pid(pid)
-            v = game_memory.vitals_pid(pid) if name else None
-            if not v or v['hp'] <= 0:          # not logged in / dead: nothing to drink
-                continue
-            _restock(pid, name, v)
-            busy = _tend(pid, name, v) or busy
-        time.sleep(DRINK_WAIT if busy else CHECK_EVERY)   # someone is healing: check again right away
+    _checked.update(_load_checked())
+    print(f'[HEAL] an ointment when HP is more than {HP_MISSING} below the max, a pill when MP is below '
+          f'{MP_MIN_PCT}%, pouches bought from the mall - only for the accounts ticked in the window')
+    threading.Thread(target=_heal_loop, daemon=True, name='heal').start()
+    _window()                      # closing the window stops healing
+    print('[HEAL] window closed - stopped')
 
 
 if __name__ == '__main__':
