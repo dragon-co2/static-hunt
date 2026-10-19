@@ -34,6 +34,7 @@ ITEM_AMOUNT  = 0x190
 ARROW_TYPES  = range(1050000, 1060000)
 HERO_NAME    = 0x15C
 HERO_CP      = 0x10      # CPs (the Shopping Mall's currency); +0x14 = CPs (B)
+HERO_STATUS  = 0x6C      # status flags shown as icons at the top: 0x200 Stigma, 0x100 Magic Shield
 HERO_MAX_HP  = 0x51C
 HERO_HP      = 0x980
 HERO_MP      = 0x5E4
@@ -295,6 +296,7 @@ def vitals_pid(pid):
         potions = {kind: len(found) for kind, found in ids.items()}
         return {'hp': _hp(handle, hero), 'max_hp': _u32(handle, hero + HERO_MAX_HP),
                 'mp': _mp(handle, hero), 'cp': _u32(handle, hero + HERO_CP),
+                'status': _u32(handle, hero + HERO_STATUS),
                 'bag': sum(1 for item in bag if item), 'potions': potions, 'ids': ids}
     except (OSError, struct.error):
         return None
