@@ -329,17 +329,20 @@ def _window():
 JUMP_VK      = 0x46         # Ctrl+F in the game in front: jump next to the player whose name is in the
 RCLICK_TIMES = 2            # chat's name box (Shift+click them), then use the right-click skill
 RCLICK_EVERY = 0.5          # on them RCLICK_TIMES times, RCLICK_EVERY seconds apart
-JUMP_LAND    = 0.7          # seconds after the jump before the first skill (the landing)
-_jumping = threading.Lock()
+JUMP_LAND    = 0            # seconds after the jump before the first skill: 0 = right away, in the air
+_press = 0                  # Ctrl+F presses so far: a newer press cancels what's left of an older one
+_inject = threading.Lock()  # one action sent into the game at a time
 
 
-def _jump_and_hit():
+def _jump_and_hit(press):
     """Ctrl+F: in the game in front, jump next to the player in the name box, then use the
-    right-click skill on them RCLICK_TIMES times."""
+    right-click skill on them RCLICK_TIMES times. A newer Ctrl+F (press) stops this one where it is."""
     import ctypes
     import ctypes.wintypes
-    if not _jumping.acquire(blocking=False):
-        return                                   # still busy with the last one
+
+    def stale():
+        return press != _press
+
     try:
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         owner = ctypes.wintypes.DWORD()
@@ -358,7 +361,10 @@ def _jump_and_hit():
             print(f'[JUMP] {me}: the player in the chat name box (id {target_id}) is not around')
             return
         target, role = around[target_id]
-        game_actions.jump_next_to(pid, role)
+        with _inject:
+            if stale():
+                return
+            game_actions.jump_next_to(pid, role)
         print(f'[JUMP] {me}: jumped next to {target}')
         skill = game_actions.right_click_skill(pid)
         if not skill:
@@ -368,12 +374,13 @@ def _jump_and_hit():
         for n in range(RCLICK_TIMES):
             if n:
                 time.sleep(RCLICK_EVERY)
-            game_actions.use_skill_on(pid, skill, target_id)
+            with _inject:
+                if stale():
+                    return                       # a newer Ctrl+F took over
+                game_actions.use_skill_on(pid, skill, target_id)
         print(f'[JUMP] {me}: used skill {skill} on {target} x{RCLICK_TIMES}')
     except Exception as e:
         print(f'[JUMP] {type(e).__name__}: {e}')
-    finally:
-        _jumping.release()
 
 
 def _hotkeys():
@@ -383,15 +390,22 @@ def _hotkeys():
     from pynput import keyboard
     ctrl = {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}
     held = set()
+    f_down = [False]                              # F held: its auto-repeat isn't a new press
 
     def on_press(key):
+        global _press
         if key in ctrl:
             held.add(key)
-        elif held and getattr(key, 'vk', None) == JUMP_VK:
-            threading.Thread(target=_jump_and_hit, daemon=True).start()
+        elif getattr(key, 'vk', None) == JUMP_VK:
+            if held and not f_down[0]:
+                _press += 1
+                threading.Thread(target=_jump_and_hit, args=(_press,), daemon=True).start()
+            f_down[0] = True
 
     def on_release(key):
         held.discard(key)
+        if getattr(key, 'vk', None) == JUMP_VK:
+            f_down[0] = False
 
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True

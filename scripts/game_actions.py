@@ -39,6 +39,9 @@ MAGIC_ATTACK = 0x006A0850
 HERO_JUMP    = 0x006138FF
 PLAYER_SET   = 0x008E8720 + 0x14   # the deque of roles around us
 ROLE_NAME    = 0x15C
+ROLE_COMMAND = 0x1F8           # what the role is doing: 5 standing, 0x14 (20) jumping...
+ROLE_DEST    = 0x218           # +0x218 x, +0x21C y: where that command ends (the landing cell)
+CMD_JUMP     = 0x14
 USE_MAGIC    = 0x0069EA42
 MAIN_UI      = 0x008D5544      # -> the main game UI object
 MAIN_UI_VTABLE = 0x007FA040
@@ -194,16 +197,33 @@ def players(pid):
         _k32.CloseHandle(handle)
 
 
-def jump_next_to(pid, role, dx=1, dy=0):
-    """Jumps this character next to `role` (a players() address): its position (the game's own
-    GetPos) plus (dx, dy), through CHero::Jump - so the game's checks apply (16 cells at most)."""
-    code = (b'\x55\x8B\xEC\x83\xEC\x08'                        # push ebp; mov ebp, esp; sub esp, 8
-            + b'\xB9' + struct.pack('<I', role)                # mov ecx, role
-            + b'\x8B\x11\x8D\x45\xF8\x50\xFF\x52\x14'           # GetPos(&pt) through its vtable +0x14
-            + b'\x8B\x45\xFC\x83\xC0' + struct.pack('<b', dy) + b'\x50'   # push y + dy
-            + b'\x8B\x45\xF8\x83\xC0' + struct.pack('<b', dx) + b'\x50'   # push x + dx
-            + b'\x8B\x0D' + struct.pack('<I', game_memory.HERO_PTR)        # mov ecx, [hero]
-            + b'\xB8' + struct.pack('<I', HERO_JUMP) + b'\xFF\xD0'        # call CHero::Jump
+def jump_next_to(pid, role):
+    """Jumps this character onto the cell next to `role` (a players() address) on our side of it -
+    the nearest one to us: target + (sign(me.x - target.x), sign(me.y - target.y)), positions from
+    the game's own GetPos; through CHero::Jump, so the game's checks apply (16 cells at most).
+    When the target is in the air (its command is a jump), its landing cell is used instead of
+    where it is right now - so we land next to where it lands."""
+    hero = struct.pack('<I', game_memory.HERO_PTR)
+    target = struct.pack('<I', role)
+    sign = b'\x8B\xC8\xC1\xF9\x1F\xF7\xD8\xC1\xE8\x1F\x03\xC1'   # eax = sign(eax)
+    code = (b'\x55\x8B\xEC\x83\xEC\x18'                        # push ebp; mov ebp, esp; sub esp, 0x18
+            + b'\xB9' + target                                 # mov ecx, role
+            + b'\x8B\x11\x8D\x45\xF8\x50\xFF\x52\x14'           # GetPos(target) -> [ebp-8] x, [ebp-4] y
+            + b'\xB9' + target                                 # mov ecx, role
+            + b'\x83\xB9' + struct.pack('<I', ROLE_COMMAND) + bytes([CMD_JUMP])   # jumping?
+            + b'\x75\x12'                                      # no: keep GetPos
+            + b'\x8B\x81' + struct.pack('<I', ROLE_DEST) + b'\x89\x45\xF8'       # x = landing x
+            + b'\x8B\x81' + struct.pack('<I', ROLE_DEST + 4) + b'\x89\x45\xFC'   # y = landing y
+            + b'\x8B\x0D' + hero                               # mov ecx, [hero]
+            + b'\x8B\x11\x8D\x45\xF0\x50\xFF\x52\x14'           # GetPos(me) -> [ebp-0x10] x, [ebp-0xC] y
+            + b'\x8B\x45\xF0\x2B\x45\xF8' + sign + b'\x89\x45\xEC'   # dx = sign(me.x - target.x)
+            + b'\x8B\x45\xF4\x2B\x45\xFC' + sign + b'\x89\x45\xE8'   # dy = sign(me.y - target.y)
+            + b'\x8B\x45\xEC\x0B\x45\xE8\x75\x07'               # on the same cell:
+            + b'\xC7\x45\xEC\x01\x00\x00\x00'                  #   dx = 1
+            + b'\x8B\x45\xFC\x03\x45\xE8\x50'                   # push target.y + dy
+            + b'\x8B\x45\xF8\x03\x45\xEC\x50'                   # push target.x + dx
+            + b'\x8B\x0D' + hero                               # mov ecx, [hero]
+            + b'\xB8' + struct.pack('<I', HERO_JUMP) + b'\xFF\xD0'   # call CHero::Jump
             + b'\x33\xC0\xC9\xC2\x04\x00')                     # xor eax, eax; leave; ret 4
     _run(pid, code)
 
