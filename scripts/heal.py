@@ -230,6 +230,7 @@ def _heal_loop():
                 if not name:
                     continue
                 running.add(name)
+                _note_chat_box(pid)
                 with _lock:
                     _seen[name] = v
                     ticked = name in _checked
@@ -332,6 +333,47 @@ RCLICK_EVERY = 0.5          # on them RCLICK_TIMES times, RCLICK_EVERY seconds a
 JUMP_LAND    = 0            # seconds after the jump before the first skill: 0 = right away, in the air
 _press = 0                  # Ctrl+F presses so far: a newer press cancels what's left of an older one
 _inject = threading.Lock()  # one action sent into the game at a time
+_chat_box = {}              # pid -> [last id seen, last typed text seen, which changed last: 'id' / 'text']
+
+
+def _note_chat_box(pid):
+    """Remembers which way the chat name box was filled last: Shift+click (the id changes) or
+    typing a name (the typed text changes). Called from the heal loop, every round."""
+    seen = _chat_box.setdefault(pid, [None, None, 'id'])
+    now_id, now_text = game_actions.chat_target(pid), game_actions.chat_text(pid)
+    if seen[0] is not None and now_text != seen[1] and now_text:
+        seen[2] = 'text'
+    if seen[0] is not None and now_id != seen[0]:
+        seen[2] = 'id'
+    seen[0], seen[1] = now_id, now_text
+
+
+def _chat_box_target(pid, around):
+    """(name, role) of the player in the chat name box, or (None, why). `around` = players().
+    Tries the way the box was filled last first (_note_chat_box), then the other one - so it
+    also works for a name typed before heal.py started."""
+    def by_text():
+        typed = game_actions.chat_text(pid).lower()   # the name (sometimes minus its last letter)
+        if len(typed) < 2:
+            return None, 'nothing typed in the chat name box'
+        matches = sorted((n for n in around if n.lower().startswith(typed)), key=len)
+        return (matches[0], around[matches[0]]) if matches else (None, f'nobody around whose name starts with "{typed}"')
+
+    def by_id():
+        target_id = game_actions.chat_target(pid)
+        if not target_id:
+            return None, 'nobody Shift+clicked'
+        names = {game_actions.role_id(pid, r): n for n, r in around.items()}
+        return (names[target_id], around[names[target_id]]) if target_id in names \
+            else (None, f'the Shift+clicked player (id {target_id}) is not around')
+
+    seen = _chat_box.get(pid) or [None, None, 'id']
+    first, second = (by_text, by_id) if seen[2] == 'text' else (by_id, by_text)
+    found = first()
+    if found[0]:
+        return found
+    other = second()
+    return other if other[0] else (None, f'{found[1]}; {other[1]}')
 
 
 def _jump_and_hit(press):
@@ -352,15 +394,11 @@ def _jump_and_hit(press):
             print('[JUMP] Ctrl+F outside the game - ignored (the game window must be in front)')
             return
         me = game_memory._name_pid(pid)
-        target_id = game_actions.chat_target(pid)
-        if not target_id:
-            print(f'[JUMP] {me}: the chat name box is empty (Shift+click a player first)')
+        target, role = _chat_box_target(pid, game_actions.players(pid))
+        if not target:
+            print(f'[JUMP] {me}: {role}')
             return
-        around = {game_actions.role_id(pid, r): (n, r) for n, r in game_actions.players(pid).items()}
-        if target_id not in around:
-            print(f'[JUMP] {me}: the player in the chat name box (id {target_id}) is not around')
-            return
-        target, role = around[target_id]
+        target_id = game_actions.role_id(pid, role)
         with _inject:
             if stale():
                 return

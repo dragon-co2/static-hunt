@@ -20,7 +20,8 @@ Conquer.exe - re-check after a game update):
                 (the game's right-click handler at 0x5AC215), with all its checks (range, mana...).
     [0x008D5544] the main game UI: +0x15286C right-click mode (1 / 2), +0x152860 / +0x152868 the
                 skill on the right click in that mode; +0x715A8 the id of the player in the
-                chat name box (set by Shift+clicking them).
+                chat name box (set by Shift+clicking them); +0x71874 / +0x71878 begin / end of
+                the text typed into that box (one character behind).
 This WRITES to the game: a ~100 byte stub is copied into it, run on a thread of its own, then
 freed. Unlike game_memory.py it is not read-only.
     python game_actions.py <character> buy 7StarPouch 1
@@ -48,6 +49,8 @@ MAIN_UI_VTABLE = 0x007FA040
 RCLICK_MODE  = 0x15286C
 RCLICK_SKILL = {1: 0x152860, 2: 0x152868}
 CHAT_TARGET  = 0x715A8         # main UI + this = id of the player in the chat name box (Shift+click)
+CHAT_TEXT    = 0x71788 + 0xEC  # main UI + this = begin / end of what was typed in that box - always
+                               # one character behind (it's taken before the last key lands)
 HERO_ID      = 0xC8         # the hero's own id
 HERO_SKILLS  = 0x11FC       # vector of the hero's skills (8-byte entries: skill object, refcount)
 SKILL_TYPE   = 0x4C         # skill object + this = its type (1095 Stigma, 1090 Magic Shield...)
@@ -258,6 +261,27 @@ def chat_target(pid):
         return game_memory._u32(handle, ui + CHAT_TARGET)
     except OSError:
         return 0
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def chat_text(pid):
+    """What was typed into the chat's name box, minus its last character (the game keeps it one
+    key behind) - so use it as the start of a name. '' if empty / unreadable."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return ''
+    try:
+        ui = game_memory._u32(handle, MAIN_UI)
+        if not ui or game_memory._u32(handle, ui) != MAIN_UI_VTABLE:
+            return ''
+        begin = game_memory._u32(handle, ui + CHAT_TEXT)
+        end = game_memory._u32(handle, ui + CHAT_TEXT + 4)
+        if not begin or not 0 < end - begin <= 32:
+            return ''
+        return game_memory._read(handle, begin, end - begin).split(b'\0')[0].decode('cp1252', 'replace').strip()
+    except OSError:
+        return ''
     finally:
         _k32.CloseHandle(handle)
 
