@@ -40,6 +40,7 @@ MAGIC_ATTACK = 0x006A0850
 HERO_JUMP    = 0x006138FF
 PLAYER_SET   = 0x008E8720 + 0x14   # the deque of roles around us
 ROLE_NAME    = 0x15C
+ROLE_DEAD    = 0x18            # 1 while the role (player) is dead, 0 while alive
 ROLE_COMMAND = 0x1F8           # what the role is doing: 5 standing, 0x14 (20) jumping...
 ROLE_DEST    = 0x218           # +0x218 x, +0x21C y: where that command ends (the landing cell)
 CMD_JUMP     = 0x14
@@ -293,6 +294,71 @@ def role_id(pid, role):
         return game_memory._u32(handle, role + HERO_ID)
     finally:
         _k32.CloseHandle(handle)
+
+
+def role_dead(pid, role):
+    """True if the role (a players() address) is dead (lying dead / a ghost)."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return False
+    try:
+        return bool(game_memory._u32(handle, role + ROLE_DEAD))
+    except OSError:
+        return False
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def role_pos(pid, obj):
+    """The (x, y) map cell of a role or the hero (an object address), via the game's own GetPos
+    (one injected stub), or None. Used to measure how far a target is."""
+    handle = _k32.OpenProcess(_ACCESS, False, pid)
+    if not handle:
+        return None
+    try:
+        mem = _k32.VirtualAllocEx(handle, None, 0x1000, 0x3000, 0x40)   # COMMIT|RESERVE, RWX
+        if not mem:
+            return None
+        running = False
+        try:
+            out = mem + 0x200
+            code = (b'\x55\x8B\xEC'                            # push ebp; mov ebp, esp
+                    + b'\xB9' + struct.pack('<I', obj)         # mov ecx, obj
+                    + b'\x8B\x11'                              # mov edx, [ecx]
+                    + b'\x68' + struct.pack('<I', out) + b'\xFF\x52\x14'   # push &pt (out); GetPos: [out]x [out+4]y
+                    + b'\xC9\xC2\x04\x00')                     # leave; ret 4
+            written = ctypes.c_size_t()
+            if not _k32.WriteProcessMemory(handle, mem, code, len(code), ctypes.byref(written)):
+                return None
+            thread = _k32.CreateRemoteThread(handle, None, 0, mem, None, 0, None)
+            if not thread:
+                return None
+            try:
+                if _k32.WaitForSingleObject(thread, 3000) != 0:
+                    running = True
+                    return None
+            finally:
+                _k32.CloseHandle(thread)
+            return struct.unpack('<2i', game_memory._read(handle, out, 8))
+        finally:
+            if not running:
+                _k32.VirtualFreeEx(handle, mem, 0, 0x8000)   # MEM_RELEASE
+    except (OSError, struct.error):
+        return None
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def my_pos(pid):
+    """This character's own (x, y) map cell, or None."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return None
+    try:
+        hero = game_memory._u32(handle, game_memory.HERO_PTR)
+    finally:
+        _k32.CloseHandle(handle)
+    return role_pos(pid, hero) if hero else None
 
 
 def use_skill_on(pid, skill_type, target_id):

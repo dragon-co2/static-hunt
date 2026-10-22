@@ -37,11 +37,11 @@ DRINK_AGAIN = 0.5    # after a potion, the next one of its kind waits until HP /
 KEEP_HP_POTIONS = 3  # open a 7StarPouch as soon as the 7StarOintments are down to this many
 KEEP_MP_POTIONS = 1  # open a SerenityPouch as soon as the SerenityPills are down to this many
 POUCH_WAIT  = 0.5    # seconds after opening a pouch for its potions to show up in the bag
-BUY_BELOW   = 10      # buy from the mall once 7StarPouches (or SerenityPouches) are fewer than this
-HP_POUCHES  = 3     # 7StarPouches to keep - only topped up to this, the rest of the bag stays free
+BUY_BELOW   = 2      # buy from the mall once 7StarPouches (or SerenityPouches) are fewer than this
+HP_POUCHES  = 1     # 7StarPouches to keep - only topped up to this, the rest of the bag stays free
 MP_POUCHES  = 1      # SerenityPouches to keep - only topped up to this
 POUCH_OPENS_INTO = 5 # potions in a pouch: the bag needs this many free slots to open one
-KEEP_FREE_SLOTS = 5  # bag slots the purchase leaves empty (for loot)
+KEEP_FREE_SLOTS = 1  # bag slots the purchase leaves empty (for loot)
 BUY_WAIT    = 3      # seconds after a purchase for the bag to show it before buying again
 
 _max_mp = {}         # character -> highest MP seen (the game doesn't keep the max anywhere)
@@ -323,7 +323,42 @@ def _window():
     buttons.pack(fill='x', padx=10, pady=8)
     tk.Button(buttons, text='All', width=8, command=lambda: tick_all(True)).pack(side='left')
     tk.Button(buttons, text='None', width=8, command=lambda: tick_all(False)).pack(side='left', padx=6)
+
+    # Ctrl+F target: picked in the game (chat name box / Shift+click); shown here
+    tk.Frame(root, height=1, bg='#ccc').pack(fill='x', padx=10, pady=(6, 4))
+    target_lbl = tk.Label(root, text='Ctrl+F target: -', font=('Segoe UI', 10, 'bold'), anchor='w')
+    target_lbl.pack(fill='x', padx=10)
+
+    opts = tk.Frame(root)
+    opts.pack(fill='x', padx=10, pady=(2, 6))
+    skip_var = tk.BooleanVar(value=SKIP_NEAR[0])
+
+    def set_skip():
+        SKIP_NEAR[0] = skip_var.get()
+    tk.Checkbutton(opts, text="don't jump if target is within", variable=skip_var,
+                   command=set_skip, font=('Segoe UI', 9)).pack(side='left')
+    near = tk.IntVar(value=NEAR_CELLS[0])
+
+    def set_near(*_):
+        try:
+            NEAR_CELLS[0] = max(1, int(near.get()))
+        except (tk.TclError, ValueError):
+            pass
+    tk.Spinbox(opts, from_=1, to=16, width=3, textvariable=near, command=set_near,
+               font=('Segoe UI', 9)).pack(side='left', padx=(2, 0))
+    near.trace_add('write', set_near)
+    tk.Label(opts, text='cells (attack from here instead)', font=('Segoe UI', 9)).pack(side='left', padx=(2, 0))
+
+    def update_label():
+        name = ''
+        pid = _foreground_game()
+        if pid:
+            name = _label_name(pid, game_actions.players(pid))
+        target_lbl.config(text=f'Target: {name}', fg='black')
+        root.after(300, update_label)
+
     refresh()
+    update_label()
     root.mainloop()
 
 
@@ -331,6 +366,18 @@ JUMP_VK      = 0x46         # Ctrl+F in the game in front: jump next to the play
 RCLICK_TIMES = 2            # chat's name box (Shift+click them), then use the right-click skill
 RCLICK_EVERY = 0.5          # on them RCLICK_TIMES times, RCLICK_EVERY seconds apart
 JUMP_LAND    = 0            # seconds after the jump before the first skill: 0 = right away, in the air
+SKIP_NEAR = [False]         # don't jump when the target is within NEAR_CELLS - attack from here (window)
+NEAR_CELLS = [3]            # how close "near" is, in map cells
+
+
+def _foreground_game():
+    """The pid of the game window in front, or None."""
+    import ctypes
+    import ctypes.wintypes
+    hwnd = ctypes.windll.user32.GetForegroundWindow()
+    owner = ctypes.wintypes.DWORD()
+    ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+    return owner.value if owner.value in game_memory.game_pids() else None
 _press = 0                  # Ctrl+F presses so far: a newer press cancels what's left of an older one
 _inject = threading.Lock()  # one action sent into the game at a time
 _chat_box = {}              # pid -> [last id seen, last typed text seen, which changed last: 'id' / 'text']
@@ -348,32 +395,46 @@ def _note_chat_box(pid):
     seen[0], seen[1] = now_id, now_text
 
 
+_id_names = {}              # player id -> name, for every player seen around (kept after they leave)
+
+
+def _ids_around(pid, around):
+    """{id: name} of the players around - and remembers them in _id_names."""
+    names = {game_actions.role_id(pid, r): n for n, r in around.items()}
+    _id_names.update(names)
+    return names
+
+
+def _label_name(pid, around):
+    """The name to show for the Ctrl+F target - what was typed / Shift+clicked, even when that
+    player isn't around (then it can't be attacked, but the name is still shown). '' if none."""
+    seen = _chat_box.get(pid) or [None, None, 'id']
+    target_id = game_actions.chat_target(pid)
+    names = _ids_around(pid, around)
+    if seen[2] == 'text' or not target_id:
+        typed = game_actions.chat_text(pid)
+        if len(typed) < 2:
+            return ''
+        match = sorted((n for n in around if n.lower().startswith(typed.lower())), key=len)
+        return match[0] if match else typed      # the player if around, else the raw typed name
+    return names.get(target_id) or _id_names.get(target_id, '')   # Shift+clicked: remembered name
+
+
 def _chat_box_target(pid, around):
     """(name, role) of the player in the chat name box, or (None, why). `around` = players().
-    Tries the way the box was filled last first (_note_chat_box), then the other one - so it
-    also works for a name typed before heal.py started."""
-    def by_text():
+    Uses only the way the box was last filled (_note_chat_box) - typing a name, or Shift+click -
+    so whatever you did last is exactly what gets attacked. No falling back to the other one."""
+    seen = _chat_box.get(pid) or [None, None, 'id']
+    target_id = game_actions.chat_target(pid)
+    if seen[2] == 'text' or not target_id:       # a name typed in the box (or nothing Shift+clicked)
         typed = game_actions.chat_text(pid).lower()   # the name (sometimes minus its last letter)
         if len(typed) < 2:
             return None, 'nothing typed in the chat name box'
         matches = sorted((n for n in around if n.lower().startswith(typed)), key=len)
-        return (matches[0], around[matches[0]]) if matches else (None, f'nobody around whose name starts with "{typed}"')
-
-    def by_id():
-        target_id = game_actions.chat_target(pid)
-        if not target_id:
-            return None, 'nobody Shift+clicked'
-        names = {game_actions.role_id(pid, r): n for n, r in around.items()}
-        return (names[target_id], around[names[target_id]]) if target_id in names \
-            else (None, f'the Shift+clicked player (id {target_id}) is not around')
-
-    seen = _chat_box.get(pid) or [None, None, 'id']
-    first, second = (by_text, by_id) if seen[2] == 'text' else (by_id, by_text)
-    found = first()
-    if found[0]:
-        return found
-    other = second()
-    return other if other[0] else (None, f'{found[1]}; {other[1]}')
+        return (matches[0], around[matches[0]]) if matches else (None, f'"{typed}" is not around')
+    names = _ids_around(pid, around)
+    return (names[target_id], around[names[target_id]]) if target_id in names \
+        else (None, f'{_id_names.get(target_id, "the Shift+clicked player")} is not around')
 
 
 def _jump_and_hit(press):
@@ -398,12 +459,23 @@ def _jump_and_hit(press):
         if not target:
             print(f'[JUMP] {me}: {role}')
             return
+        if game_actions.role_dead(pid, role):
+            print(f'[JUMP] {me}: {target} is dead - not jumping')
+            return
         target_id = game_actions.role_id(pid, role)
-        with _inject:
-            if stale():
-                return
-            game_actions.jump_next_to(pid, role)
-        print(f'[JUMP] {me}: jumped next to {target}')
+        near = False
+        if SKIP_NEAR[0]:
+            me_pos, t_pos = game_actions.my_pos(pid), game_actions.role_pos(pid, role)
+            if me_pos and t_pos:
+                near = max(abs(me_pos[0] - t_pos[0]), abs(me_pos[1] - t_pos[1])) < NEAR_CELLS[0]
+        if near:
+            print(f'[JUMP] {me}: {target} is within {NEAR_CELLS[0]} cells - attacking from here, no jump')
+        else:
+            with _inject:
+                if stale():
+                    return
+                game_actions.jump_next_to(pid, role)
+            print(f'[JUMP] {me}: jumped next to {target}')
         skill = game_actions.right_click_skill(pid)
         if not skill:
             print(f'[JUMP] {me}: no skill on the right click - nothing used on {target}')
