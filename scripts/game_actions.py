@@ -25,6 +25,8 @@ Conquer.exe - re-check after a game update):
     0x006D1686  CHero::ActivateNpc(npc id) - clicking an NPC; the server sends its dialog.
     0x006D1619  sends an NPC dialog answer (option, text, task id, action 0x65) - clicking a line;
                 the option numbers come from the server (Exchange~DB: 2 = DBScroll, 20 = Yes).
+    0x00616560  CHero attack(target, 0, 1, 1) - left-clicking a monster: jumps / walks into reach
+                and keeps hitting it with the weapon (MsgInteract type 2).
 This WRITES to the game: a ~100 byte stub is copied into it, run on a thread of its own, then
 freed. Unlike game_memory.py it is not read-only.
     python game_actions.py <character> buy 7StarPouch 1
@@ -62,6 +64,7 @@ ACTIVATE_NPC = 0x006D1686     # CHero::ActivateNpc(npc id) - clicking an NPC (se
 TASK_ANSWER  = 0x006D1619     # CHero: send MsgTaskDialog 2032 (option, text, task id, action) -
                               # what clicking a line of an NPC dialog does (handler 0x524577)
 TASK_ACTION_ANSWER = 0x65
+HERO_ATTACK  = 0x00616560     # CHero attack(target, ref count, 1, 1) - left-clicking a role
 ACTION_BUY, ACTION_USE = 1, 4
 MALL_SHOP  = 2888
 PAY_CP     = 1
@@ -178,34 +181,40 @@ def cast_self(pid, skill_type):
     _run(pid, code)
 
 
-def players(pid):
-    """{name: role object address} of the players / NPCs around this character (read only)."""
+def roles(pid):
+    """[(name, role object address)] of everything around this character - players, NPCs and
+    monsters, with repeated names (read only)."""
     handle = _k32.OpenProcess(0x0410, False, pid)
     if not handle:
-        return {}
+        return []
     try:
         cur, first, last, node, fcur, _, _, fnode = struct.unpack('<8I', game_memory._read(handle, PLAYER_SET, 32))
-        block, roles = last - first, []
+        block, found = last - first, []
         if not 0 < block <= 0x1000:
-            return {}
+            return []
         for _ in range(64):
             stop = fcur if node == fnode else last
-            roles += [game_memory._u32(handle, a) for a in range(cur, stop, 8)]
+            found += [game_memory._u32(handle, a) for a in range(cur, stop, 8)]
             if node == fnode:
                 break
             node += 4
             cur = game_memory._u32(handle, node)
             last = cur + block
-        out = {}
-        for role in roles:
+        out = []
+        for role in found:
             if role:
                 raw = game_memory._read(handle, game_memory._u32(handle, role + ROLE_NAME), 16)
-                out[raw.split(b'\0')[0].decode('cp1252', 'replace')] = role
+                out.append((raw.split(b'\0')[0].decode('cp1252', 'replace'), role))
         return out
     except (OSError, struct.error):
-        return {}
+        return []
     finally:
         _k32.CloseHandle(handle)
+
+
+def players(pid):
+    """{name: role object address} of the players / NPCs around this character (read only)."""
+    return dict(roles(pid))
 
 
 def jump_next_to(pid, role):
@@ -379,6 +388,26 @@ def use_skill_on(pid, skill_type, target_id):
             + b'\xB8' + struct.pack('<I', USE_MAGIC) + b'\xFF\xD0'   # call UseMagic (pops its args)
             + b'\x33\xC0\xC9\xC2\x04\x00')                     # xor eax, eax; leave; ret 4
     _run(pid, code)
+
+
+def role_command(pid, role):
+    """What the role is doing (ROLE_COMMAND): 5 standing, 0x14 jumping, 6 dying (a monster)..."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return None
+    try:
+        return game_memory._u32(handle, role + ROLE_COMMAND)
+    except OSError:
+        return None
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def attack(pid, role):
+    """Attacks `role` (a roles() address) with the weapon, like left-clicking it: the game's own
+    CHero attack (0x616560, target as a shared pointer with no ref count, 1, 1). The game then
+    keeps attacking it by itself while it's in reach."""
+    _hero_call(pid, HERO_ATTACK, (role, 0, 1, 1))
 
 
 def _hero_call(pid, function, args):
