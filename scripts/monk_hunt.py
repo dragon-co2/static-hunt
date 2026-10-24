@@ -17,9 +17,11 @@ JUMP_DELAY  = 0.1                     # extra seconds after the jump has landed,
 HIT_DELAY   = 0.5                     # seconds after the hit before jumping to the next monster
 HIT_AGAIN   = 3.0                     # a monster still alive this long after its hit gets hit again
 CMD_DIE     = 46                      # a monster's command once dead (a corpse, ~4s before it fades)
-CMD_ATTACKING = {30, 25}              # my command once the game has taken the hit (go attack, attacking)
+CMD_ATTACKING = {30}                  # my command once the game has taken the hit
+CMD_IN_AIR  = {20, 25}                # my command during a jump (25: the end of a long one)
 HIT_TRIES   = 3                       # sends of the hit until the game starts attacking
-JUMP_TIMEOUT = 1.5                    # longest wait for a jump to land
+JUMP_TRIES  = 2                       # jumps to get right next to it (a monster walks meanwhile)
+JUMP_TIMEOUT = 2.5                    # longest wait for a jump to land (a 15-cell one takes ~1.5s)
 
 
 def _distance(a, b):
@@ -59,11 +61,17 @@ def hit(pid, mob_id, distance):
     """Jumps next to the monster and hits it once - no waiting for it to die. The hit is sent once
     the jump has landed (the game ignores it in the air) and sent again if the game didn't start
     attacking."""
-    if distance > 1:
+    for _ in range(JUMP_TRIES):
+        if distance == 1:                                   # right next to it: hit
+            break
         game_actions.jump_next_to_id(pid, mob_id)
-        _wait_for(pid, lambda c: c == game_actions.CMD_JUMP, 0.3)            # the jump starts
-        _wait_for(pid, lambda c: c != game_actions.CMD_JUMP, JUMP_TIMEOUT)   # ... and lands
+        _wait_for(pid, lambda c: c in CMD_IN_AIR, 0.3)                       # the jump starts
+        _wait_for(pid, lambda c: c not in CMD_IN_AIR, JUMP_TIMEOUT)          # ... and lands
         time.sleep(JUMP_DELAY)
+        me, there = game_actions.my_pos(pid), game_actions.positions(pid, [mob_id]).get(mob_id)
+        if not me or not there:                             # it died / left meanwhile
+            return
+        distance = _distance(me, there)                     # it walks: landed on it / short of it?
     for _ in range(HIT_TRIES):
         game_actions.attack(pid, mob_id)
         if _wait_for(pid, lambda c: c in CMD_ATTACKING, 0.3):
