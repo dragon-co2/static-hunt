@@ -22,6 +22,9 @@ Conquer.exe - re-check after a game update):
                 skill on the right click in that mode; +0x715A8 the id of the player in the
                 chat name box (set by Shift+clicking them); +0x71874 / +0x71878 begin / end of
                 the text typed into that box (one character behind).
+    0x006D1686  CHero::ActivateNpc(npc id) - clicking an NPC; the server sends its dialog.
+    0x006D1619  sends an NPC dialog answer (option, text, task id, action 0x65) - clicking a line;
+                the option numbers come from the server (Exchange~DB: 2 = DBScroll, 20 = Yes).
 This WRITES to the game: a ~100 byte stub is copied into it, run on a thread of its own, then
 freed. Unlike game_memory.py it is not read-only.
     python game_actions.py <character> buy 7StarPouch 1
@@ -55,6 +58,10 @@ CHAT_TEXT    = 0x71788 + 0xEC  # main UI + this = begin / end of what was typed 
 HERO_ID      = 0xC8         # the hero's own id
 HERO_SKILLS  = 0x11FC       # vector of the hero's skills (8-byte entries: skill object, refcount)
 SKILL_TYPE   = 0x4C         # skill object + this = its type (1095 Stigma, 1090 Magic Shield...)
+ACTIVATE_NPC = 0x006D1686     # CHero::ActivateNpc(npc id) - clicking an NPC (sends MsgNpc 2031)
+TASK_ANSWER  = 0x006D1619     # CHero: send MsgTaskDialog 2032 (option, text, task id, action) -
+                              # what clicking a line of an NPC dialog does (handler 0x524577)
+TASK_ACTION_ANSWER = 0x65
 ACTION_BUY, ACTION_USE = 1, 4
 MALL_SHOP  = 2888
 PAY_CP     = 1
@@ -372,6 +379,26 @@ def use_skill_on(pid, skill_type, target_id):
             + b'\xB8' + struct.pack('<I', USE_MAGIC) + b'\xFF\xD0'   # call UseMagic (pops its args)
             + b'\x33\xC0\xC9\xC2\x04\x00')                     # xor eax, eax; leave; ret 4
     _run(pid, code)
+
+
+def _hero_call(pid, function, args):
+    """Calls the hero's `function`(*args) (thiscall, the callee pops its args) inside the game."""
+    pushes = b''.join(b'\x68' + struct.pack('<I', a & 0xFFFFFFFF) for a in reversed(args))
+    _run(pid, b'\x55\x8B\xEC'                                  # push ebp; mov ebp, esp
+         + pushes
+         + b'\x8B\x0D' + struct.pack('<I', game_memory.HERO_PTR)    # mov ecx, [hero]
+         + b'\xB8' + struct.pack('<I', function) + b'\xFF\xD0'     # call function
+         + b'\x33\xC0\xC9\xC2\x04\x00')                         # xor eax, eax; leave; ret 4
+
+
+def talk_to_npc(pid, npc_id):
+    """Clicks the NPC with this id (its role id, see role_id): the server answers with its dialog."""
+    _hero_call(pid, ACTIVATE_NPC, (npc_id,))
+
+
+def npc_answer(pid, option):
+    """Picks `option` in the open NPC dialog (the number the server gave that line, not its place)."""
+    _hero_call(pid, TASK_ANSWER, (option, 0, 0, TASK_ACTION_ANSWER))
 
 
 if __name__ == '__main__':
