@@ -49,6 +49,7 @@ GET_ROLE     = 0x00691E0B         # ROLE_SET.GetRole(&shared pointer, id, 0) - a
 RELEASE_REF  = 0x00404CDB         # ref count.Release() - drops a shared pointer's reference
 ROLE_NAME    = 0x15C
 ROLE_DEAD    = 0x18            # 1 while the role (player) is dead, 0 while alive
+MONSTER_DYING = 0x9C           # 0 while a monster lives, 2 from its killing blow on (its corpse too)
 ROLE_COMMAND = 0x1F8           # what the role is doing: 5 standing, 0x14 (20) jumping...
 ROLE_DEST    = 0x218           # +0x218 x, +0x21C y: where that command ends (the landing cell)
 CMD_JUMP     = 0x14
@@ -332,6 +333,20 @@ def role_dead(pid, role):
         return False
     try:
         return bool(game_memory._u32(handle, role + ROLE_DEAD))
+    except OSError:
+        return False
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def monster_dying(pid, role):
+    """True once a monster (a roles() address) has taken its killing blow: +0x9C turns 2 right away
+    (~0.04s), well before its command turns 46 (a corpse, ~0.25s)."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return False
+    try:
+        return game_memory._u32(handle, role + MONSTER_DYING) != 0
     except OSError:
         return False
     finally:

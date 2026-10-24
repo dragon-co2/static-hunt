@@ -12,7 +12,7 @@ import game_memory
 
 MONSTER_IDS = range(400000, 500000)   # role ids of monsters (players are 1,000,000 and up)
 SKIP        = set()                   # monster names never to attack, e.g. {'Guard'}
-MAX_CELLS   = 15                      # only monsters this close (a jump is 16 cells at most)
+MAX_CELLS   = 25                      # only monsters this close (one jump is 16 cells at most)
 JUMP_DELAY  = 0.1                     # extra seconds after the jump has landed, before hitting
 HIT_DELAY   = 0.5                     # seconds after the hit before jumping to the next monster
 HIT_AGAIN   = 3.0                     # a monster still alive this long after its hit gets hit again
@@ -35,7 +35,7 @@ def monsters(pid, me, skip_ids):
             mob_id = game_actions.role_id(pid, role)
             if mob_id not in MONSTER_IDS or mob_id in skip_ids or name in SKIP:
                 continue
-            if game_actions.role_dead(pid, role) or game_actions.role_command(pid, role) == CMD_DIE:
+            if game_actions.monster_dying(pid, role) or game_actions.role_command(pid, role) == CMD_DIE:
                 continue
         except OSError:                                # freed while we were reading it
             continue
