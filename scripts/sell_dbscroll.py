@@ -3,8 +3,8 @@ same as clicking the NPC, "Exchange DBScroll (2150 CPs)" and "Yes, continue" (ga
 talk_to_npc / npc_answer). Stand next to Exchange~DB first.
 It keeps running until Ctrl+C: new DBScrolls, an account walking up to the NPC, an account that
 logs in later - all picked up.
-    python sell_dpscroll.py                every logged-in account, all at once
-    python sell_dpscroll.py <character>    only that one"""
+    python sell_dbscroll.py                every logged-in account, all at once
+    python sell_dbscroll.py <character>    only that one"""
 import ctypes
 import sys
 import threading
@@ -87,8 +87,8 @@ def watch(pid, name):
 
 
 def main():
-    """python sell_dpscroll.py              every account that is logged in (and any that logs in later)
-       python sell_dpscroll.py <character>  only that one"""
+    """python sell_dbscroll.py              every account that is logged in (and any that logs in later)
+       python sell_dbscroll.py <character>  only that one"""
     only = sys.argv[1] if len(sys.argv) > 1 else None
     watching = {}
     print('Exchanging DBScrolls - Ctrl+C to stop')
