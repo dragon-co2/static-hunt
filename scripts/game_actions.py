@@ -43,7 +43,10 @@ MSG_CTOR, MSG_CREATE, MSG_CREATE_BUY, MSG_SEND, MSG_DTOR = (
     0x0069460F, 0x00694675, 0x00694756, 0x00688F96, 0x0069466A)
 MAGIC_ATTACK = 0x006A0850
 HERO_JUMP    = 0x006138FF
-PLAYER_SET   = 0x008E8720 + 0x14   # the deque of roles around us
+ROLE_SET     = 0x008E8720         # the game's set of roles around us
+PLAYER_SET   = ROLE_SET + 0x14    # the deque of roles around us
+GET_ROLE     = 0x00691E0B         # ROLE_SET.GetRole(&shared pointer, id, 0) - a role by its id
+RELEASE_REF  = 0x00404CDB         # ref count.Release() - drops a shared pointer's reference
 ROLE_NAME    = 0x15C
 ROLE_DEAD    = 0x18            # 1 while the role (player) is dead, 0 while alive
 ROLE_COMMAND = 0x1F8           # what the role is doing: 5 standing, 0x14 (20) jumping...
@@ -64,7 +67,7 @@ ACTIVATE_NPC = 0x006D1686     # CHero::ActivateNpc(npc id) - clicking an NPC (se
 TASK_ANSWER  = 0x006D1619     # CHero: send MsgTaskDialog 2032 (option, text, task id, action) -
                               # what clicking a line of an NPC dialog does (handler 0x524577)
 TASK_ACTION_ANSWER = 0x65
-HERO_ATTACK  = 0x00616560     # CHero attack(target, ref count, 1, 1) - left-clicking a role
+HERO_ATTACK  = 0x00616560     # CHero attack(target shared pointer, 1, 1) - left-clicking a role
 ACTION_BUY, ACTION_USE = 1, 4
 MALL_SHOP  = 2888
 PAY_CP     = 1
@@ -100,17 +103,22 @@ def _stub(create, args):
             + b'\x33\xC0\xC9\xC2\x04\x00')                     # xor eax, eax; leave; ret 4
 
 
-def _run(pid, code, timeout_ms=5000):
-    """Copies `code` into game process `pid`, runs it on a new thread and waits for it."""
+def _run(pid, code, timeout_ms=5000, read=0):
+    """Copies `code` into game process `pid`, runs it on a new thread and waits for it. With
+    `read`, `code` is a function of an output address (in the same block) and the `read` bytes
+    written there are returned."""
     handle = _k32.OpenProcess(_ACCESS, False, pid)
     if not handle:
         raise OSError(f'cannot open game process {pid} (error {ctypes.GetLastError()})')
     try:
-        mem = _k32.VirtualAllocEx(handle, None, 0x1000, 0x3000, 0x40)   # COMMIT|RESERVE, RWX
+        size = 0x10000
+        mem = _k32.VirtualAllocEx(handle, None, size, 0x3000, 0x40)   # COMMIT|RESERVE, RWX
         if not mem:
             raise OSError(f'VirtualAllocEx failed ({ctypes.GetLastError()})')
         running = False   # never free the stub while it may still be running
         try:
+            if read:
+                code = code(mem + size - read)
             written = ctypes.c_size_t()
             if not _k32.WriteProcessMemory(handle, mem, code, len(code), ctypes.byref(written)):
                 raise OSError(f'WriteProcessMemory failed ({ctypes.GetLastError()})')
@@ -123,6 +131,8 @@ def _run(pid, code, timeout_ms=5000):
                     raise TimeoutError('the stub did not finish')
             finally:
                 _k32.CloseHandle(thread)
+            if read:
+                return game_memory._read(handle, mem + size - read, read)
         finally:
             if not running:
                 _k32.VirtualFreeEx(handle, mem, 0, 0x8000)   # MEM_RELEASE
@@ -223,13 +233,18 @@ def jump_next_to(pid, role):
     the game's own GetPos; through CHero::Jump, so the game's checks apply (16 cells at most).
     When the target is in the air (its command is a jump), its landing cell is used instead of
     where it is right now - so we land next to where it lands."""
+    _run(pid, b'\x55\x8B\xEC\x83\xEC\x18'                     # push ebp; mov ebp, esp; sub esp, 0x18
+         + _jump_body(b'\xB9' + struct.pack('<I', role))        # mov ecx, role
+         + b'\x33\xC0\xC9\xC2\x04\x00')                         # xor eax, eax; leave; ret 4
+
+
+def _jump_body(load_role):
+    """The jump_next_to code; `load_role` puts the role in ecx. Uses [ebp-0x18]..[ebp-4]."""
     hero = struct.pack('<I', game_memory.HERO_PTR)
-    target = struct.pack('<I', role)
     sign = b'\x8B\xC8\xC1\xF9\x1F\xF7\xD8\xC1\xE8\x1F\x03\xC1'   # eax = sign(eax)
-    code = (b'\x55\x8B\xEC\x83\xEC\x18'                        # push ebp; mov ebp, esp; sub esp, 0x18
-            + b'\xB9' + target                                 # mov ecx, role
+    return (load_role
             + b'\x8B\x11\x8D\x45\xF8\x50\xFF\x52\x14'           # GetPos(target) -> [ebp-8] x, [ebp-4] y
-            + b'\xB9' + target                                 # mov ecx, role
+            + load_role
             + b'\x83\xB9' + struct.pack('<I', ROLE_COMMAND) + bytes([CMD_JUMP])   # jumping?
             + b'\x75\x12'                                      # no: keep GetPos
             + b'\x8B\x81' + struct.pack('<I', ROLE_DEST) + b'\x89\x45\xF8'       # x = landing x
@@ -243,9 +258,7 @@ def jump_next_to(pid, role):
             + b'\x8B\x45\xFC\x03\x45\xE8\x50'                   # push target.y + dy
             + b'\x8B\x45\xF8\x03\x45\xEC\x50'                   # push target.x + dx
             + b'\x8B\x0D' + hero                               # mov ecx, [hero]
-            + b'\xB8' + struct.pack('<I', HERO_JUMP) + b'\xFF\xD0'   # call CHero::Jump
-            + b'\x33\xC0\xC9\xC2\x04\x00')                     # xor eax, eax; leave; ret 4
-    _run(pid, code)
+            + b'\xB8' + struct.pack('<I', HERO_JUMP) + b'\xFF\xD0')  # call CHero::Jump
 
 
 def right_click_skill(pid):
@@ -403,11 +416,73 @@ def role_command(pid, role):
         _k32.CloseHandle(handle)
 
 
-def attack(pid, role):
-    """Attacks `role` (a roles() address) with the weapon, like left-clicking it: the game's own
-    CHero attack (0x616560, target as a shared pointer with no ref count, 1, 1). The game then
-    keeps attacking it by itself while it's in reach."""
-    _hero_call(pid, HERO_ATTACK, (role, 0, 1, 1))
+def _with_role(target_id, body):
+    """Thread routine: looks the role with `target_id` up in the game (GET_ROLE - a shared pointer,
+    so it can't be freed meanwhile), runs `body` with esi = the role and edi = its ref count (body
+    may use [ebp-0x18]..[ebp-4]), then drops the reference. Nothing happens if the role is gone.
+    A roles() address can't be used for this: a monster dies and is freed any moment."""
+    call = lambda addr: b'\xB8' + struct.pack('<I', addr) + b'\xFF\xD0'   # mov eax, addr; call eax
+    release = (b'\x85\xFF\x74\x09'                              # test edi, edi; jz past the release
+               + b'\x8B\xCF' + call(RELEASE_REF))               # mov ecx, edi; drop the reference
+    return (b'\x55\x8B\xEC\x83\xEC\x20\x56\x57'                 # push ebp; mov ebp,esp; sub esp,0x20; push esi; push edi
+            + b'\x83\x65\xE0\x00\x83\x65\xE4\x00'               # the shared pointer = null
+            + b'\x6A\x00\x68' + struct.pack('<I', target_id)    # push 0; push the id
+            + b'\x8D\x45\xE0\x50'                               # lea eax, [ebp-0x20]; push eax (the shared pointer)
+            + b'\xB9' + struct.pack('<I', ROLE_SET) + call(GET_ROLE)
+            + b'\x8B\x75\xE0\x8B\x7D\xE4'                       # mov esi, role; mov edi, ref count
+            + b'\x85\xF6\x0F\x84' + struct.pack('<i', len(body) + len(release))   # no role: to the end
+            + body + release
+            + b'\x5F\x5E\x33\xC0\xC9\xC2\x04\x00')              # pop edi; pop esi; xor eax,eax; leave; ret 4
+
+
+def attack(pid, target_id):
+    """Attacks the role with `target_id` with the weapon, like left-clicking it: the game's own
+    CHero attack (0x616560: target shared pointer, 1, 1 - it drops the reference it's given, so
+    one is added for it). The game then keeps attacking by itself while it's in reach."""
+    _run(pid, _with_role(target_id,
+                         b'\x85\xFF\x74\x04\xF0\xFF\x47\x04'    # test edi,edi; jz; lock inc [edi+4] (its reference)
+                         + b'\x6A\x01\x6A\x01\x57\x56'          # push 1; push 1; push ref count; push role
+                         + b'\x8B\x0D' + struct.pack('<I', game_memory.HERO_PTR)   # mov ecx, [hero]
+                         + b'\xB8' + struct.pack('<I', HERO_ATTACK) + b'\xFF\xD0'))
+
+
+def jump_next_to_id(pid, target_id):
+    """jump_next_to, for the role with `target_id` - safe even if it dies meanwhile (a monster)."""
+    _run(pid, _with_role(target_id, _jump_body(b'\x8B\xCE')))   # mov ecx, esi
+
+
+def positions(pid, ids):
+    """{id: (x, y)} of the roles with these ids that are still around - one injected stub, each
+    role held by a reference while its GetPos runs (see _with_role)."""
+    ids = list(ids)[:200]
+    if not ids:
+        return {}
+    call = lambda addr: b'\xB8' + struct.pack('<I', addr) + b'\xFF\xD0'
+
+    def code(out):
+        parts = [b'\x55\x8B\xEC\x83\xEC\x08']                   # push ebp; mov ebp, esp; sub esp, 8
+        for n, target_id in enumerate(ids):
+            at = out + 12 * n                                   # x, y, found
+            getpos = (b'\x8B\x11\x68' + struct.pack('<I', at) + b'\xFF\x52\x14'   # GetPos(role, at)
+                      + b'\xC7\x05' + struct.pack('<I', at + 8) + b'\x01\x00\x00\x00')   # found = 1
+            release = b'\x8B\x4D\xFC\x85\xC9\x74\x07' + call(RELEASE_REF)
+            parts.append(b'\x83\x65\xF8\x00\x83\x65\xFC\x00'   # the shared pointer = null
+                         + b'\x6A\x00\x68' + struct.pack('<I', target_id)
+                         + b'\x8D\x45\xF8\x50'                  # lea eax, [ebp-8]; push eax
+                         + b'\xB9' + struct.pack('<I', ROLE_SET) + call(GET_ROLE)
+                         + b'\x8B\x4D\xF8\x85\xC9'              # mov ecx, role; test ecx, ecx
+                         + b'\x74' + bytes([len(getpos) + len(release)])   # gone: next id
+                         + getpos + release)
+        parts.append(b'\x33\xC0\xC9\xC2\x04\x00')
+        return b''.join(parts)
+
+    data = _run(pid, code, read=12 * len(ids))
+    out = {}
+    for n, target_id in enumerate(ids):
+        x, y, found = struct.unpack_from('<3i', data, 12 * n)
+        if found:
+            out[target_id] = (x, y)
+    return out
 
 
 def _hero_call(pid, function, args):
