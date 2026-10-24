@@ -404,7 +404,7 @@ def use_skill_on(pid, skill_type, target_id):
 
 
 def role_command(pid, role):
-    """What the role is doing (ROLE_COMMAND): 5 standing, 0x14 jumping, 6 dying (a monster)..."""
+    """What the role is doing (ROLE_COMMAND): 5 standing, 0x14 jumping, 46 dead (a monster's corpse)..."""
     handle = _k32.OpenProcess(0x0410, False, pid)
     if not handle:
         return None
@@ -433,6 +433,19 @@ def _with_role(target_id, body):
             + b'\x85\xF6\x0F\x84' + struct.pack('<i', len(body) + len(release))   # no role: to the end
             + body + release
             + b'\x5F\x5E\x33\xC0\xC9\xC2\x04\x00')              # pop edi; pop esi; xor eax,eax; leave; ret 4
+
+
+def my_command(pid):
+    """What this character is doing (see role_command), or None."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return None
+    try:
+        return game_memory._u32(handle, game_memory._u32(handle, game_memory.HERO_PTR) + ROLE_COMMAND)
+    except OSError:
+        return None
+    finally:
+        _k32.CloseHandle(handle)
 
 
 def attack(pid, target_id):
