@@ -24,6 +24,9 @@ JUMP_TRIES  = 2                       # jumps to get next to it (a monster walks
 REJUMP_CELLS = 2                      # after landing, jump again only if it's farther than this (the
                                       # game refuses a jump of a cell or two anyway)
 JUMP_TIMEOUT = 2.5                    # longest wait for a jump to land (a 15-cell one takes ~1.5s)
+XP_SLOT     = 9                       # hotkey slot used while the XP bar is full: 9 = F10 (0 = F1);
+                                      # None = never. Pressed from inside the game, not as a key
+XP_EVERY    = 2.0                     # seconds between presses while the XP bar stays full
 
 
 def _distance(a, b):
@@ -90,12 +93,20 @@ _hunting = {}         # character -> its hunt thread
 def _hunt(pid, name):
     """One character's hunt, on a thread of its own - until it's unticked or its game closes."""
     hits, hit_ids = 0, {}                         # hit_ids: monster id -> when it may be hit again
+    xp_pressed = 0.0                              # when the XP hotkey was last pressed
     print(f'{name}: hunting')
     while True:
         with _lock:
             if name not in _checked:
                 break
         now = time.time()
+        if XP_SLOT is not None and now - xp_pressed >= XP_EVERY and game_actions.xp_ready(pid):
+            try:
+                game_actions.press_hotkey(pid, XP_SLOT)
+                xp_pressed = now
+                print(f'{name}: XP bar full - F{XP_SLOT + 1} pressed')
+            except (OSError, TimeoutError):
+                pass
         hit_ids = {i: t for i, t in hit_ids.items() if t > now}
         try:
             me = game_actions.my_pos(pid)

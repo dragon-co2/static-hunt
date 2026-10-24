@@ -69,6 +69,10 @@ TASK_ANSWER  = 0x006D1619     # CHero: send MsgTaskDialog 2032 (option, text, ta
                               # what clicking a line of an NPC dialog does (handler 0x524577)
 TASK_ACTION_ANSWER = 0x65
 HERO_ATTACK  = 0x00616560     # CHero attack(target shared pointer, 1, 1) - left-clicking a role
+ON_HOTKEY    = 0x0059170B     # main UI.OnHotkey(slot | id << 8) - what pressing F1..F10 does
+HOTKEY_BAR   = 0x008D5C74     # -> [this] + HOTKEY_IDS + 4 * slot = the id in hotkey slot (F1 = 0)
+HOTKEY_IDS   = 0x11CA8C + 0x14B8
+STATUS_XP    = 0x10           # hero status bit: the XP bar is full (the XP skill icons are up)
 ACTION_BUY, ACTION_USE = 1, 4
 MALL_SHOP  = 2888
 PAY_CP     = 1
@@ -448,6 +452,36 @@ def _with_role(target_id, body):
             + b'\x85\xF6\x0F\x84' + struct.pack('<i', len(body) + len(release))   # no role: to the end
             + body + release
             + b'\x5F\x5E\x33\xC0\xC9\xC2\x04\x00')              # pop edi; pop esi; xor eax,eax; leave; ret 4
+
+
+def xp_ready(pid):
+    """True while this character's XP bar is full - the XP skill icons are up (status bit 0x10)."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return False
+    try:
+        hero = game_memory._u32(handle, game_memory.HERO_PTR)
+        return bool(game_memory._u32(handle, hero + game_memory.HERO_STATUS) & STATUS_XP)
+    except OSError:
+        return False
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def press_hotkey(pid, slot):
+    """Uses what's in hotkey slot `slot` (0 = F1 ... 9 = F10) exactly like pressing that key, but
+    from inside the game - no key, no window in front: the game's own hotkey handler
+    UI.OnHotkey(slot | slot's id << 8), the id read in the game at the moment of the call."""
+    if not 0 <= slot <= 9:
+        raise ValueError(f'slot {slot} out of range')
+    _run(pid, b'\x55\x8B\xEC'                                  # push ebp; mov ebp, esp
+         + b'\xA1' + struct.pack('<I', HOTKEY_BAR)             # mov eax, [hotkey bar owner]
+         + b'\x8B\x80' + struct.pack('<I', HOTKEY_IDS + 4 * slot)   # mov eax, [eax + the slot's id]
+         + b'\xC1\xE0\x08\x0D' + struct.pack('<I', slot)       # shl eax, 8; or eax, slot
+         + b'\x50'                                             # push eax
+         + b'\x8B\x0D' + struct.pack('<I', MAIN_UI)            # mov ecx, [main UI]
+         + b'\xB8' + struct.pack('<I', ON_HOTKEY) + b'\xFF\xD0'   # call OnHotkey (pops its arg)
+         + b'\x33\xC0\xC9\xC2\x04\x00')                        # xor eax, eax; leave; ret 4
 
 
 def my_command(pid):
