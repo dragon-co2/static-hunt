@@ -20,7 +20,9 @@ CMD_DIE     = 46                      # a monster's command once dead (a corpse,
 CMD_ATTACKING = {30}                  # my command once the game has taken the hit
 CMD_IN_AIR  = {20, 25}                # my command during a jump (25: the end of a long one)
 HIT_TRIES   = 3                       # sends of the hit until the game starts attacking
-JUMP_TRIES  = 2                       # jumps to get right next to it (a monster walks meanwhile)
+JUMP_TRIES  = 2                       # jumps to get next to it (a monster walks meanwhile)
+REJUMP_CELLS = 2                      # after landing, jump again only if it's farther than this (the
+                                      # game refuses a jump of a cell or two anyway)
 JUMP_TIMEOUT = 2.5                    # longest wait for a jump to land (a 15-cell one takes ~1.5s)
 
 
@@ -61,9 +63,9 @@ def hit(pid, mob_id, distance):
     """Jumps next to the monster and hits it once - no waiting for it to die. The hit is sent once
     the jump has landed (the game ignores it in the air) and sent again if the game didn't start
     attacking."""
-    for _ in range(JUMP_TRIES):
-        if distance == 1:                                   # right next to it: hit
-            break
+    for n in range(JUMP_TRIES):
+        if distance <= (1 if n == 0 else REJUMP_CELLS):     # close enough: hit (the game's own attack
+            break                                           # steps into reach if it must)
         game_actions.jump_next_to_id(pid, mob_id)
         _wait_for(pid, lambda c: c in CMD_IN_AIR, 0.3)                       # the jump starts
         _wait_for(pid, lambda c: c not in CMD_IN_AIR, JUMP_TIMEOUT)          # ... and lands
