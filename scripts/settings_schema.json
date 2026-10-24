@@ -1,0 +1,347 @@
+{
+  "static": {
+    "__title__": "General",
+    "FIRST_RUN_REPAIR": {
+      "type": "bool",
+      "default": false,
+      "desc": "Repair gear on each desktop's first visit after static.py starts. Turn off to skip it; repair still runs every REPAIR_INTERVAL seconds."
+    },
+    "REPAIR_INTERVAL": {
+      "type": "int",
+      "min": 10,
+      "max": 20000,
+      "step": 10,
+      "unit": "s",
+      "default": 8000,
+      "desc": "Seconds between repair passes. When it runs out, every desktop runs the repair the next time the loop reaches it."
+    },
+    "VISIT_WAIT": {
+      "type": "float",
+      "min": 0.0,
+      "max": 120,
+      "step": 0.1,
+      "unit": "s",
+      "default": 15,
+      "desc": "Pause at the end of each desktop visit before switching to the next one. 0 moves on straight away."
+    },
+    "SERVICE_INTERVAL": {
+      "type": "int",
+      "min": 30,
+      "max": 3600,
+      "step": 10,
+      "unit": "s",
+      "default": 180,
+      "desc": "Per desktop: how often to do a service round (the deposits) - press Alt+P (bank + inventory), turn 10 dragonballs into a scroll and stash it, deposit +N items through VIP > Compose, then close the inventory, bank and VIP menu. Arrows aren't part of it: whenever a desktop is visited with fewer than ARROWS_MIN equipped, a pack is taken from the bank right then."
+    },
+    "F10_CYCLONE": {
+      "type": "bool",
+      "default": false,
+      "desc": "While hunting, press F10 (Cyclone) every 10 seconds on each desktop's game. It is pressed during the pause at the end of each visit (VISIT_WAIT), not while the bank or VIP menu is being used, and not while the character is dead."
+    },
+    "ARROWS_MIN": {
+      "type": "int",
+      "min": 0,
+      "max": 10000,
+      "step": 10,
+      "default": 100,
+      "label": "Arrows minimum",
+      "desc": "On every visit to a desktop, the equipped arrows are read from the game's memory; when fewer than this, a new pack is taken from the bank right away - going through the bank tabs one by one, any pack, full or not - and equipped. No need to wait for the service round."
+    }
+  },
+  "accounts": {
+    "__title__": "Accounts",
+    "ENABLED": {
+      "type": "bool",
+      "default": false,
+      "desc": "Run up to 4 game accounts, one per desktop (the first filled-in account on desktop 1, ...). When on, the script opens and logs into each account, logs back in after a crash, and turns on auto hunt. Works at any screen size. Passwords are stored encrypted for this Windows user only."
+    },
+    "GAME_PATH": {
+      "type": "file",
+      "default": "",
+      "filter": "Programs (*.exe)|*.exe",
+      "desc": "The game's launcher (e.g. Play.exe). Used to open an account's game when its desktop has none running — at start and after a crash."
+    },
+    "ACCOUNT_1_USER": {
+      "type": "text",
+      "default": "",
+      "group": "Account 1",
+      "label": "Username",
+      "desc": "Game login username. This account runs on desktop 1. Leave empty to not use this slot."
+    },
+    "ACCOUNT_1_PASS": {
+      "type": "password",
+      "default": "",
+      "group": "Account 1",
+      "label": "Password",
+      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
+    },
+    "ACCOUNT_1_NAME": {
+      "type": "text",
+      "default": "",
+      "group": "Account 1",
+      "label": "Character name",
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
+    },
+    "ACCOUNT_2_USER": {
+      "type": "text",
+      "default": "",
+      "group": "Account 2",
+      "label": "Username",
+      "desc": "Game login username. This account runs on desktop 2. Leave empty to not use this slot."
+    },
+    "ACCOUNT_2_PASS": {
+      "type": "password",
+      "default": "",
+      "group": "Account 2",
+      "label": "Password",
+      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
+    },
+    "ACCOUNT_2_NAME": {
+      "type": "text",
+      "default": "",
+      "group": "Account 2",
+      "label": "Character name",
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
+    },
+    "ACCOUNT_3_USER": {
+      "type": "text",
+      "default": "",
+      "group": "Account 3",
+      "label": "Username",
+      "desc": "Game login username. This account runs on desktop 3. Leave empty to not use this slot."
+    },
+    "ACCOUNT_3_PASS": {
+      "type": "password",
+      "default": "",
+      "group": "Account 3",
+      "label": "Password",
+      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
+    },
+    "ACCOUNT_3_NAME": {
+      "type": "text",
+      "default": "",
+      "group": "Account 3",
+      "label": "Character name",
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
+    },
+    "ACCOUNT_4_USER": {
+      "type": "text",
+      "default": "",
+      "group": "Account 4",
+      "label": "Username",
+      "desc": "Game login username. This account runs on desktop 4. Leave empty to not use this slot."
+    },
+    "ACCOUNT_4_PASS": {
+      "type": "password",
+      "default": "",
+      "group": "Account 4",
+      "label": "Password",
+      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
+    },
+    "ACCOUNT_4_NAME": {
+      "type": "text",
+      "default": "",
+      "group": "Account 4",
+      "label": "Character name",
+      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
+    }
+  },
+  "revive": {
+    "__title__": "Revive",
+    "REVIVE_DELAY": {
+      "type": "int",
+      "min": 0,
+      "max": 3600,
+      "step": 10,
+      "unit": "s",
+      "default": 360,
+      "desc": "Per desktop: once an account is seen dead, wait this long before clicking Revive. Until then that desktop is skipped and the other desktops carry on as usual."
+    },
+    "REVIVE_TIME_MULTIPLIER": {
+      "type": "float",
+      "min": 1.0,
+      "max": 5.0,
+      "step": 0.1,
+      "unit": "x",
+      "default": 2,
+      "label": "Revive time multiplier",
+      "desc": "When the same player kills an account again (several times in a row), the wait before reviving is multiplied by this each time: with 2 it's REVIVE_DELAY, then 2x, 4x... up to MAX_REVIVE_WAIT. 1 = the wait never grows. A kill by a different player starts over at REVIVE_DELAY. Needs the account's character name (Accounts tab)."
+    },
+    "MAX_REVIVE_WAIT": {
+      "type": "int",
+      "min": 60,
+      "max": 7200,
+      "step": 60,
+      "unit": "s",
+      "default": 1800,
+      "desc": "The longest the multiplied revive wait can get (1800 = 30 minutes). See REVIVE_TIME_MULTIPLIER."
+    },
+    "MONSTERS": {
+      "type": "lines",
+      "default": "Pheasant*\nBloodyBat*\nBullMonster*\nBullKing*\nHawKing*\nSandMonster*",
+      "label": "Monster names",
+      "desc": "Monsters that sometimes kill your accounts, one name per line, as they show in the kill message (\"... was killed by <name>\"). * matches anything, e.g. BullMonster* for BullMonster and BullMonsterL113. Killed by one of these: revive right away (no REVIVE_DELAY wait), no message to it, no notification, and it doesn't break a player's kills-in-a-row count. Needs the accounts' character names (Accounts tab)."
+    }
+  },
+  "kill_reply": {
+    "__title__": "Kill reply",
+    "ENABLED": {
+      "type": "bool",
+      "default": false,
+      "desc": "When one of your accounts is killed, whisper the killer one chat message, right after that account is revived: click Talk, pick Whisper, type their name in the chat bar's left box and a message in the right box, then Enter. How often a killer gets one: see Send once every day. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
+    },
+    "SEND_ONCE_EVERYDAY": {
+      "type": "bool",
+      "default": true,
+      "label": "Send once every day",
+      "desc": "On: each killer gets one message per 24 hours, whichever of your accounts they kill; more kills only make the revive wait grow. Off: they get a message after every revive. Who was messaged is kept in messaged_killers.json next to the settings file (survives restarts)."
+    },
+    "FORGET_KILLERS": {
+      "type": "action",
+      "action": "forget_killers",
+      "label": "Forget killers",
+      "button": "Forget killers",
+      "confirm": "Forget every killer that already got a message? They can all get one again.",
+      "desc": "Empties the list of killers who already got a message (messaged_killers.json), so each of them can get a message again. Works right away, even while the script is running."
+    },
+    "MESSAGES": {
+      "type": "lines",
+      "default": "plz stop\nenough plz\nwtf\nwhy killing me?!\nbro im just hunting\n:|\n:/\nplz let me hunt in peace\nstop that!\ndude chill\n????\nleave me alone plz\nstop\nnot cool man\nreally?\nstop wasting ur time\nleave me alone :D\nleave me alone\nyou only good at killing archer?\nyou are so good, play at wars!\nhey stop killing me",
+      "desc": "One message per line — each reply picks one line at random. English letters, numbers and symbols only (it is typed on a US keyboard)."
+    }
+  },
+  "telegram": {
+    "__title__": "Notifications",
+    "ENABLED": {
+      "type": "bool",
+      "default": false,
+      "desc": "Send Telegram messages to your phone: when one of your accounts is killed, when the script starts, and if it stops with an error. Set up once: in Telegram talk to @BotFather, send /newbot, pick a name, and paste the token it gives you below. Then open your new bot and send it any message (or add it to a group and write there) — that chat gets the notifications. Kills need the accounts' character names (Accounts tab)."
+    },
+    "BOT_TOKEN": {
+      "type": "password",
+      "default": "",
+      "label": "Bot token",
+      "desc": "The token @BotFather gave you (looks like 1234567890:AAH...). Saved encrypted — never shown again; paste a new one to change it."
+    },
+    "NOTIFY": {
+      "type": "choice",
+      "default": "Every kill",
+      "options": [
+        "Every kill",
+        "Same killer again",
+        "3+ kills in 30 min"
+      ],
+      "label": "Notify on",
+      "desc": "Which kills send a message: every kill; only when the same player kills an account again in a row; or only when an account dies 3 or more times within 30 minutes."
+    }
+  },
+  "overlay": {
+    "__title__": "On-screen Console",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Shows the last few console lines on top of the game while static.py runs. Turn off to hide the on-screen console. Clicks always pass through it to the game."
+    },
+    "POSITION": {
+      "type": "choice",
+      "options": [
+        "top-left",
+        "top-center",
+        "top-right",
+        "center",
+        "bottom-left",
+        "bottom-center",
+        "bottom-right"
+      ],
+      "default": "top-center",
+      "desc": "Where on the primary screen the on-screen console sits. Move it if it covers a part of the game the scripts need to see."
+    },
+    "LINES": {
+      "type": "int",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "unit": "lines",
+      "default": 5,
+      "desc": "How many of the most recent console lines are shown at once."
+    },
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the on-screen console."
+    },
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the on-screen console."
+    },
+    "SHADOW": {
+      "type": "bool",
+      "default": true,
+      "desc": "Draw a black drop shadow behind the text, so it stays readable over light parts of the game."
+    },
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the on-screen console and the edge of the screen."
+    }
+  },
+  "overlay_timers": {
+    "__title__": "On-screen Timers",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Keeps the grab-arrows and repair countdowns on screen while static.py runs. Turn off to hide them."
+    },
+    "POSITION": {
+      "type": "choice",
+      "options": [
+        "top-left",
+        "top-center",
+        "top-right",
+        "center",
+        "bottom-left",
+        "bottom-center",
+        "bottom-right"
+      ],
+      "default": "top-right",
+      "desc": "Where on the primary screen the countdowns sit. Keep it away from the on-screen console and from anything the scripts need to see."
+    },
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the countdowns."
+    },
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the countdowns."
+    },
+    "SHADOW": {
+      "type": "bool",
+      "default": true,
+      "desc": "Draw a black drop shadow behind the text, so it stays readable over light parts of the game."
+    },
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the countdowns and the edge of the screen."
+    }
+  }
+}
