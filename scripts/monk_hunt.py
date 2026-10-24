@@ -13,8 +13,8 @@ import game_memory
 MONSTER_IDS = range(400000, 500000)   # role ids of monsters (players are 1,000,000 and up)
 SKIP        = set()                   # monster names never to attack, e.g. {'Guard'}
 MAX_CELLS   = 15                      # only monsters this close (a jump is 16 cells at most)
-JUMP_DELAY  = 0.2                     # seconds for a jump to land before hitting
-HIT_DELAY   = 0.2                     # seconds after the hit before jumping to the next monster
+JUMP_DELAY  = 0.5                     # seconds for a jump to land before hitting
+HIT_DELAY   = 0.5                     # seconds after the hit before jumping to the next monster
 HIT_AGAIN   = 3.0                     # a monster still alive this long after its hit gets hit again
 CMD_DIE     = 6                       # a monster's command while it dies
 
