@@ -401,6 +401,95 @@ def bag_plus_items(pid):
         _kernel32.CloseHandle(handle)
 
 
+PACKAGES    = 0x008E8710  # the warehouse manager: an STLport map - [this] = header node, whose +4 is
+                          # the root; node: +8 left, +0xC right, +0x10 key (kind, id), +0x18 the
+                          # warehouse, whose +4 is a deque of its items (like the bag)
+ARROW_BANK  = (4101, 10)  # the remote bank (Alt+P) tab the arrow packs are kept in
+
+
+def bank_items(pid, key=ARROW_BANK):
+    """[(item id, item type, amount)] in the warehouse `key`, or None if it isn't loaded in this
+    client yet (game_actions.bank_open)."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        header = _u32(handle, PACKAGES)
+        node, stack = _u32(handle, header + 4), []
+        while stack or (node and node != header):      # in-order walk of the map
+            while node and node != header:
+                stack.append(node)
+                node = _u32(handle, node + 8)
+            node = stack.pop()
+            kind, wh_id, package = struct.unpack('<3I', _read(handle, node + 0x10, 12))
+            if (kind, wh_id) == tuple(key):
+                return [(_u32(handle, i + ITEM_ID), _u32(handle, i + ITEM_TYPE),
+                         _u32(handle, i + ITEM_AMOUNT) & 0xFFFF)
+                        for i in _bag(handle, package + 4 - HERO_BAG)
+                        if i and _u32(handle, i) == ITEM_VTABLE]
+            node = _u32(handle, node + 0xC)
+        return None
+    except (OSError, struct.error):
+        return None
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+EQUIPMENT   = range(0xE90, 0xF00, 8)   # hero + these: the equipped items (8-byte shared pointers;
+                                       # 0xEB0 = ARROW_SLOT)
+DRAGONBALL, DB_SCROLL = 1088000, 720028
+
+
+def equipped_items(pid):
+    """[(item id, item type)] of the items this character wears (arrows included)."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        hero = _u32(handle, HERO_PTR)
+        out = []
+        for off in EQUIPMENT:
+            item = _u32(handle, hero + off)
+            if item and _u32(handle, item) == ITEM_VTABLE:
+                out.append((_u32(handle, item + ITEM_ID), _u32(handle, item + ITEM_TYPE)))
+        return out
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def bag_items_of(pid, item_type):
+    """Ids of the bag's items of `item_type`."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        hero = _u32(handle, HERO_PTR)
+        return [_u32(handle, i + ITEM_ID) for i in _bag(handle, hero)
+                if i and _u32(handle, i) == ITEM_VTABLE and _u32(handle, i + ITEM_TYPE) == item_type]
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def bag_arrow_packs(pid):
+    """[(item id, arrows in it)] of the arrow packs in the bag."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        hero = _u32(handle, HERO_PTR)
+        return [(_u32(handle, i + ITEM_ID), _u32(handle, i + ITEM_AMOUNT) & 0xFFFF)
+                for i in _bag(handle, hero)
+                if i and _u32(handle, i) == ITEM_VTABLE and _u32(handle, i + ITEM_TYPE) in ARROW_TYPES]
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
 GAME_MAP    = 0x008D366C  # -> the map; + MAP_ITEMS = its item manager: a vector (+4 begin, +8 end) of
 MAP_ITEMS   = 0x78        # pointers to {id, type * 1000 + 990 + plus, x, y} - the items on the ground
 

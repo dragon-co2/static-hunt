@@ -71,7 +71,19 @@ TASK_ACTION_ANSWER = 0x65
 HERO_ATTACK  = 0x00616560     # CHero attack(target shared pointer, 1, 1) - left-clicking a role
 MAP_MSG_CTOR, MAP_MSG_CREATE, MAP_MSG_SEND, MAP_MSG_DTOR = (   # CMsgMapItem (1101): the ground items
     0x006E7174, 0x006E71DA, 0x006E73A6, 0x006E71CF)            # Create(id, x, y, action) - 3 = pick up
+HERO_TALK    = 0x0061419D     # CHero::Talk(to, text, 0, color, channel, style) - the chat box (MsgTalk 1004)
+CHAT_WHISPER = 2001           # the whisper channel
+BANK_OPEN    = 0x0068D811     # warehouse manager.Open(kind, id): load a warehouse (MsgPackage 0)
+BANK_WITHDRAW = 0x0068DA98    # warehouse manager.Withdraw(kind, id, item id) (MsgPackage 2)
+BANK_DEPOSIT = 0x0068D9FD     # warehouse manager.Deposit(kind, id, item id) (MsgPackage 1)
+BANK_QUERY   = 0x0068D957     # warehouse manager.Query(kind, id, page): its items again (MsgPackage 0)
+HERO_REVIVE  = 0x006186C3     # CHero::Revive(mode) - the death window: 0 = revive, 1 = revive here
+STATUS_DEAD  = 0x400          # hero status bit 10: dead
+MAP_FLAGS, MAP_REVIVE_HERE = 0xE8, 0x2000   # [game map] + this: flags; 0x2000 = Revive Here allowed
 CO_COMPOSE_DEPOSIT = 0x8BE70  # Co.dll + this: the VIP Compose Warehouse 'Deposit' button's function
+CO_SEND      = 0x8B940        # Co.dll + this: its message send (ecx = type, edx = data, push length)
+CO_MSG_REMOTE_WH = 0x1F45     # its message 8005: a VIP command (vip_command)
+VIP_REPAIR_ALL = 30           # 8005 {30}: Repair All
 HERO_PICK_UP = 0x00683A4F     # CHero::PickUp(item id, x, y) - left-clicking an item on the ground
 ON_HOTKEY    = 0x0059170B     # main UI.OnHotkey(slot | id << 8) - what pressing F1..F10 does
 HOTKEY_BAR   = 0x008D5C74     # -> [this] + HOTKEY_IDS + 4 * slot = the id in hotkey slot (F1 = 0)
@@ -229,6 +241,21 @@ def roles(pid):
         return []
     finally:
         _k32.CloseHandle(handle)
+
+
+def cast_at(pid, skill_type, x, y):
+    """Casts `skill_type` at the map cell (x, y) with no target - a ground skill like Scatter, aimed
+    the way right-clicking that spot does: CHero::MagicAttack(type, me, 0, x, y)."""
+    code = (b'\x55\x8B\xEC'                                    # push ebp; mov ebp, esp
+            + b'\x68' + struct.pack('<i', y)                   # push y
+            + b'\x68' + struct.pack('<i', x)                   # push x
+            + b'\x6A\x00'                                      # push 0 (no target)
+            + b'\x8B\x0D' + struct.pack('<I', game_memory.HERO_PTR)   # mov ecx, [hero]
+            + b'\xFF\xB1' + struct.pack('<I', HERO_ID)         # push [ecx+0xC8] (me)
+            + b'\x68' + struct.pack('<I', skill_type)          # push the skill
+            + b'\xB8' + struct.pack('<I', MAGIC_ATTACK) + b'\xFF\xD0'   # call MagicAttack (pops its args)
+            + b'\x33\xC0\xC9\xC2\x04\x00')                     # xor eax, eax; leave; ret 4
+    _run(pid, code)
 
 
 def players(pid):
@@ -491,6 +518,142 @@ def press_hotkey(pid, slot):
 def jump_to(pid, x, y):
     """Jumps onto the map cell (x, y) - CHero::Jump, with the game's checks (16 cells at most)."""
     _hero_call(pid, HERO_JUMP, (x, y))
+
+
+def whisper(pid, to, text, channel=None):
+    """Sends a chat line from this character - like typing it in the chat box: CHero::Talk(to, text,
+    0, color -1, channel, 0), which builds and sends MsgTalk 1004. channel defaults to a whisper
+    (2001) to the character named `to`."""
+    to_b, text_b = to.encode('cp1252')[:15], text.encode('cp1252')[:250]
+    channel = CHAT_WHISPER if channel is None else channel
+
+    def code(out):                       # the two strings sit in the block's output area
+        to_at, text_at = out, out + 16
+        return (b'\x55\x8B\xEC'
+                + b'\xB8' + struct.pack('<I', to_at)           # mov eax, to (copy the strings in)
+                + b''.join(b'\xC6\x00' + bytes([c]) + b'\x40' for c in to_b + b'\0')   # mov byte [eax], c; inc eax
+                + b'\xB8' + struct.pack('<I', text_at)
+                + b''.join(b'\xC6\x00' + bytes([c]) + b'\x40' for c in text_b + b'\0')
+                + b'\x6A\x00'                                  # push 0 (style)
+                + b'\x68' + struct.pack('<I', channel)         # push the channel
+                + b'\x6A\xFF'                                  # push -1 (color)
+                + b'\x6A\x00'                                  # push 0
+                + b'\x68' + struct.pack('<I', text_at)         # push text
+                + b'\x68' + struct.pack('<I', to_at)           # push to
+                + b'\x8B\x0D' + struct.pack('<I', game_memory.HERO_PTR)   # mov ecx, [hero]
+                + b'\xB8' + struct.pack('<I', HERO_TALK) + b'\xFF\xD0'   # call CHero::Talk (pops 6 args)
+                + b'\x33\xC0\xC9\xC2\x04\x00')
+
+    _run(pid, code, read=16 + 256)
+
+
+def remote_bank_open(pid, warehouse=10):
+    """VIP > Storage > Remote Cities Warehouse (Alt+P): tells the server the warehouse is opened
+    from afar; without it the server ignores a withdraw made away from the warehouse NPC."""
+    vip_command(pid, warehouse)
+
+
+def repair_all(pid):
+    """VIP > Repair All (VIP Gold): repairs everything worn, for 1000 gold."""
+    vip_command(pid, VIP_REPAIR_ALL)
+
+
+def vip_command(pid, code):
+    """A VIP menu command - Co.dll's own send of its message 8005 {code, 0}: 10 = open the remote
+    warehouse, 30 = repair all."""
+    base = game_memory._module_base(pid, 'Co.dll')
+    if not base:
+        raise OSError('Co.dll is not loaded in the game')
+    _run(pid, b'\x55\x8B\xEC\x83\xEC\x08'                      # push ebp; mov ebp, esp; sub esp, 8
+         + b'\x66\xC7\x45\xF8' + struct.pack('<H', code)       # mov word [ebp-8], code
+         + b'\xC7\x45\xFA\x00\x00\x00\x00'                     # mov dword [ebp-6], 0
+         + b'\x6A\x06'                                         # push 6 (bytes)
+         + b'\x8D\x55\xF8'                                     # lea edx, [ebp-8] (the data)
+         + b'\xB9' + struct.pack('<I', CO_MSG_REMOTE_WH)       # mov ecx, 8005 (the message)
+         + b'\xB8' + struct.pack('<I', base + CO_SEND) + b'\xFF\xD0'   # call Co.dll's send
+         + b'\x83\xC4\x04'                                     # add esp, 4 (the caller pops it)
+         + b'\x33\xC0\xC9\xC2\x04\x00')
+
+
+def bank_open(pid, key=game_memory.ARROW_BANK):
+    """Loads warehouse `key` (kind, id) into this client - what opening it does: the warehouse
+    manager's Open, which asks the server for its items (they arrive a moment later; read them
+    with game_memory.bank_items). Does nothing if it's loaded already."""
+    _run(pid, b'\x55\x8B\xEC'                                  # push ebp; mov ebp, esp
+         + b'\x68' + struct.pack('<I', key[1]) + b'\x68' + struct.pack('<I', key[0])
+         + b'\xB9' + struct.pack('<I', game_memory.PACKAGES)   # mov ecx, the warehouse manager
+         + b'\xB8' + struct.pack('<I', BANK_OPEN) + b'\xFF\xD0'   # call Open(kind, id)
+         + b'\x33\xC0\xC9\xC2\x04\x00')
+
+
+def bank_refresh(pid, key=game_memory.ARROW_BANK, page=1):
+    """Asks the server again for the items of an already loaded warehouse (MsgPackage 0) - what
+    turning to its page does. The server only takes a withdraw after such a request."""
+    _run(pid, b'\x55\x8B\xEC'
+         + b'\x6A' + bytes([page])
+         + b'\x68' + struct.pack('<I', key[1]) + b'\x68' + struct.pack('<I', key[0])
+         + b'\xB9' + struct.pack('<I', game_memory.PACKAGES)
+         + b'\xB8' + struct.pack('<I', BANK_QUERY) + b'\xFF\xD0'   # call Query(kind, id, page)
+         + b'\x33\xC0\xC9\xC2\x04\x00')
+
+
+def bank_deposit(pid, item_id, key):
+    """Puts bag item `item_id` into the (loaded, opened) warehouse `key` - Alt+clicking it: the
+    warehouse manager's Deposit, which sends MsgPackage action 1."""
+    _run(pid, b'\x55\x8B\xEC'
+         + b'\x68' + struct.pack('<I', item_id)
+         + b'\x68' + struct.pack('<I', key[1]) + b'\x68' + struct.pack('<I', key[0])
+         + b'\xB9' + struct.pack('<I', game_memory.PACKAGES)
+         + b'\xB8' + struct.pack('<I', BANK_DEPOSIT) + b'\xFF\xD0'   # call Deposit(kind, id, item)
+         + b'\x33\xC0\xC9\xC2\x04\x00')
+
+
+def bank_withdraw(pid, item_id, key=game_memory.ARROW_BANK):
+    """Takes item `item_id` out of the (loaded) warehouse `key` into the bag - clicking it there:
+    the warehouse manager's Withdraw, which sends MsgPackage action 2."""
+    _run(pid, b'\x55\x8B\xEC'
+         + b'\x68' + struct.pack('<I', item_id)
+         + b'\x68' + struct.pack('<I', key[1]) + b'\x68' + struct.pack('<I', key[0])
+         + b'\xB9' + struct.pack('<I', game_memory.PACKAGES)
+         + b'\xB8' + struct.pack('<I', BANK_WITHDRAW) + b'\xFF\xD0'   # call Withdraw(kind, id, item)
+         + b'\x33\xC0\xC9\xC2\x04\x00')
+
+
+def i_am_dead(pid):
+    """True while this character is dead (status bit 10 - what CHero::Revive checks)."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return False
+    try:
+        hero = game_memory._u32(handle, game_memory.HERO_PTR)
+        return bool(hero and game_memory._u32(handle, hero + game_memory.HERO_STATUS) & STATUS_DEAD)
+    except OSError:
+        return False
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def revive_here_allowed(pid):
+    """True if this map lets the character 'Revive Here' (map flag 0x2000 - CHero::Revive refuses
+    mode 1 without it, before sending anything)."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return False
+    try:
+        game_map = game_memory._u32(handle, game_memory.GAME_MAP)
+        return bool(game_map and game_memory._u32(handle, game_map + MAP_FLAGS) & MAP_REVIVE_HERE)
+    except OSError:
+        return False
+    finally:
+        _k32.CloseHandle(handle)
+
+
+def revive(pid, here=False):
+    """Revives this (dead) character - the death window's buttons: CHero::Revive(mode), which sends
+    MsgAction 94. here=False: the usual revive (tested: back at the revive point); here=True: Revive
+    Here, on the spot - only on maps that allow it (revive_here_allowed), else the game refuses it
+    without sending. The game does nothing if the character isn't dead."""
+    _hero_call(pid, HERO_REVIVE, (1 if here else 0,))
 
 
 def compose_deposit(pid):

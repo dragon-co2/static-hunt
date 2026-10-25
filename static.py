@@ -1,138 +1,86 @@
-import os
-import time
-import ctypes
+"""Dragon CO2 - background hunting: every account runs in its own game, all on the one desktop,
+nothing in front, no mouse, no keys. Everything goes through the games themselves (game_actions.py
+injection, game_memory.py reads):
+
+  - log in      bg_login.py: the launcher (it pulls updates, PLAY pressed for you) + the login
+                screen's own auto-login; again whenever a game closes, crashes or gets disconnected
+  - hunt        Scatter 4 times around the character, over and over (background_hunt.py)
+  - + items     -> VIP compose warehouse (Deposit)
+  - dragonballs 10 -> a dragonball scroll -> a regular remote bank tab
+  - repair      VIP Repair All (1000 gold) every REPAIR_INTERVAL seconds
+  - arrows      fewer than ARROWS_MIN equipped -> a pack from the bag or the remote bank, equipped
+  - death       Revive Here after the revive wait (longer for a repeat killer, none for a monster,
+                skipped from Telegram with rev / revall); never back to town
+  - kills       the killer gets a whisper once we're revived (Kill reply), Telegram is told
+  - Telegram    whispers to our characters are forwarded; a Reply there is whispered back
+  - F10         with F10_CYCLONE on, the F10 hotkey is used every F10_EVERY seconds
+
+One thread per account. Ctrl+Shift+C stops everything."""
+import json
 import logging
 import logging.handlers
+import os
+import sys
 import threading
+import time
 
-import sys as _sys, os as _os
-if getattr(_sys, 'frozen', False):
-    _sys.path.insert(0, _sys._MEIPASS)
+if getattr(sys, 'frozen', False):
+    sys.path.insert(0, sys._MEIPASS)
 else:
-    _sys.path.insert(0, _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'scripts'))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'scripts'))
 
-# pyvda pulls in comtypes, which by default caches generated COM wrapper code
-# on disk next to the comtypes package. Inside a frozen exe that folder is
-# read-only/extracted-per-run, which makes comtypes throw on startup. Telling
-# it to keep the generated code in memory instead avoids that.
-import comtypes.client
-comtypes.client.gen_dir = None
-
-import pyautogui
 from pynput import keyboard as pynput_kb
-import desktops
 
-from new_bank_compose import run_new_bank_compose, deposit_plus_items, plus_items_in_inventory
-from revive import (handle_revive, is_dead, revive_wait_for, REVIVE_DELAY, REVIVE_TIME_MULTIPLIER,
-                    MAX_REVIVE_WAIT, MONSTERS)
-from grab_arrows import ensure_arrows, NO_PACKS
-import game_memory
-from repaire import run_repair
-from db_scroll import run_db_scroll
-import panels
-import screen
-import game_input
 import accounts
-import login
-import auto_hunt
-import kill_watch
+import background_hunt
+import bg_login
+import game_actions
+import game_memory
 import kill_reply
+import kill_watch
 import notify
 import overlay
-from game_window import find_game_window, focus_game_window, is_game_window
-import repaire as _rep
-import json
 from dragon_settings import get_settings, override_dir
 
-
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except Exception:
-    ctypes.windll.user32.SetProcessDPIAware()
-
-pyautogui.FAILSAFE = False  # moving the mouse to a screen corner does NOT stop the script
-pyautogui.PAUSE    = 0
-
-SWITCH_DELAY = 0.5   # seconds to let the desktop-switch animation finish
-
 LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
-LOG_BACKUPS = 3   # ...keeping this many old files (static.log.1 .. .3) — ~20 MB on disk at most
+LOG_BACKUPS = 3   # ...keeping this many old files
 
-_S = get_settings('static', {
-    'FIRST_RUN_REPAIR': False,
-    'REPAIR_INTERVAL':  8000,
-    'VISIT_WAIT':       15,
-    'SERVICE_INTERVAL': 180,
-    'F10_CYCLONE':      False,
-})
+_S = get_settings('static', {'F10_CYCLONE': False, 'REPAIR_INTERVAL': 8000, 'FIRST_RUN_REPAIR': False})
+F10_CYCLONE = bool(_S['F10_CYCLONE'])   # use the F10 hotkey every F10_EVERY seconds while hunting
+REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']          # seconds between repairs of each account's gear
+FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])   # repair as soon as an account is in the game
+F10_EVERY   = 10
+F10_SLOT    = 9                         # F10
 
-FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])  # run repair on each desktop's first visit
-REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']         # seconds between repair passes over all desktops
-VISIT_WAIT       = _S['VISIT_WAIT']              # seconds to pause at the end of a desktop visit before switching
-SERVICE_INTERVAL = _S['SERVICE_INTERVAL']        # per desktop: seconds between service rounds (bank, arrows, deposit)
-F10_CYCLONE      = bool(_S['F10_CYCLONE'])       # press F10 (Cyclone) every F10_EVERY seconds while hunting
-F10_EVERY        = 10
+_R = get_settings('revive', {'REVIVE_DELAY': 360, 'REVIVE_TIME_MULTIPLIER': 2, 'MAX_REVIVE_WAIT': 1800,
+                             'MONSTERS': 'Pheasant*\nBloodyBat*\nBullMonster*\nBullKing*\nHawKing*\nSandMonster*'})
+REVIVE_DELAY = _R['REVIVE_DELAY']        # seconds dead before Revive Here
+REVIVE_TIME_MULTIPLIER = max(1.0, float(_R['REVIVE_TIME_MULTIPLIER']))   # same killer again: x this
+MAX_REVIVE_WAIT = _R['MAX_REVIVE_WAIT']  # ...up to this
+MONSTERS = [m.strip() for m in (_R['MONSTERS'] or '').replace('\\n', '\n').splitlines() if m.strip()]
 
-_timer_start = {}   # 'repair' -> time.time() the current interval started
-_dead_since = {}    # desktop index -> time.time() its account was first seen dead
-_revive_wait = {}   # desktop index -> revive delay for its current death (doubled for a repeat killer)
-_kill_streak = {}   # desktop index -> kills in a row by the same player (1 = a new killer)
-_rev_now = set()    # desktops told from Telegram ("rev" / "revall") to revive without the wait
-_reply_due = {}     # desktop index -> [killer, ...] to whisper once its character is revived
-_reply_tries = {}   # (desktop index, killer lower) -> failed sends so far
-_reply_lock = threading.Lock()   # _reply_due is filled by the chat-reading thread (_on_kill)
-_custom_due = {}    # desktop index -> [(player, text, telegram msg id)] typed by you in Telegram
-# who was already messaged: kill_reply's messaged_killers.json (all accounts, kept for 24h)
-REPLY_TRIES = 3     # failed sends (no chat bar / no Whisper) before giving up on a killer
-_last_service = {}  # desktop index -> time.time() of its last service round
-_last_launch = {}   # desktop index -> time.time() its game was last started (accounts mode)
-_arrows_alerted = {}   # desktop index -> time.time() of its last "out of arrows" Telegram message
-_arrows_tried = {}     # desktop index -> (time.time(), result) of its last arrow refill attempt
-ARROWS_RETRY    = 60   # seconds before a failed refill is tried again on the same desktop...
-ARROWS_RETRY_NO = 600  # ...or this long when every bank tab came up empty
-ARROWS_ALERT_EVERY = 3600   # seconds before the same desktop's arrow alert is sent again
-_last_f10 = {}      # desktop index -> time.time() F10 was last pressed there
-_f10_desktop = None # desktop index whose game the F10 thread may press F10 in (None = nowhere now)
-LAUNCH_COOLDOWN = 120  # seconds before a desktop's game may be started again after a failed login
-_in_game = set()    # desktops whose account has been in the game this run (so losing it = news)
-_char_names = {}    # desktop index -> character name (from the game, else the Accounts tab)
-_arrows_seen = {}   # desktop index -> equipped arrows (read from memory every ARROWS_LIVE_EVERY s)
-ARROWS_LIVE_EVERY = 1   # seconds between reads of every game's arrows (any desktop)
-_down = {}          # desktop index -> [what happened, failure already reported] while it's out
-TIMER_STATE_PATH = _os.path.join(override_dir(), 'timer_state.json')  # outside the repo: survives git reset / updates
+SERVICE_EVERY   = 10     # seconds between looks at the bag (+ items) and the equipped arrows
+LAUNCH_COOLDOWN = 120    # seconds before a failed login is tried again
+ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" alert again
+REPLY_TRIES     = 3      # failed whispers to one player before giving up
+NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character
 
-_shift_held = False
+_login_lock = threading.Lock()    # one login at a time: each new client takes the next auto-login file
+_reply_lock = threading.Lock()
+_reply_due  = {}    # slot -> [killer, ...] to whisper once revived
+_custom_due = {}    # slot -> [(player, text, telegram msg id)] typed in Telegram
+_rev_now    = set() # slots told from Telegram to revive without the wait
+_status     = {}    # slot -> one line for the on-screen panel
+_accts      = []
 
 
-def _on_key_release(key):
-    global _shift_held
-    if key in (pynput_kb.Key.shift, pynput_kb.Key.shift_r):
-        _shift_held = False
-
-
-def _on_key_press(key):
-    global _shift_held
-    if key in (pynput_kb.Key.shift, pynput_kb.Key.shift_r):
-        _shift_held = True
-        return
-    try:
-        if key.char == '\x03' and _shift_held:   # Ctrl+Shift+C
-            print('  [HOTKEY] Ctrl+Shift+C — exiting')
-            os._exit(0)
-    except AttributeError:
-        pass
-
-
-pynput_kb.Listener(on_press=_on_key_press, on_release=_on_key_release, daemon=True).start()
-
+# ---------------------------------------------------------------- log, overlay, hotkey
 
 class _Tee:
     """Mirrors a console stream into the rotating log, timestamping each complete line."""
 
     def __init__(self, stream, logger):
-        self._stream = stream
-        self._logger = logger
-        self._buf = ''
+        self._stream, self._logger, self._buf = stream, logger, ''
         self._lock = threading.Lock()
 
     def write(self, text):
@@ -154,593 +102,354 @@ class _Tee:
 
 
 def _setup_log():
-    """Copies everything printed (stdout + stderr, including crashes) into logs/static.log,
-    rotating it at LOG_MAX_MB so it never grows without bound, and mirrors each line to the
-    on-screen overlay."""
-    base = _os.path.dirname(_sys.executable if getattr(_sys, 'frozen', False) else _os.path.abspath(__file__))
-    log_dir = _os.path.join(base, 'logs')
-    _os.makedirs(log_dir, exist_ok=True)
-
+    base = os.path.dirname(sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__))
+    log_dir = os.path.join(base, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
     handler = logging.handlers.RotatingFileHandler(
-        _os.path.join(log_dir, 'static.log'), maxBytes=LOG_MAX_MB * 1024 * 1024,
+        os.path.join(log_dir, 'static.log'), maxBytes=LOG_MAX_MB * 1024 * 1024,
         backupCount=LOG_BACKUPS, encoding='utf-8')
     handler.setFormatter(logging.Formatter('%(asctime)s %(message)s', '%Y-%m-%d %H:%M:%S'))
     logger = logging.getLogger('static')
     logger.setLevel(logging.INFO)
     logger.propagate = False
     logger.addHandler(handler)
-
-    _sys.stdout = _Tee(_sys.stdout, logger)
-    _sys.stderr = _Tee(_sys.stderr, logger)
-    logger.info('=' * 20 + ' static.py started ' + '=' * 20)
-
-
-def _open_bank_quick():
-    """Alt+P once and up to 3s for the bank (+ inventory) to show. Doubles as the "is this account
-    actually in the game?" check: a disconnected client never opens it."""
-    if _rep._warehouse_open():
-        return True
-    _rep._press_alt_p()
-    for _ in range(6):
-        time.sleep(0.5)
-        if _rep._warehouse_open():
-            return True
-    return False
+    sys.stdout = _Tee(sys.stdout, logger)
+    sys.stderr = _Tee(sys.stderr, logger)
+    logger.info('=' * 20 + ' static.py (background) started ' + '=' * 20)
 
 
-def _check_arrows(idx, who):
-    """ensure_arrows(), plus a Telegram alert (at most once an hour per desktop) when the banks
-    hold no arrow pack any more, or none are equipped and getting a pack failed."""
-    result = ensure_arrows()
-    _arrows_tried[idx] = (time.time(), result)
-    if result is True:
-        _arrows_alerted.pop(idx, None)   # arrows again: the next outage alerts right away
+_shift_held = False
+
+
+def _on_key(key, down):
+    global _shift_held
+    if key in (pynput_kb.Key.shift, pynput_kb.Key.shift_r):
+        _shift_held = down
         return
-    equipped = game_memory.equipped_arrows()
-    if result != NO_PACKS and equipped != 0:
-        return                           # a passing failure with arrows still on - retried next round
-    if time.time() - _arrows_alerted.get(idx, 0) < ARROWS_ALERT_EVERY:
-        return
-    _arrows_alerted[idx] = time.time()
-    left = 'unknown' if equipped is None else equipped
-    why = 'no arrow packs left in the banks' if result == NO_PACKS else 'out of arrows and could not take a pack'
-    print(f'  [ARROWS] {why} — sending a Telegram alert')
-    notify.send(f'\U0001F3F9 {who} (desktop {idx + 1}): {why} \u2014 {left} arrow(s) equipped')
+    if down and getattr(key, 'char', None) == '\x03' and _shift_held:   # Ctrl+Shift+C
+        print('  [HOTKEY] Ctrl+Shift+C — exiting')
+        os._exit(0)
 
 
-def _arrows_low(idx, arrows):
-    """True when this visit should take an arrow pack right away (not waiting for the service
-    round): fewer than ARROWS_MIN equipped, and no failed attempt on this desktop just now."""
-    need = int(get_settings('static', {'ARROWS_MIN': 100})['ARROWS_MIN'])
-    if arrows is None or arrows >= need:
-        return False
-    at, result = _arrows_tried.get(idx, (0, True))
-    if result is not True and time.time() - at < (ARROWS_RETRY_NO if result == NO_PACKS else ARROWS_RETRY):
-        return False
-    return True
-
-
-def _arrows_live_loop():
-    """Background thread: every ARROWS_LIVE_EVERY seconds reads the equipped arrows of every
-    running game (any desktop - the memory doesn't care which one is in front) and files them
-    under their desktop by character name. Feeds the timers panel and _arrows_jump()."""
+def _status_loop():
     while True:
-        try:
-            games = game_memory.all_games()
-            for idx, name in list(_char_names.items()):
-                if games.get(name) is not None:
-                    _arrows_seen[idx] = games[name]
-        except Exception as e:
-            print(f'  [ARROWS] live reading failed ({type(e).__name__}: {e})')
-            time.sleep(10)
-        time.sleep(ARROWS_LIVE_EVERY)
+        overlay.set_status('\n'.join(_status[s] for s in sorted(_status)))
+        time.sleep(1)
 
 
-def _arrows_jump(current, total):
-    """The desktop to go to next because its character is low on arrows (alive, not just tried
-    and failed), or None to carry on in order."""
-    for idx in sorted(_arrows_seen):
-        if idx != current and idx < total and idx not in _dead_since and _arrows_low(idx, _arrows_seen[idx]):
-            return idx
-    return None
-
-
-def _who(idx, accts):
-    acc = accts[idx] if idx < len(accts) else None
-    return (acc.name or acc.username) if acc else f'desktop {idx + 1}'
-
-
-def _service(idx, accts=()):
-    """Every SERVICE_INTERVAL seconds per desktop (the bank + inventory are open by now): the
-    deposits - dragonballs -> scroll -> bank, +N items -> VIP > Compose > Deposit. Each step only
-    clicks when there's something to do. (Arrows aren't part of it: a pack is taken on any visit
-    where fewer than ARROWS_MIN are equipped - see _arrows_low.)"""
-    _last_service[idx] = time.time()
-    run_db_scroll()      # no-op unless dragonballs >= MIN_COUNT or a scroll is waiting
-    plus = plus_items_in_inventory()
-    print(f'  [SERVICE] +N items: {", ".join(plus) if plus else "none"}')
-    if plus and run_new_bank_compose():
-        deposit_plus_items()
-
-
-def _fmt_left(seconds):
+def _fmt(seconds):
     m, s = divmod(max(0, int(seconds)), 60)
     return f'{m:02d}:{s:02d}'
 
 
-def _load_timer_state():
-    """Restores the countdowns where the previous session left them (closed or crashed):
-    the saved seconds-left pick up again now, as if the script had been paused. Missing or
-    unreadable state, or a saved value longer than the current interval, starts fresh."""
+def revive_wait_for(streak):
+    """Revive wait for the `streak`-th death in a row by the same player."""
+    if streak <= 1 or REVIVE_TIME_MULTIPLIER <= 1:
+        return REVIVE_DELAY
+    return int(min(REVIVE_DELAY * REVIVE_TIME_MULTIPLIER ** (streak - 1), max(MAX_REVIVE_WAIT, REVIVE_DELAY)))
+
+
+# ---------------------------------------------------------------- which game is which account
+
+def _load_names():
     try:
-        with open(TIMER_STATE_PATH, encoding='utf-8') as f:
-            saved = json.load(f)
+        with open(NAMES_PATH, encoding='utf-8') as f:
+            return json.load(f)
     except Exception:
-        saved = {}
-    now = time.time()
-    for key, interval in (('repair', REPAIR_INTERVAL),):
-        left = saved.get(key)
-        if not isinstance(left, (int, float)) or not 0 <= left <= interval:
-            left = interval
-        _timer_start[key] = now - (interval - left)
-    if 'repair' in saved:
-        print(f'[TIMER] resumed from last session — repair in {_fmt_left(saved["repair"])}')
+        return {}
 
 
-def _save_timer_state(repair_left):
+def _save_name(username, character):
+    names = _load_names()
+    if names.get(username) == character:
+        return
+    names[username] = character
     try:
-        _os.makedirs(override_dir(), exist_ok=True)
-        tmp = TIMER_STATE_PATH + '.tmp'
+        tmp = NAMES_PATH + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump({'repair': max(0, round(repair_left))}, f)
-        _os.replace(tmp, TIMER_STATE_PATH)  # atomic: a crash mid-write never leaves a broken file
-    except Exception:
+            json.dump(names, f, indent=1)
+        os.replace(tmp, NAMES_PATH)
+    except OSError:
         pass
 
 
-def _timer_status_loop():
-    """Once a second, shows the repair countdown and one line per desktop in the on-screen
-    timers panel - "D1(AymanAbolila) Service in 0:30 Arrows:1350" (or "Revive in ..." while it's
-    dead) - and saves the repair timer so the next run can resume from here."""
-    while True:
-        now = time.time()
-        repair_left = REPAIR_INTERVAL - (now - _timer_start['repair'])
-        lines = [f'Repair {_fmt_left(repair_left)}']
-        for idx in sorted(set(_last_service) | set(_dead_since) | set(_arrows_seen)):
-            name = _char_names.get(idx)
-            line = f'D{idx + 1}' + (f'({name})' if name else '')
-            if idx in _dead_since and idx in _rev_now:
-                line += ' Revive now'
-            elif idx in _dead_since:
-                left = _revive_wait.get(idx, REVIVE_DELAY) - (now - _dead_since[idx])
-                line += f' Revive in {_fmt_left(left)}'
-            elif idx in _last_service:
-                left = SERVICE_INTERVAL - (now - _last_service[idx])
-                line += f' Service in {_fmt_left(left)}' if left > 0 else ' Service due'
-            if idx in _arrows_seen:
-                line += f' Arrows:{_arrows_seen[idx]}'
-            lines.append(line)
-        overlay.set_status('\n'.join(lines))
-        _save_timer_state(repair_left)
-        time.sleep(1)
+def _find_game(character):
+    """pid of the running game whose logged-in character is `character`, or None."""
+    if not character:
+        return None
+    for pid in game_memory.game_pids():
+        if game_memory._name_pid(pid) == character:
+            return pid
+    return None
 
 
-def _revive_gate(idx, total):
-    """Per-desktop death handling. Returns True if the character is alive (carry on with this
-    desktop), False to skip it for now. The first time a desktop is seen dead its clock starts;
-    revive is only attempted once REVIVE_DELAY seconds have passed, and meanwhile the loop moves
-    on so the other desktops keep running."""
-    if not is_dead():
-        if _dead_since.pop(idx, None) is not None:
-            print(f'  [REVIVE] desktop {idx + 1} is alive again')
-        _revive_wait.pop(idx, None)
-        _rev_now.discard(idx)   # a "rev" from Telegram is for the death it was sent about
-        return True
-    now = time.time()
-    since = _dead_since.setdefault(idx, now)
-    left = _revive_wait.get(idx, REVIVE_DELAY) - (now - since)
-    if left > 0 and idx in _rev_now:
-        print(f'[DESKTOP] {idx + 1}/{total} — dead, revive wait skipped (Telegram) — reviving now')
-    elif left > 0:
-        print(f'[DESKTOP] {idx + 1}/{total} — dead, revive in {_fmt_left(left)}, skipping')
-        return False
-    if handle_revive():
-        _dead_since.pop(idx, None)
-        _revive_wait.pop(idx, None)
-        _rev_now.discard(idx)
-        return True
-    print(f'[DESKTOP] {idx + 1}/{total} — still dead after clicking Revive, moving on (retry next visit)')
-    return False
+# ---------------------------------------------------------------- Telegram / chat listeners
+
+def _on_kill(character, slot, killer, streak):
+    """kill_watch: a player killed one of ours - who replies, and Telegram."""
+    if kill_reply.enabled():
+        with _reply_lock:
+            first = next((s for s, due in _reply_due.items() if killer.lower() in (k.lower() for k in due)), None)
+            if kill_reply.already_messaged(killer):
+                print(f'  [KILL] {killer} was already messaged (in the last 24h) — no new message')
+            elif first is None:
+                _reply_due.setdefault(slot, []).append(killer)
+                print(f'  [KILL] {character} will whisper {killer} once revived')
+    notify.kill(character, slot, killer, streak, revive_wait_for(streak))
 
 
-def _handle_kills(idx, accts):
-    """Kills of this desktop's character seen in the chat since its last visit (who replies is
-    decided the moment the kill shows up — see _on_kill). The revive wait is multiplied by REVIVE_TIME_MULTIPLIER every time the same player kills it again
-    in a row — REVIVE_DELAY, x2, x4... (with 2) up to MAX_REVIVE_WAIT. A different killer starts over."""
-    acc = accts[idx] if idx < len(accts) else None
-    if not acc or not acc.name:
-        return
-    for killer, repeat, monster in kill_watch.take(acc.name):
-        if monster:   # killed by a monster (Revive tab > MONSTERS): revive at once, no message
-            _revive_wait[idx] = 0
-            print(f'  [KILL] desktop {idx + 1}: {acc.name} was killed by the monster {killer} — reviving now')
-            continue
-        _kill_streak[idx] = _kill_streak.get(idx, 0) + 1 if repeat else 1
-        streak = _kill_streak[idx]
-        wait = revive_wait_for(streak)
-        if wait != REVIVE_DELAY:
-            _revive_wait[idx] = wait
-            print(f'  [KILL] {killer} killed {acc.name} {streak} times in a row — '
-                  f'revive wait {_fmt_left(wait)}' + (' (the max)' if wait == MAX_REVIVE_WAIT else ''))
-        else:
-            _revive_wait.pop(idx, None)
-
-
-def _queue_reply(idx, character, killer):
-    """Kill reply: decides who answers `killer`, in the order the kills show up in the chat —
-    the account they killed first whispers them once it's revived; their other victims stay
-    quiet. One message per killer (kill_reply's 24h log, see SEND_ONCE_EVERYDAY)."""
-    if not kill_reply.enabled():
-        return
-    with _reply_lock:
-        first = next((i for i, due in _reply_due.items() if killer.lower() in (k.lower() for k in due)), None)
-        if kill_reply.already_messaged(killer):
-            print(f'  [KILL] {killer} was already messaged (in the last 24h) — no new message')
-        elif first is not None:
-            if first != idx:
-                print(f'  [KILL] {killer} gets the message from the account they killed first '
-                      f'(desktop {first + 1}) — {character} won\'t reply')
-        else:
-            _reply_due.setdefault(idx, []).append(killer)
-            print(f'  [KILL] desktop {idx + 1}: {character} will whisper {killer} once revived')
-
-
-def _send_due_replies(idx, accts):
-    """Right after this desktop's character is alive again: whispers each killer queued for it."""
-    with _reply_lock:
-        due = list(_reply_due.get(idx) or [])
-    acc = accts[idx] if idx < len(accts) else None
-    for killer in due:
-        key = (idx, killer.lower())
-        done = kill_reply.already_messaged(killer)   # messaged since it was queued (e.g. a crash-restart)
-        message = None if done else kill_reply.send(killer)
-        if message:
-            who = acc.name if acc else f'desktop {idx + 1}'
-            kill_reply.remember(killer, who)
-            notify.send(f'\U0001F4AC {who} (desktop {idx + 1}) whispered {killer}: "{message}"',
-                        ref={'desktop': idx + 1, 'player': killer, 'character': who})
-            done = True
-        if not done:
-            _reply_tries[key] = _reply_tries.get(key, 0) + 1
-            if _reply_tries[key] >= REPLY_TRIES:
-                print(f'  [KILL] could not message {killer} after {REPLY_TRIES} tries — giving up')
-                done = True
-        if done:
-            _reply_tries.pop(key, None)
-            with _reply_lock:
-                if killer in _reply_due.get(idx, []):
-                    _reply_due[idx].remove(killer)
+def _on_whisper(sender, character, slot, text, channel='Whisper'):
+    via = '' if channel.lower() == 'whisper' else f' [{channel}]'
+    notify.send(f'\U0001F4E8 {sender} → {character} (account {slot}){via}: {text}',
+                ref={'desktop': slot, 'player': sender, 'character': character})
 
 
 def _on_tg_reply(ref, text, msg_id):
-    """notify listener: you answered a Telegram message about a player — queue the whisper for
-    that account; it goes out on its desktop's next visit while it's alive."""
-    bad = kill_reply.untypeable(text)
-    if bad:
-        notify.send(f'\u274C not sent - a US keyboard can\'t type: {" ".join(sorted(set(bad)))}', reply_to=msg_id)
-        return
     with _reply_lock:
-        _custom_due.setdefault(ref['desktop'] - 1, []).append((ref['player'], text, msg_id))
-    print(f'[TELEGRAM] queued for desktop {ref["desktop"]}: whisper {ref["player"]}: {text}')
-    notify.send(f'\u23F3 {ref["character"]} will whisper {ref["player"]} on its next visit (when alive)',
-                reply_to=msg_id)
+        _custom_due.setdefault(ref['desktop'], []).append((ref['player'], text, msg_id))
+    print(f'[TELEGRAM] queued for account {ref["desktop"]}: whisper {ref["player"]}: {text}')
+    notify.send(f'⏳ {ref["character"]} will whisper {ref["player"]} (when alive)', reply_to=msg_id)
 
 
 def _on_tg_command(command, ref, msg_id):
-    """notify listener: "revall" -> every account revives on its next visit without waiting out
-    its revive time; "rev" (a Reply to a kill message) -> just that account. The loop goes to a
-    dead desktop told to revive before the others (see _rev_jump)."""
     if command == 'revall':
-        targets = set(_dead_since) | set(range(desktops.count()))
-        what = 'every dead account revives on its next visit (no revive wait)'
+        _rev_now.update(a.slot for a in _accts)
+        what = 'every dead account revives now (no revive wait)'
     else:
-        targets = {ref['desktop'] - 1}
-        what = f'{ref["character"]} (desktop {ref["desktop"]}) revives on its next visit (no revive wait)'
-    _rev_now.update(targets)
+        _rev_now.add(ref['desktop'])
+        what = f'{ref["character"]} revives now (no revive wait)'
     print(f'[TELEGRAM] {command}: {what}')
     notify.send(f'♻️ {what}', reply_to=msg_id)
 
 
-def _rev_jump(current, total):
-    """A dead desktop told to revive now from Telegram, to visit next - or None."""
-    return next((i for i in sorted(_rev_now & set(_dead_since)) if i != current and i < total), None)
+# ---------------------------------------------------------------- one account
 
+class _Account:
+    def __init__(self, acc):
+        self.acc, self.slot = acc, acc.slot
+        self.name = acc.name or _load_names().get(acc.username, '')
+        self.pid = None
+        self.in_game_once = False
+        self.down = None              # [what happened, failure already reported] while it's out
+        self.last_launch = 0.0
+        self.dead_since = None
+        self.revive_wait = None
+        self.kill_streak = 0
+        self.here_refused_told = False
+        self.last_service = 0.0
+        self.last_repair = 0.0 if FIRST_RUN_REPAIR else time.time()
+        self.last_f10 = 0.0
+        self.arrows_alerted = 0.0
+        self.reply_tries = {}
 
-def _send_custom_whispers(idx, accts):
-    """Your Telegram replies queued for this desktop: whispers them (character alive, in front)."""
-    with _reply_lock:
-        due = list(_custom_due.get(idx) or [])
-    acc = accts[idx] if idx < len(accts) else None
-    who = acc.name if acc else f'desktop {idx + 1}'
-    for item in due:
-        player, text, msg_id = item
-        key = (idx, 'tg', msg_id)
-        done = False
-        if kill_reply.send(player, message=text):
-            notify.send(f'\u2705 {who} whispered {player}: "{text}"', reply_to=msg_id,
-                        ref={'desktop': idx + 1, 'player': player, 'character': who})
-            done = True
-        else:
-            _reply_tries[key] = _reply_tries.get(key, 0) + 1
-            if _reply_tries[key] >= REPLY_TRIES:
-                notify.send(f'\u274C {who} could not whisper {player} (chat bar / Whisper not found)',
-                            reply_to=msg_id)
-                done = True
-        if done:
-            _reply_tries.pop(key, None)
-            with _reply_lock:
-                if item in _custom_due.get(idx, []):
-                    _custom_due[idx].remove(item)
+    def who(self):
+        return self.name or self.acc.username
 
+    def say(self, text):
+        _status[self.slot] = f'{self.slot}({self.who()}) {text}'
 
-def _on_whisper(sender, character, desktop, text, channel='Whisper'):
-    """kill_watch listener: a player wrote to one of our characters (a whisper, or Talk / Team...
-    to them) -> Telegram, answerable: a Reply there is whispered back to them."""
-    via = '' if channel.lower() == 'whisper' else f' [{channel}]'
-    notify.send(f'\U0001F4E8 {sender} \u2192 {character} (desktop {desktop}){via}: {text}',
-                ref={'desktop': desktop, 'player': sender, 'character': character})
-
-
-def _on_kill(character, desktop, killer, streak):
-    """kill_watch listener, called the moment a player's kill of one of ours shows in the chat
-    (in the order they happen): picks who replies, and sends the Telegram notification."""
-    _queue_reply(desktop - 1, character, killer)
-    notify.kill(character, desktop, killer, streak, revive_wait_for(streak))
-
-
-def _ensure_account(idx, total, accts):
-    """Accounts mode: makes sure desktop idx runs its account, logged in and hunting.
-      - no game window (first run / crash): start the game, log in, turn on auto hunt
-      - game open but on the login form (kicked / disconnected): log in again, auto hunt
-    Returns True when the account is in the game, False to skip this desktop for now."""
-    acc = accts[idx] if idx < len(accts) else None
-    if acc is None:  # more desktops than accounts — nothing to open here
-        return find_game_window() is not None
-
-    if not find_game_window():
-        if idx in _in_game:                    # it was playing: crashed / closed
-            _in_game.discard(idx)
-            _down.setdefault(idx, ['the game crashed / closed', False])
-        since = time.time() - _last_launch.get(idx, 0)
-        if since < LAUNCH_COOLDOWN:
-            print(f'[ACCOUNTS] {idx + 1}/{total} — game still not up after a start {int(since)}s ago, '
-                  f'waiting before trying again')
-            return False
-        print(f'[ACCOUNTS] {idx + 1}/{total} — no game running: opening {acc.username}')
-        _last_launch[idx] = time.time()
-        if not login.login(acc, launch_first=True):
-            return _back_in_game(idx, acc, False)
-        auto_hunt.start_hunting()
-        return _back_in_game(idx, acc, True)
-
-    if login.form_showing():
-        if idx in _in_game:                    # it was playing: kicked / disconnected
-            _in_game.discard(idx)
-            _down.setdefault(idx, ['was disconnected (back on the login screen)', False])
-        print(f'[ACCOUNTS] {idx + 1}/{total} — {acc.username} is on the login screen: logging in')
-        if not login.login(acc, launch_first=False):
-            return _back_in_game(idx, acc, False)
-        auto_hunt.start_hunting()
-    return _back_in_game(idx, acc, True)
-
-
-def _learn_name(idx, acc):
-    """Reads the logged-in character's name from the game (no need to type it in the Accounts
-    tab) and makes it this account's name everywhere (kills, replies, notifications). The game
-    wins over a different name typed in the settings."""
-    name = game_memory.character_name()
-    if not name or name == acc.name:
-        return
-    if acc.name:
-        print(f'[ACCOUNTS] desktop {idx + 1}: the game shows {name}, not {acc.name} (Accounts tab) — using {name}')
-    else:
-        print(f'[ACCOUNTS] desktop {idx + 1}: character {name} (read from the game)')
-    acc.name = name
-    _char_names[idx] = name
-    kill_watch.set_character(name, idx + 1)
-
-
-def _back_in_game(idx, acc, ok):
-    """Bookkeeping after _ensure_account: Telegram when an account that dropped out (crash,
-    disconnect) is back in the game - or, once, when getting it back failed. Returns ok."""
-    if ok:
-        _learn_name(idx, acc)
-        if acc.name:
-            _char_names[idx] = acc.name
-    who = f'{acc.name or acc.username} (desktop {idx + 1})'
-    down = _down.get(idx)
-    if ok:
-        _in_game.add(idx)
-        if down:
-            del _down[idx]
-            notify.send(f'\u267B\uFE0F {who}: {down[0]} \u2014 reopened and back in game')
-    elif down and not down[1]:
-        down[1] = True
-        notify.send(f'\u26A0\uFE0F {who}: {down[0]} \u2014 could not get back in yet, retrying every '
-                    f'{LAUNCH_COOLDOWN // 60} min')
-    return ok
-
-
-def _f10_loop():
-    """Background thread: with F10_CYCLONE on, presses F10 every F10_EVERY seconds in the game
-    of the desktop being visited — whatever the visit is doing (bank, VIP...) — as long as its
-    account is alive. Only when a game window is in front, so the key never goes elsewhere."""
-    while True:
-        time.sleep(0.5)
-        idx = _f10_desktop
-        if idx is None or time.time() - _last_f10.get(idx, 0) < F10_EVERY:
-            continue
-        try:
-            if not is_game_window(ctypes.windll.user32.GetForegroundWindow()):
-                continue
-            game_input.press('f10')   # waits while a key combo (e.g. Alt+P) is being sent
-            _last_f10[idx] = time.time()
-        except Exception as e:
-            print(f'  [F10] could not press F10 ({type(e).__name__}: {e})')
-
-
-def _go_to_desktop(idx, retries=3):
-    """Jumps directly to desktop idx + 1 (no Ctrl+Win+arrow stepping), then confirms that's
-    really the current desktop; retries if the switch didn't land."""
-    for attempt in range(1, retries + 1):
-        if not desktops.go(idx + 1):        # the desktops stopped answering — don't crash
-            return False
-        time.sleep(SWITCH_DELAY)
-        actual = desktops.current()
-        if actual == idx + 1:
+    # -- in the game?
+    def ensure_in_game(self):
+        """True once this account's character is in a game (logs in when it isn't)."""
+        if self.pid and game_memory._name_pid(self.pid) == self.name and self.name:
             return True
-        print(f'  [DESKTOP] switch to {idx + 1} landed on {actual} — retrying ({attempt}/{retries})')
-    print(f'  [DESKTOP] could not switch to desktop {idx + 1} — continuing anyway')
-    return False
+        pid = _find_game(self.name)
+        if pid:
+            return self._got(pid)
+        if self.in_game_once:
+            self.in_game_once = False
+            self.down = self.down or ['the game closed / crashed / was disconnected', False]
+            print(f'[ACCOUNTS] {self.who()}: not in the game any more — logging in again')
+        if time.time() - self.last_launch < LAUNCH_COOLDOWN:
+            self.say(f'login retry in {_fmt(LAUNCH_COOLDOWN - (time.time() - self.last_launch))}')
+            return False
+        self.say('logging in...')
+        with _login_lock:
+            self.last_launch = time.time()
+            pid = bg_login.login_retry(self.acc)
+        if not pid:
+            if self.down and not self.down[1]:
+                self.down[1] = True
+                notify.send(f'⚠️ {self.who()}: {self.down[0]} — could not get back in yet, '
+                            f'retrying every {LAUNCH_COOLDOWN // 60} min')
+            return False
+        return self._got(pid)
+
+    def _got(self, pid):
+        self.pid = pid
+        name = game_memory._name_pid(pid)
+        if name and name != self.name:
+            print(f'[ACCOUNTS] {self.acc.username}: character {name}')
+            self.name = name
+        _save_name(self.acc.username, self.name)
+        kill_watch.set_character(self.name, self.slot)
+        self.in_game_once = True
+        if self.down:
+            notify.send(f'♻️ {self.who()}: {self.down[0]} — reopened and back in game')
+            self.down = None
+        return True
+
+    # -- death
+    def handle_kills(self):
+        for killer, repeat, monster in kill_watch.take(self.name):
+            if monster:
+                self.revive_wait = 0
+                print(f'  [KILL] {self.name} was killed by the monster {killer} — reviving now')
+                continue
+            self.kill_streak = self.kill_streak + 1 if repeat else 1
+            wait = revive_wait_for(self.kill_streak)
+            self.revive_wait = wait
+            if wait != REVIVE_DELAY:
+                print(f'  [KILL] {killer} killed {self.name} {self.kill_streak} times in a row — '
+                      f'revive wait {_fmt(wait)}')
+
+    def alive_or_revived(self):
+        """True if alive (or just revived); False while waiting to revive."""
+        if not game_actions.i_am_dead(self.pid):
+            if self.dead_since is not None:
+                print(f'  [REVIVE] {self.name} is alive again')
+            self.dead_since, self.revive_wait, self.here_refused_told = None, None, False
+            _rev_now.discard(self.slot)
+            return True
+        now = time.time()
+        if self.dead_since is None:
+            self.dead_since = now
+            print(f'  [REVIVE] {self.name} died')
+        wait = REVIVE_DELAY if self.revive_wait is None else self.revive_wait
+        left = wait - (now - self.dead_since)
+        if left > 0 and self.slot not in _rev_now:
+            self.say(f'dead - Revive Here in {_fmt(left)}')
+            return False
+        if not game_actions.revive_here_allowed(self.pid):
+            if not self.here_refused_told:
+                self.here_refused_told = True
+                print(f'  [REVIVE] {self.name}: this map does not allow Revive Here — waiting (not reviving in town)')
+                notify.send(f'⚠️ {self.name}: dead on a map without Revive Here — not revived')
+            self.say('dead - no Revive Here on this map')
+            return False
+        print(f'  [REVIVE] {self.name}: Revive Here')
+        game_actions.revive(self.pid, here=True)
+        time.sleep(2)
+        return not game_actions.i_am_dead(self.pid)
+
+    # -- whispers
+    def send_whispers(self):
+        whisper = lambda player, text: game_actions.whisper(self.pid, player, text)
+        with _reply_lock:
+            due = list(_reply_due.get(self.slot) or [])
+            custom = list(_custom_due.get(self.slot) or [])
+        for killer in due:
+            done = kill_reply.already_messaged(killer)
+            message = None if done else kill_reply.send_with(whisper, killer)
+            if message:
+                kill_reply.remember(killer, self.name)
+                notify.send(f'\U0001F4AC {self.name} whispered {killer}: "{message}"',
+                            ref={'desktop': self.slot, 'player': killer, 'character': self.name})
+                done = True
+            if self._tried(('kill', killer.lower()), done):
+                with _reply_lock:
+                    if killer in _reply_due.get(self.slot, []):
+                        _reply_due[self.slot].remove(killer)
+        for item in custom:
+            player, text, msg_id = item
+            ok = kill_reply.send_with(whisper, player, message=text)
+            if ok:
+                notify.send(f'✅ {self.name} whispered {player}: "{text}"', reply_to=msg_id,
+                            ref={'desktop': self.slot, 'player': player, 'character': self.name})
+            elif self.reply_tries.get(('tg', msg_id), 0) + 1 >= REPLY_TRIES:
+                notify.send(f'❌ {self.name} could not whisper {player}', reply_to=msg_id)
+            if self._tried(('tg', msg_id), bool(ok)):
+                with _reply_lock:
+                    if item in _custom_due.get(self.slot, []):
+                        _custom_due[self.slot].remove(item)
+
+    def _tried(self, key, done):
+        """Counts a failed send; True when the item is finished (sent, or given up)."""
+        if done:
+            self.reply_tries.pop(key, None)
+            return True
+        self.reply_tries[key] = self.reply_tries.get(key, 0) + 1
+        if self.reply_tries[key] >= REPLY_TRIES:
+            self.reply_tries.pop(key, None)
+            return True
+        return False
+
+    # -- the bag, arrows, F10
+    def service(self):
+        if time.time() - self.last_service < SERVICE_EVERY:
+            return
+        self.last_service = time.time()
+        if time.time() - self.last_repair >= REPAIR_INTERVAL:
+            self.last_repair = time.time()
+            background_hunt.repair(self.pid, self.name)
+        background_hunt.dragonball_scrolls(self.pid, self.name)
+        background_hunt.deposit_plus(self.pid, self.name)
+        if not background_hunt.ensure_arrows(self.pid, self.name):
+            left = game_memory._read_equipped_pid(self.pid)[0]
+            if (left == 0 or not game_memory.bank_items(self.pid)) and \
+                    time.time() - self.arrows_alerted >= ARROWS_ALERT_EVERY:
+                self.arrows_alerted = time.time()
+                notify.send(f'\U0001F3F9 {self.name}: out of arrows and no pack to take — {left} equipped')
+        else:
+            self.arrows_alerted = 0.0
+
+    def f10(self):
+        if F10_CYCLONE and time.time() - self.last_f10 >= F10_EVERY:
+            self.last_f10 = time.time()
+            game_actions.press_hotkey(self.pid, F10_SLOT)
+
+    # -- the loop
+    def run(self):
+        while True:
+            try:
+                if not self.ensure_in_game():
+                    time.sleep(5)
+                    continue
+                self.handle_kills()
+                if not self.alive_or_revived():
+                    time.sleep(2)
+                    continue
+                self.send_whispers()
+                self.service()
+                self.f10()
+                arrows = game_memory._read_equipped_pid(self.pid)[0]
+                self.say(f'hunting - arrows {arrows}')
+                background_hunt.scatter_around(self.pid)
+            except Exception as e:      # one account's trouble never stops the others
+                print(f'[ACCOUNTS] {self.who()}: {type(e).__name__}: {e}')
+                time.sleep(3)
 
 
 def _main():
-    global _f10_desktop
-    accts = []
-    if accounts.enabled():
-        accts = accounts.load()
-        print(f'[ACCOUNTS] {len(accts)} account(s): ' + ', '.join(f'{a.username} -> desktop {a.desktop}' for a in accts))
-        if accts:
-            accounts.sync_desktops(len(accts))   # one desktop per account: create / remove as needed
-        if accts and (kill_reply.enabled() or REVIVE_TIME_MULTIPLIER > 1 or notify.enabled() or MONSTERS):
-            # character names: the Accounts tab's, else read from each game once it's logged in
-            names = {a.name: a.desktop for a in accts if a.name}
-            kill_watch.ensure_chat_log(accounts.game_path())   # kills are only seen with it on
-            kill_watch.on_kill = _on_kill
-            kill_watch.on_whisper = _on_whisper
-            notify.on_reply = _on_tg_reply
-            notify.on_command = _on_tg_command
-            notify.listen()
-            kill_watch.monsters = MONSTERS
-            kill_watch.start(names, accounts.game_path())
-        if not accounts.game_path():
-            print('[ACCOUNTS] GAME_PATH is not set (or the file is missing) — games cannot be opened automatically')
-    total = desktops.count()         # accounts/desktops to loop over: 1 -> 2 -> ... -> total -> 1
-    current = 0                                  # 0-based; always start on desktop 1
-    print(f'[DESKTOP] {total} desktop(s) found — jumping to desktop 1')
-    _go_to_desktop(current)
-
-    if F10_CYCLONE:
-        print(f'[F10] F10_CYCLONE on — pressing F10 every {F10_EVERY}s while hunting')
-        threading.Thread(target=_f10_loop, daemon=True).start()
-    print('Starting in 3s...')
-    for i in range(3, 0, -1):
-        print(f'  {i}...')
-        time.sleep(1)
-
-    visited = set()              # desktops seen at least once (first visit may repair)
-    pending_repair = set()       # desktops still owed a repair run in the current pass
-    _load_timer_state()
-    threading.Thread(target=_timer_status_loop, daemon=True, name='timer-status').start()
-    threading.Thread(target=_arrows_live_loop, daemon=True, name='arrows-live').start()
-
-    if accts:
-        # bring-up pass: get every account into the game first, back to back (no service, no
-        # waiting between desktops), then start the normal rounds from desktop 1
-        print(f'[ACCOUNTS] starting up {len(accts)} account(s)')
-        for idx in range(total):
-            if idx:
-                _go_to_desktop(idx)
-            try:
-                _ensure_account(idx, total, accts)   # open / log in / auto hunt — services come in the rounds
-            except OSError as e:
-                print(f'[ACCOUNTS] {idx + 1}/{total} — screen unavailable ({e}); waiting for it')
-                screen.wait_for_screen()
-        if total > 1:
-            _go_to_desktop(current)
-        print('[ACCOUNTS] start-up done — starting the rounds')
-
+    global _accts
+    if not accounts.enabled():
+        print('[ACCOUNTS] turn on Accounts in the settings and fill the accounts in')
+        return
+    _accts = accounts.load()
+    if not _accts:
+        print('[ACCOUNTS] no account filled in')
+        return
+    print(f'[ACCOUNTS] {len(_accts)} account(s): ' + ', '.join(a.username for a in _accts))
+    workers = [_Account(a) for a in _accts]
+    if kill_reply.enabled() or REVIVE_TIME_MULTIPLIER > 1 or notify.enabled() or MONSTERS:
+        kill_watch.ensure_chat_log(accounts.game_path())
+        kill_watch.on_kill = _on_kill
+        kill_watch.on_whisper = _on_whisper
+        kill_watch.monsters = MONSTERS
+        notify.on_reply = _on_tg_reply
+        notify.on_command = _on_tg_command
+        notify.listen()
+        kill_watch.start({w.name: w.slot for w in workers if w.name}, accounts.game_path())
+    threading.Thread(target=_status_loop, daemon=True, name='status').start()
+    for w in workers:
+        threading.Thread(target=w.run, daemon=True, name=f'account-{w.slot}').start()
     while True:
-        now = time.time()
-        if now - _timer_start['repair'] >= REPAIR_INTERVAL:
-            print(f'[TIMER] {REPAIR_INTERVAL}s — repair queued for all desktops')
-            pending_repair = set(range(total))
-            _timer_start['repair'] = now
-
-        if current not in visited:
-            visited.add(current)
-            if FIRST_RUN_REPAIR:
-                pending_repair.add(current)
-
-        try:
-            if accts and not _ensure_account(current, total, accts):
-                # accounts mode: couldn't get this desktop's account into the game — try next visit
-                print(f'[DESKTOP] {current + 1}/{total} — account not in game yet, skipping')
-            elif not find_game_window():
-                # crashed / closed / frozen: don't click blindly here — move on; anything due stays due
-                print(f'[DESKTOP] {current + 1}/{total} — game not running, skipping')
-            else:
-                if not focus_game_window():   # the game ignores the mouse until it's the active window
-                    print('  [DESKTOP] could not bring the game window to the front')
-                repair_due = current in pending_repair
-                service_due = time.time() - _last_service.get(current, 0) >= SERVICE_INTERVAL
-                _handle_kills(current, accts)
-                alive = _revive_gate(current, total)
-                arrows = game_memory.equipped_arrows(tries=1)   # for the timers panel
-                if arrows is not None:
-                    _arrows_seen[current] = arrows
-                if alive:
-                    _send_due_replies(current, accts)   # Kill reply: whisper the killer after the revive
-                    _send_custom_whispers(current, accts)   # whispers you replied in Telegram
-                    _f10_desktop = current   # F10_CYCLONE: alive and in game — F10 may go here now
-                arrows_due = alive and _arrows_low(current, arrows)   # fewer than ARROWS_MIN: take a pack now
-                if alive and not (repair_due or service_due or arrows_due):
-                    # nothing to do this visit — say so, so a quiet log doesn't look like a hang
-                    left = SERVICE_INTERVAL - (time.time() - _last_service.get(current, 0))
-                    print(f'[DESKTOP] {current + 1}/{total} — idle, next service in {_fmt_left(left)}')
-                elif alive:
-                    print(f'[DESKTOP] Processing {current + 1}/{total}'
-                          + (' — repair' if repair_due else '') + (' — service' if service_due else '')
-                          + (f' — arrows ({arrows} left)' if arrows_due else ''))
-                    if not _open_bank_quick():
-                        # no response to Alt+P: likely disconnected — skip, retry next visit
-                        print(f'[DESKTOP] {current + 1}/{total} — bank did not open (disconnected?), skipping')
-                    else:
-                        if repair_due:
-                            run_repair()
-                            pending_repair.discard(current)
-                        if arrows_due:
-                            _check_arrows(current, _who(current, accts))
-                        if service_due:
-                            _service(current, accts)
-                        panels.close_all()   # inventory, bank and VIP menu
-                time.sleep(VISIT_WAIT)
-        except OSError as e:
-            # a screen grab refused mid-visit (session locked, or switching screens — e.g. the RDP
-            # session handed back to the console): wait for the screen, then carry on
-            print(f'[DESKTOP] {current + 1}/{total} — screen unavailable ({e}); waiting for it')
-            screen.wait_for_screen()
-
-        _f10_desktop = None   # stop F10 before leaving (or re-checking) this desktop
-        if total < 2:
-            continue
-        rev = _rev_jump(current, total)      # a dead desktop told to revive now goes first...
-        low = _arrows_jump(current, total)   # ...then one low on arrows
-        if rev is not None:
-            print(f'[REVIVE] desktop {rev + 1} was told to revive now (Telegram) — going there now')
-            current = rev
-        elif low is not None:
-            print(f'[ARROWS] desktop {low + 1} has only {_arrows_seen.get(low)} arrow(s) — going there now')
-            current = low
-        else:
-            current = (current + 1) % total   # after the last desktop, jump straight back to 1
-        _go_to_desktop(current)
+        time.sleep(1)
 
 
 if __name__ == '__main__':
-    # When frozen, an unhandled exception would otherwise close the console
-    # window instantly and the error is never seen - print it and wait.
-    game_input.ensure_driver()   # offers to install the driver if missing; never stops the script
+    pynput_kb.Listener(on_press=lambda k: _on_key(k, True), on_release=lambda k: _on_key(k, False),
+                       daemon=True).start()
     overlay.start()
     _setup_log()
     try:
@@ -748,8 +457,8 @@ if __name__ == '__main__':
     except Exception as e:
         import traceback
         traceback.print_exc()
-        notify.send_and_wait(f'\u274C Dragon CO2 stopped on {_os.environ.get("COMPUTERNAME", "this PC")}: '
+        notify.send_and_wait(f'❌ Dragon CO2 stopped on {os.environ.get("COMPUTERNAME", "this PC")}: '
                              f'{type(e).__name__}: {e}'[:900])
-        if getattr(_sys, 'frozen', False):
+        if getattr(sys, 'frozen', False):
             input('\nCrashed - press Enter to close...')
         raise

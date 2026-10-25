@@ -191,6 +191,26 @@ def untypeable(text):
     return [c for c in text if ctypes.windll.user32.VkKeyScanExW(ord(c), hkl) in (-1, 0xFFFF)]
 
 
+def send_with(whisper, killer, message=None):
+    """Like send(), through `whisper(player, text)` (e.g. game_actions.whisper - no screen, no keys).
+    Returns the text sent, or False."""
+    custom = bool(message)
+    lines = [message] if message else _messages()
+    if not lines:
+        print('[KILL] no reply messages set — nothing sent')
+        return False
+    message = lines[0] if custom else _pick(lines)
+    try:
+        whisper(killer, message)
+    except OSError as e:
+        print(f'[KILL] could not whisper {killer} ({e})')
+        return False
+    print(f'[KILL] sent to {killer}: {message!r}')
+    if not custom:
+        _mark_used(message, lines)
+    return message
+
+
 def send(killer, message=None):
     """Whispers `killer` a MESSAGES line not sent before (or `message`). Returns the text sent,
     or False."""
