@@ -146,9 +146,8 @@ def _hunt(pid, name):
     deposited, checked_bag = 0, 0.0
     print(f'{name}: hunting')
     while True:
-        with _lock:
-            if name not in _checked:
-                break
+        if not ticked(name):
+            break
         now = time.time()
         if XP_SLOT is not None and now - xp_pressed >= XP_EVERY and game_actions.xp_ready(pid):
             try:
@@ -211,16 +210,23 @@ def _accounts():
     return accounts
 
 
-def _window():
-    """The checklist: one row per logged-in account - tick it to hunt with it."""
+def ticked(name):
+    """True while the character is ticked in the window - a hunt runs until this turns False."""
+    with _lock:
+        return name in _checked
+
+
+def _window(hunt=None, title='Monk hunt', heading='Ticked accounts hunt the monsters around them'):
+    """The checklist: one row per logged-in account - tick it to run `hunt`(pid, name) with it (on
+    a thread of its own, until it's unticked: ticked(name); it shows its doing in _status[name])."""
     import tkinter as tk
 
+    hunt = hunt or _hunt
     root = tk.Tk()
-    root.title('Monk hunt')
+    root.title(title)
     root.attributes('-topmost', True)
     root.resizable(False, False)
-    tk.Label(root, text='Ticked accounts hunt the monsters around them',
-             font=('Segoe UI', 10, 'bold')).pack(anchor='w', padx=10, pady=(8, 4))
+    tk.Label(root, text=heading, font=('Segoe UI', 10, 'bold')).pack(anchor='w', padx=10, pady=(8, 4))
     rows = tk.Frame(root)
     rows.pack(fill='x', padx=10)
     boxes = {}   # character -> (BooleanVar, Label)
@@ -237,7 +243,7 @@ def _window():
             ticked = name in _checked
         thread = _hunting.get(name)
         if ticked and name in accounts and not (thread and thread.is_alive()):
-            _hunting[name] = threading.Thread(target=_hunt, args=(accounts[name], name), daemon=True)
+            _hunting[name] = threading.Thread(target=hunt, args=(accounts[name], name), daemon=True)
             _hunting[name].start()
 
     def tick_all(on):

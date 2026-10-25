@@ -4,7 +4,8 @@ injection, game_memory.py reads):
 
   - log in      bg_login.py: the launcher (it pulls updates, PLAY pressed for you) + the login
                 screen's own auto-login; again whenever a game closes, crashes or gets disconnected
-  - hunt        Scatter 4 times around the character, over and over (background_hunt.py)
+  - hunt        Scatter 4 times around the character, over and over (background_hunt.py) - not
+                while scripts/auto_hunt.py runs it (that one moves it and casts itself)
   - + items     -> VIP compose warehouse (Deposit); with MAIL_COMPOSE on, mailed to MAIL_TO every
                 MAIL_EVERY seconds, which claims them and deposits them in its own (mail_compose.py)
   - dragonballs 10 -> a dragonball scroll -> a regular remote bank tab
@@ -42,6 +43,7 @@ import kill_watch
 import mail_compose
 import notify
 import overlay
+import travel
 from dragon_settings import get_settings, override_dir
 
 LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
@@ -452,6 +454,10 @@ class _Account:
                 self.service()
                 self.f10()
                 arrows = game_memory._read_equipped_pid(self.pid)[0]
+                if travel.claimed(self.name):           # auto_hunt.py moves it and casts itself
+                    self.say(f'auto hunt - arrows {arrows}')
+                    time.sleep(1)
+                    continue
                 self.say(f'hunting - arrows {arrows}')
                 background_hunt.scatter_around(self.pid)
             except Exception as e:      # one account's trouble never stops the others
