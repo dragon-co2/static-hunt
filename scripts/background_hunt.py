@@ -72,20 +72,34 @@ def ensure_arrows(pid, name):
     if equipped is None or equipped >= _arrows_min():
         return True
     packs = [p for p in game_memory.bag_arrow_packs(pid) if p[1] > equipped]   # only a fuller one
+    if packs:
+        return _equip(pid, name, packs, equipped)
+    try:
+        return _arrows_from_bank(pid, name, equipped)
+    finally:
+        game_actions.close_bank_windows(pid)            # the bank and the bag it brought up
+
+
+def _arrows_from_bank(pid, name, equipped):
+    """The biggest arrow pack out of the bank (opened from afar), equipped."""
+    _open_bank(pid, game_memory.ARROW_BANK)             # from afar, reloaded (else no withdraw)
+    time.sleep(1)
+    bank = _wait(lambda: game_memory.bank_items(pid), BANK_WAIT) or []
+    in_bank = sorted((i for i in bank if i[1] in game_memory.ARROW_TYPES), key=lambda i: -i[2])
+    if not in_bank:
+        print(f'{name}: only {equipped} arrows equipped and no arrow pack in the bank')
+        return False
+    pack_id = in_bank[0][0]
+    game_actions.bank_withdraw(pid, pack_id)
+    packs = _wait(lambda: [p for p in game_memory.bag_arrow_packs(pid) if p[0] == pack_id], BANK_WAIT)
     if not packs:
-        _open_bank(pid, game_memory.ARROW_BANK)         # from afar, reloaded (else no withdraw)
-        time.sleep(1)
-        bank = _wait(lambda: game_memory.bank_items(pid), BANK_WAIT) or []
-        in_bank = sorted((i for i in bank if i[1] in game_memory.ARROW_TYPES), key=lambda i: -i[2])
-        if not in_bank:
-            print(f'{name}: only {equipped} arrows equipped and no arrow pack in the bank')
-            return False
-        pack_id = in_bank[0][0]
-        game_actions.bank_withdraw(pid, pack_id)
-        packs = _wait(lambda: [p for p in game_memory.bag_arrow_packs(pid) if p[0] == pack_id], BANK_WAIT)
-        if not packs:
-            print(f'{name}: the arrow pack never left the bank')
-            return False
+        print(f'{name}: the arrow pack never left the bank')
+        return False
+    return _equip(pid, name, packs, equipped)
+
+
+def _equip(pid, name, packs, equipped):
+    """Equips the fullest of `packs` (bag arrow packs). True once the equipped count went up."""
     pack_id, amount = max(packs, key=lambda p: p[1])
     game_actions.use(pid, pack_id)
     now = _wait(lambda: (game_memory._read_equipped_pid(pid)[0] or 0) > equipped and
@@ -115,6 +129,16 @@ def dragonball_scrolls(pid, name):
         game_actions.use(pid, balls[0])
         _wait(lambda: game_memory.bag_items_of(pid, game_memory.DB_SCROLL), BANK_WAIT)
         print(f'{name}: {len(balls)} dragonballs made into a scroll')
+    if not game_memory.bag_items_of(pid, game_memory.DB_SCROLL):
+        return
+    try:
+        _bank_scrolls(pid, name)
+    finally:
+        game_actions.close_bank_windows(pid)            # the bank and the bag it brought up
+
+
+def _bank_scrolls(pid, name):
+    """Every dragonball scroll in the bag into a regular bank tab (the next one if a tab is full)."""
     for key in REGULAR_BANKS:
         scrolls = game_memory.bag_items_of(pid, game_memory.DB_SCROLL)
         if not scrolls:

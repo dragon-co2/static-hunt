@@ -75,6 +75,8 @@ HERO_TALK    = 0x0061419D     # CHero::Talk(to, text, 0, color, channel, style) 
 CHAT_WHISPER = 2001           # the whisper channel
 BANK_OPEN    = 0x0068D811     # warehouse manager.Open(kind, id): load a warehouse (MsgPackage 0)
 BANK_WITHDRAW = 0x0068DA98    # warehouse manager.Withdraw(kind, id, item id) (MsgPackage 2)
+CLOSE_BUTTONS = [(1622, 1536),   # the warehouse window: its X (1622), its first tab (1536)
+                 (1128, 1126)]   # the bag window: its Close (1128), its item grid (1126)
 BANK_DEPOSIT = 0x0068D9FD     # warehouse manager.Deposit(kind, id, item id) (MsgPackage 1)
 BANK_QUERY   = 0x0068D957     # warehouse manager.Query(kind, id, page): its items again (MsgPackage 0)
 HERO_REVIVE  = 0x006186C3     # CHero::Revive(mode) - the death window: 0 = revive, 1 = revive here
@@ -573,6 +575,40 @@ def vip_command(pid, code):
          + b'\xB8' + struct.pack('<I', base + CO_SEND) + b'\xFF\xD0'   # call Co.dll's send
          + b'\x83\xC4\x04'                                     # add esp, 4 (the caller pops it)
          + b'\x33\xC0\xC9\xC2\x04\x00')
+
+
+def close_bank_windows(pid):
+    """Closes the warehouse window and the bag (inventory) that opening the bank brings up - as if
+    their close buttons were clicked: WM_COMMAND to each (MFC) dialog with its button's id. Returns
+    how many were closed."""
+    user32 = ctypes.windll.user32
+    closed = 0
+    cb = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+    dialogs = []
+
+    def _child(hwnd, _):
+        name = ctypes.create_unicode_buffer(16)
+        user32.GetClassNameW(hwnd, name, 16)
+        if name.value == '#32770' and user32.IsWindowVisible(hwnd):
+            dialogs.append(hwnd)
+        return True
+
+    def _top(hwnd, _):
+        owner = ctypes.wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid:
+            user32.EnumChildWindows(hwnd, cb(_child), 0)
+        return True
+
+    user32.EnumWindows(cb(_top), 0)
+    for dialog in dialogs:
+        for button_id, other_id in CLOSE_BUTTONS:          # (its close button, a button only it has)
+            button = user32.GetDlgItem(dialog, button_id)
+            if button and user32.GetDlgItem(dialog, other_id):
+                user32.PostMessageW(dialog, 0x111, button_id, button)   # WM_COMMAND, BN_CLICKED
+                closed += 1
+                break
+    return closed
 
 
 def bank_open(pid, key=game_memory.ARROW_BANK):
