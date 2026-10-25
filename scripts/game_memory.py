@@ -475,8 +475,9 @@ def compose_items(pid):
         _kernel32.CloseHandle(handle)
 
 
-MAIL_RECEIVER = 0x63BC0   # NoteData.dll + this: the mail Write tab's receiver, as the server's answer
-                          # to Search set it: id, then name (std::string: 16-byte buffer, length, capacity)
+MAIL_RECEIVER = 0x63F98   # NoteData.dll + this: the server's answer to the mail's last Search (set with
+                          # the mail window closed too): id, then name (std::string: 16-byte buffer,
+                          # length, capacity). (+0x63BC0 is the Write tab's copy - only while it's open)
 
 
 def mail_receiver(pid):

@@ -614,7 +614,7 @@ def _note_send(pid, data):
 
 def mail_search(pid, name):
     """Mail > Write: the To box's Search for the character `name` - the server's answer sets the
-    receiver (game_memory.mail_receiver), only while the mail window is open."""
+    receiver (game_memory.mail_receiver), the mail window open or not."""
     _note_send(pid, struct.pack('<I32s', MAIL_SEARCH, name.encode('cp1252')[:31]))
 
 

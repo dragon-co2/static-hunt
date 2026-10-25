@@ -44,7 +44,7 @@ def _bag(pid):
 
 def _receiver(pid, name):
     """The id of the character `name`: read from its game if it's logged in here, else the mail's
-    Search (answered only while the mail window is open). None if not found."""
+    Search (the character found anywhere on the server). None if not found."""
     for other in game_memory.game_pids():
         if (game_memory._name_pid(other) or '').lower() == name.lower():
             found = game_memory.hero_id(other)
