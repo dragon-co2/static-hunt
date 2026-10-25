@@ -17,9 +17,6 @@ injection, game_memory.py reads):
   - F10         with F10_CYCLONE on, the F10 hotkey is used every F10_EVERY seconds
 
 One thread per account. Ctrl+Shift+C stops everything."""
-import atexit
-import ctypes
-import ctypes.wintypes
 import json
 import logging
 import logging.handlers
@@ -128,49 +125,6 @@ def _setup_log():
     logger.info('=' * 20 + ' static.py (background) started ' + '=' * 20)
 
 
-FOCUS_FLAGS = ('NoFocusGuard.flag', 'NoFakeActivation.flag')   # next to the client's version.dll:
-FLAG_MARK = 'made by Dragon CO2 - removed when it stops\n'       # its FocusGuard / login-window
-                                                                 # activation pull the game to the
-                                                                 # front (AttachThreadInput +
-                                                                 # SetForegroundWindow); read when a
-                                                                 # client starts
-
-
-def _client_dirs():
-    """The game's data2 folders: next to GAME_PATH, and those of the games running now."""
-    dirs = set()
-    launcher = accounts.game_path()
-    if launcher:
-        dirs.add(os.path.join(os.path.dirname(launcher), 'data2'))
-    for pid in game_memory.game_pids():
-        handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)   # QUERY_LIMITED_INFORMATION
-        if handle:
-            buf, size = ctypes.create_unicode_buffer(520), ctypes.wintypes.DWORD(520)
-            if ctypes.windll.kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
-                dirs.add(os.path.dirname(buf.value))
-            ctypes.windll.kernel32.CloseHandle(handle)
-    return {d for d in dirs if os.path.isfile(os.path.join(d, 'version.dll'))}
-
-
-def _focus_flags(on):
-    """on: writes the flags that stop the clients pulling their window to the front (only while
-    this program runs); off: removes the ones it wrote - never one you made yourself."""
-    for folder in _client_dirs():
-        for flag in FOCUS_FLAGS:
-            path = os.path.join(folder, flag)
-            try:
-                ours = os.path.isfile(path) and open(path, encoding='utf-8', errors='ignore').read() == FLAG_MARK
-                if on and not os.path.exists(path):
-                    with open(path, 'w', encoding='utf-8') as f:
-                        f.write(FLAG_MARK)
-                elif not on and ours:
-                    os.remove(path)
-            except OSError as e:
-                print(f'[FOCUS] {path}: {e}')
-    if on:
-        print('[FOCUS] games started from now on stay in the background (FocusGuard / login activation off)')
-
-
 _shift_held = False
 
 
@@ -181,7 +135,6 @@ def _on_key(key, down):
         return
     if down and getattr(key, 'char', None) == '\x03' and _shift_held:   # Ctrl+Shift+C
         print('  [HOTKEY] Ctrl+Shift+C — exiting')
-        _focus_flags(False)
         os._exit(0)
 
 
@@ -615,8 +568,6 @@ if __name__ == '__main__':
                        daemon=True).start()
     overlay.start()
     _setup_log()
-    _focus_flags(True)
-    atexit.register(_focus_flags, False)       # closing the window / Ctrl+C / a crash
     try:
         _main()
     except Exception as e:
