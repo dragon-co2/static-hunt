@@ -69,11 +69,20 @@ on_whisper = None    # optional listener: on_whisper(sender, character, desktop,
 _WHISPER = re.compile(r'^\[(?P<channel>[A-Za-z]+)\](?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+): ?(?P<text>.*?)'
                       r'\s*(?:\[\d{4}-\d{1,2}-\d{1,2}, \d{1,2}:\d{1,2}\])?\s*$')
 monsters = []        # killer names that are monsters (set by static.py; * = any characters)
+monster_lookup = None   # optional: monster_lookup(name) -> True (a monster) / False (a player) /
+                        # None (not around) - static.py reads it from the games' memory
+_known = {}          # killer name (lower) -> True if a monster, as monster_lookup found it
 
 
 def is_monster(name):
     low = (name or '').lower()
-    return any(fnmatch.fnmatchcase(low, m.lower()) for m in monsters)
+    if any(fnmatch.fnmatchcase(low, m.lower()) for m in monsters):
+        return True
+    if low not in _known and monster_lookup:
+        found = monster_lookup(name)
+        if found is not None:
+            _known[low] = found
+    return _known.get(low, False)
 _recent = {}         # chat text -> time.time() first seen (dedupe across game windows)
 _newest = None       # newest chat-line time seen (the game's clock, from the line's "[date, h:m]")
 _started = False
