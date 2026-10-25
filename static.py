@@ -65,7 +65,7 @@ ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" 
 REPLY_TRIES     = 3      # failed whispers to one player before giving up
 NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character
 
-_login_lock = threading.Lock()    # one login at a time: each new client takes the next auto-login file
+_logging_in = set()               # slots being logged in right now (one at a time - _login_loop)
 _reply_lock = threading.Lock()
 _reply_due  = {}    # slot -> [killer, ...] to whisper once revived
 _custom_due = {}    # slot -> [(player, text, telegram msg id)] typed in Telegram
@@ -213,7 +213,7 @@ def _on_tg_reply(ref, text, msg_id):
 
 def _on_tg_command(command, ref, msg_id):
     if command == 'revall':
-        _rev_now.update(a.slot for a in _accts)
+        _rev_now.update(_status.keys())             # every account / game being run
         what = 'every dead account revives now (no revive wait)'
     else:
         _rev_now.add(ref['desktop'])
@@ -225,10 +225,15 @@ def _on_tg_command(command, ref, msg_id):
 # ---------------------------------------------------------------- one account
 
 class _Account:
-    def __init__(self, acc):
-        self.acc, self.slot = acc, acc.slot
-        self.name = acc.name or _load_names().get(acc.username, '')
-        self.pid = None
+    """One account's hunt. Auto-login mode: `acc` from the Accounts settings, logged in by
+    _login_loop. Manual mode: acc is None - a game you opened yourself (`pid`, `name`), run while
+    its toggle in the window is on, never logged in again by the script."""
+
+    def __init__(self, slot, acc=None, pid=None, name=''):
+        self.acc, self.slot = acc, slot
+        self.name = name or (acc and (acc.name or _load_names().get(acc.username, ''))) or ''
+        self.pid = pid
+        self.enabled = acc is not None    # manual mode: the window's toggle
         self.in_game_once = False
         self.down = None              # [what happened, failure already reported] while it's out
         self.last_launch = 0.0
@@ -243,30 +248,36 @@ class _Account:
         self.reply_tries = {}
 
     def who(self):
-        return self.name or self.acc.username
+        return self.name or (self.acc.username if self.acc else f'game {self.pid}')
 
     def say(self, text):
         _status[self.slot] = f'{self.slot}({self.who()}) {text}'
 
     # -- in the game?
-    def ensure_in_game(self):
-        """True once this account's character is in a game (logs in when it isn't)."""
-        if self.pid and game_memory._name_pid(self.pid) == self.name and self.name:
+    def in_game(self):
+        """True while this account's character is in a game (finds it again after a restart)."""
+        if self.pid and self.name and game_memory._name_pid(self.pid) == self.name:
             return True
-        pid = _find_game(self.name)
+        pid = self.acc and _find_game(self.name)
         if pid:
             return self._got(pid)
         if self.in_game_once:
             self.in_game_once = False
-            self.down = self.down or ['the game closed / crashed / was disconnected', False]
-            print(f'[ACCOUNTS] {self.who()}: not in the game any more — logging in again')
-        if time.time() - self.last_launch < LAUNCH_COOLDOWN:
-            self.say(f'login retry in {_fmt(LAUNCH_COOLDOWN - (time.time() - self.last_launch))}')
-            return False
+            if self.acc:
+                self.down = self.down or ['the game closed / crashed / was disconnected', False]
+                print(f'[ACCOUNTS] {self.who()}: not in the game any more — it will be logged in again')
+            else:
+                print(f'[ACCOUNTS] {self.who()}: its game closed / logged out')
+        return False
+
+    def login_due(self):
+        return self.acc and time.time() - self.last_launch >= LAUNCH_COOLDOWN
+
+    def login(self):
+        """Logs this account in (auto-login mode) - called by _login_loop, one account at a time."""
         self.say('logging in...')
-        with _login_lock:
-            self.last_launch = time.time()
-            pid = bg_login.login_retry(self.acc)
+        self.last_launch = time.time()
+        pid = bg_login.login_retry(self.acc)
         if not pid:
             if self.down and not self.down[1]:
                 self.down[1] = True
@@ -279,9 +290,10 @@ class _Account:
         self.pid = pid
         name = game_memory._name_pid(pid)
         if name and name != self.name:
-            print(f'[ACCOUNTS] {self.acc.username}: character {name}')
+            print(f'[ACCOUNTS] {self.who()}: character {name}')
             self.name = name
-        _save_name(self.acc.username, self.name)
+        if self.acc:
+            _save_name(self.acc.username, self.name)
         kill_watch.set_character(self.name, self.slot)
         self.in_game_once = True
         if self.down:
@@ -402,8 +414,17 @@ class _Account:
     def run(self):
         while True:
             try:
-                if not self.ensure_in_game():
-                    time.sleep(5)
+                if not self.enabled:
+                    self.say('off')
+                    time.sleep(1)
+                    continue
+                if not self.in_game():
+                    if not self.acc:            # manual mode: its game is gone - this one is done
+                        self.say('game closed')
+                        return
+                    if self.slot not in _logging_in:
+                        self.say('waiting for its turn to log in')
+                    time.sleep(2)
                     continue
                 self.handle_kills()
                 if not self.alive_or_revived():
@@ -420,17 +441,25 @@ class _Account:
                 time.sleep(3)
 
 
-def _main():
-    global _accts
-    if not accounts.enabled():
-        print('[ACCOUNTS] turn on Accounts in the settings and fill the accounts in')
-        return
-    _accts = accounts.load()
-    if not _accts:
-        print('[ACCOUNTS] no account filled in')
-        return
-    print(f'[ACCOUNTS] {len(_accts)} account(s): ' + ', '.join(a.username for a in _accts))
-    workers = [_Account(a) for a in _accts]
+def _login_loop(workers):
+    """Auto-login mode: the accounts are logged in one after another, in their order - the next
+    only once the one before is in the game (or its login gave up). Runs for good: an account that
+    drops out is logged in again on the next pass."""
+    while True:
+        for w in workers:
+            if w.in_game() or not w.login_due():
+                continue
+            _logging_in.add(w.slot)
+            try:
+                w.login()
+            except Exception as e:
+                print(f'[ACCOUNTS] {w.who()}: login failed - {type(e).__name__}: {e}')
+            finally:
+                _logging_in.discard(w.slot)
+        time.sleep(2)
+
+
+def _watch_chat(workers):
     if kill_reply.enabled() or REVIVE_TIME_MULTIPLIER > 1 or notify.enabled() or MONSTERS:
         kill_watch.ensure_chat_log(accounts.game_path())
         kill_watch.on_kill = _on_kill
@@ -440,9 +469,79 @@ def _main():
         notify.on_command = _on_tg_command
         notify.listen()
         kill_watch.start({w.name: w.slot for w in workers if w.name}, accounts.game_path())
+
+
+def _start(worker):
+    threading.Thread(target=worker.run, daemon=True, name=f'account-{worker.slot}').start()
+
+
+def _manual_window():
+    """Auto-login off: a window listing the games that are logged in (opened by you) - the ticked
+    ones hunt. New games show up by themselves; closing the window stops everything."""
+    import tkinter as tk
+
+    root = tk.Tk()
+    root.title('Dragon CO2 - games')
+    root.attributes('-topmost', True)
+    root.resizable(False, False)
+    tk.Label(root, text='Ticked games hunt (Accounts auto-login is off)',
+             font=('Segoe UI', 10, 'bold')).pack(anchor='w', padx=10, pady=(8, 4))
+    rows = tk.Frame(root)
+    rows.pack(fill='x', padx=10, pady=(0, 8))
+    shown = {}      # pid -> (worker, BooleanVar, Label)
+
+    def toggle(pid):
+        worker, var, _ = shown[pid]
+        worker.enabled = var.get()
+        print(f'[ACCOUNTS] {worker.who()}: ' + ('hunting' if worker.enabled else 'off'))
+
+    def refresh():
+        for pid in game_memory.game_pids():
+            name = game_memory._name_pid(pid)
+            if not name or pid in shown:
+                continue
+            slot = len(shown) + 1
+            worker = _Account(slot, pid=pid, name=name)
+            worker.in_game()
+            kill_watch.set_character(name, slot)
+            var = tk.BooleanVar(value=False)
+            row = tk.Frame(rows)
+            row.pack(fill='x', pady=1)
+            tk.Checkbutton(row, text=name, variable=var, width=16, anchor='w', font=('Segoe UI', 10),
+                           command=lambda p=pid: toggle(p)).pack(side='left')
+            info = tk.Label(row, font=('Consolas', 9), anchor='w', width=44)
+            info.pack(side='left')
+            shown[pid] = (worker, var, info)
+            _start(worker)
+        for pid, (worker, var, info) in shown.items():
+            text = _status.get(worker.slot, '')
+            info.config(text=text.split(') ', 1)[-1], fg='green' if worker.enabled else 'gray')
+        root.after(1000, refresh)
+
+    refresh()
+    root.mainloop()
+
+
+def _main():
+    global _accts
     threading.Thread(target=_status_loop, daemon=True, name='status').start()
+    if not accounts.enabled():
+        print('[ACCOUNTS] Accounts auto-login is off - pick the games to run in the window')
+        _watch_chat([])
+        _manual_window()
+        print('[ACCOUNTS] window closed - stopped')
+        return
+    _accts = accounts.load()
+    if not _accts:
+        print('[ACCOUNTS] no account filled in')
+        return
+    print(f'[ACCOUNTS] {len(_accts)} account(s), logged in one after another: '
+          + ', '.join(a.username for a in _accts))
+    workers = [_Account(a.slot, acc=a) for a in _accts]
+    _watch_chat(workers)
     for w in workers:
-        threading.Thread(target=w.run, daemon=True, name=f'account-{w.slot}').start()
+        _start(w)
+    threading.Thread(target=_login_loop, args=(workers,), daemon=True, name='logins').start()
     while True:
         time.sleep(1)
 
