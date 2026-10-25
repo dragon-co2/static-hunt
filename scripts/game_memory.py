@@ -499,6 +499,39 @@ def mail_receiver(pid):
         _kernel32.CloseHandle(handle)
 
 
+MAILS      = 0x63F40      # NoteData.dll + this: vector (begin, end) of the mailbox's mails (as the server
+MAIL_ENTRY = 0x68         # last sent them) - 0x68-byte entries: id, sender (std::string), subject
+MAIL_UNREAD = 0x4D        # (std::string) ...; this byte is 1 while it's unread (the red dot)
+
+
+def mails(pid):
+    """[(mail id, sender, unread)] of this character's mailbox, as last loaded. [] if unknown."""
+    base = _module_base(pid, 'NoteData.dll')
+    if not base:
+        return []
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        begin, end = struct.unpack('<2I', _read(handle, base + MAILS, 8))
+        count = (end - begin) // MAIL_ENTRY
+        if not 0 < count <= 1000:
+            return []
+        raw = _read(handle, begin, count * MAIL_ENTRY)
+        out = []
+        for n in range(count):
+            entry = raw[n * MAIL_ENTRY:(n + 1) * MAIL_ENTRY]
+            length, capacity = struct.unpack_from('<2I', entry, 0x14)
+            text = entry[4:0x14] if capacity < 16 else _read(handle, struct.unpack_from('<I', entry, 4)[0], length)
+            out.append((struct.unpack_from('<I', entry)[0], text[:length].decode('cp1252', 'replace'),
+                        bool(entry[MAIL_UNREAD])))
+        return out
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
 PACKAGES    = 0x008E8710  # the warehouse manager: an STLport map - [this] = header node, whose +4 is
                           # the root; node: +8 left, +0xC right, +0x10 key (kind, id), +0x18 the
                           # warehouse, whose +4 is a deque of its items (like the bag)

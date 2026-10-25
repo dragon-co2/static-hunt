@@ -57,14 +57,13 @@ F10_EVERY   = 10
 F10_SLOT    = 9                         # F10
 MAIL_EVERY  = 600                       # seconds between mails of the compose items to MAIL_TO (the
                                         # first right as an account is in the game)
-RECEIVE_AGAIN = 60                      # MAIL_TO claims at start, then again this long after
+_mail_sent  = threading.Event()         # set once one of ours mailed MAIL_TO: it claims right away
 
-_R = get_settings('revive', {'REVIVE_DELAY': 360, 'REVIVE_TIME_MULTIPLIER': 2, 'MAX_REVIVE_WAIT': 1800,
-                             'MONSTERS': 'Pheasant*\nBloodyBat*\nBullMonster*\nBullKing*\nHawKing*\nSandMonster*'})
+_R = get_settings('revive', {'REVIVE_DELAY': 360, 'REVIVE_TIME_MULTIPLIER': 2, 'MAX_REVIVE_WAIT': 1800})
 REVIVE_DELAY = _R['REVIVE_DELAY']        # seconds dead before Revive Here
 REVIVE_TIME_MULTIPLIER = max(1.0, float(_R['REVIVE_TIME_MULTIPLIER']))   # same killer again: x this
 MAX_REVIVE_WAIT = _R['MAX_REVIVE_WAIT']  # ...up to this
-MONSTERS = [m.strip() for m in (_R['MONSTERS'] or '').replace('\\n', '\n').splitlines() if m.strip()]
+PLAYER_IDS = 1000000                     # role ids from here up are players, below are monsters / NPCs
 
 SERVICE_EVERY   = 10     # seconds between looks at the bag (+ items) and the equipped arrows
 LAUNCH_COOLDOWN = 10     # seconds before a failed login is tried again
@@ -404,15 +403,17 @@ class _Account:
             background_hunt.repair(self.pid, self.name)
         background_hunt.dragonball_scrolls(self.pid, self.name)
         background_hunt.deposit_plus(self.pid, self.name)
-        if MAIL_TO and time.time() - self.last_mail >= MAIL_EVERY:
-            first = not self.last_mail
+        if MAIL_TO and self.name.lower() == MAIL_TO.lower():
+            # the receiver: as soon as one of ours mailed it, or a mail shows unread, else every MAIL_EVERY
+            if _mail_sent.is_set() or mail_compose.unread(self.pid) or \
+                    time.time() - self.last_mail >= MAIL_EVERY:
+                _mail_sent.clear()
+                self.last_mail = time.time()
+                mail_compose.receive(self.pid, self.name)      # Claim All, Deposit, mark read
+        elif MAIL_TO and time.time() - self.last_mail >= MAIL_EVERY:
             self.last_mail = time.time()
-            if self.name.lower() == MAIL_TO.lower():
-                mail_compose.receive(self.pid, self.name)      # Claim All, then Deposit
-                if first:                                      # again once the others' first mails are in
-                    self.last_mail -= MAIL_EVERY - RECEIVE_AGAIN
-            else:
-                mail_compose.transfer(self.pid, self.name, MAIL_TO)
+            if mail_compose.transfer(self.pid, self.name, MAIL_TO):
+                _mail_sent.set()
         if not background_hunt.ensure_arrows(self.pid, self.name):
             left = game_memory._read_equipped_pid(self.pid)[0]
             if (left == 0 or not game_memory.bank_items(self.pid)) and \
@@ -477,15 +478,27 @@ def _login_loop(workers):
 
 
 def _watch_chat(workers):
-    if kill_reply.enabled() or REVIVE_TIME_MULTIPLIER > 1 or notify.enabled() or MONSTERS:
-        kill_watch.ensure_chat_log(accounts.game_path())
-        kill_watch.on_kill = _on_kill
-        kill_watch.on_whisper = _on_whisper
-        kill_watch.monsters = MONSTERS
-        notify.on_reply = _on_tg_reply
-        notify.on_command = _on_tg_command
-        notify.listen()
-        kill_watch.start({w.name: w.slot for w in workers if w.name}, accounts.game_path())
+    kill_watch.ensure_chat_log(accounts.game_path())
+    kill_watch.on_kill = _on_kill
+    kill_watch.on_whisper = _on_whisper
+    kill_watch.monster_lookup = _monster_named
+    notify.on_reply = _on_tg_reply
+    notify.on_command = _on_tg_command
+    notify.listen()
+    kill_watch.start({w.name: w.slot for w in workers if w.name}, accounts.game_path())
+
+
+def _monster_named(name):
+    """True if the role called `name` around one of our characters is a monster (its id is below
+    the players'), False if a player, None if no game sees it."""
+    for pid in game_memory.game_pids():
+        for role_name, role in game_actions.roles(pid):
+            if role_name.lower() == name.lower():
+                try:
+                    return game_actions.role_id(pid, role) < PLAYER_IDS
+                except OSError:                 # freed while we were reading it
+                    continue
+    return None
 
 
 def _start(worker):

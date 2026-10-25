@@ -92,6 +92,7 @@ COMPOSE_LIST, COMPOSE_WITHDRAW = 1, 3
 CO_MSG_MAIL  = 0x1FA4         # its message 8100: the mail window's (NoteData.dll) messages, wrapped
 MAIL_SEARCH, MAIL_WRITE = 1, 0x14   # its messages: {1, name[32]} Search, {0x14, ...} Write > Send,
 MAIL_LIST, MAIL_CLAIM_ALL = 0x16, 0x15   # {0x16} the mailbox's mails (opening it), {0x15} Claim All
+MAIL_READ    = 5              # {5, mail id}: clicking an unread mail - marks it read (the red dot goes)
 MAIL_ITEMS_MAX = 5            # items one mail can carry
 HERO_PICK_UP = 0x00683A4F     # CHero::PickUp(item id, x, y) - left-clicking an item on the ground
 ON_HOTKEY    = 0x0059170B     # main UI.OnHotkey(slot | id << 8) - what pressing F1..F10 does
@@ -623,6 +624,16 @@ def mail_claim_all(pid):
     _note_send(pid, struct.pack('<I', MAIL_LIST))
     time.sleep(1)
     _note_send(pid, struct.pack('<I', MAIL_CLAIM_ALL))
+
+
+def mail_list(pid):
+    """Asks the server for the mailbox's mails (game_memory.mails) - what opening it does."""
+    _note_send(pid, struct.pack('<I', MAIL_LIST))
+
+
+def mail_read(pid, mail_id):
+    """Marks the mail `mail_id` read - what clicking it in the mailbox does (its red dot goes)."""
+    _note_send(pid, struct.pack('<2I', MAIL_READ, mail_id))
 
 
 def mail_send(pid, to_id, item_ids, gold=0, cps=0, subject='', text=''):

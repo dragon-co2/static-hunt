@@ -4,7 +4,8 @@ VIP > Compose > Compose Warehouse > Withdraw - and mails them, MAIL_ITEMS_MAX a 
 character - Mail > Write: Search the name, the items in the boxes, Send. Until the warehouse is empty.
 (game_actions.py compose_withdraw / mail_search / mail_send, game_memory.py compose_items.)
     python mail_compose.py <from character> <to character>          everything
-    python mail_compose.py <from character> <to character> --once   one mail only"""
+    python mail_compose.py <from character> <to character> --once   one mail only
+    python mail_compose.py <character> --receive    Claim All, Deposit, every mail marked read"""
 import sys
 import time
 
@@ -98,7 +99,8 @@ def transfer(pid, name, to, once=False):
 
 def receive(pid, name):
     """The receiving side: Claim All in the mail, then the + items that came into the bag go to the
-    compose warehouse (Deposit). Returns how many came."""
+    compose warehouse (Deposit), and every unread mail is marked read (as if clicked - no red dots
+    left). Returns how many items came."""
     before = _bag(pid)
     game_actions.mail_claim_all(pid)
     _wait(lambda: _bag(pid) - before)
@@ -108,16 +110,38 @@ def receive(pid, name):
         print(f'{name}: {came} + item(s) claimed from the mail')
         game_actions.compose_deposit(pid)
         print(f'{name}: deposited to the compose warehouse')
+    mark_read(pid, name)
     return came
 
 
+def unread(pid):
+    """Ids of the unread mails in this character's mailbox (as last loaded)."""
+    return [m[0] for m in game_memory.mails(pid) if m[2]]
+
+
+def mark_read(pid, name):
+    """Every unread mail marked read - each clicked, as it were. Returns how many."""
+    game_actions.mail_list(pid)
+    time.sleep(1)
+    ids = unread(pid)
+    for mail_id in ids:
+        game_actions.mail_read(pid, mail_id)
+        time.sleep(0.1)
+    if ids:
+        print(f'{name}: {len(ids)} mail(s) marked read')
+    return len(ids)
+
+
 def main():
-    args = [a for a in sys.argv[1:] if a != '--once']
+    args = [a for a in sys.argv[1:] if a not in ('--once', '--receive')]
+    accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids()}
+    if args and args[0] not in accounts:
+        sys.exit(f'{args[0]} is not logged in')
+    if '--receive' in sys.argv and len(args) == 1:
+        receive(accounts[args[0]], args[0])
+        return
     if len(args) != 2:
         sys.exit(__doc__)
-    accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids()}
-    if args[0] not in accounts:
-        sys.exit(f'{args[0]} is not logged in')
     sent = transfer(accounts[args[0]], args[0], args[1], once='--once' in sys.argv)
     print(f'{sent} item(s) mailed to {args[1]}')
 
