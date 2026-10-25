@@ -18,8 +18,6 @@ import game_actions
 import game_memory
 
 WAIT = 4.0                      # seconds for the server to answer a list / withdraw / search / send
-MAIL_TRIES = 6                  # sends of one mail - the server sometimes refuses one right after
-MAIL_RETRY = 10.0               # others (a rate limit); seconds before sending it again
 
 
 def _wait(check, seconds=WAIT):
@@ -81,26 +79,8 @@ def _withdraw(pid, name):
     return sorted(_bag(pid) - before)[:game_actions.MAIL_ITEMS_MAX]
 
 
-def _mail(pid, name, to, to_id, ids, in_bag):
-    """Mails the bag items `ids` to `to` - sent again, MAIL_RETRY seconds apart, while the server
-    doesn't take it (`in_bag`() = the ids still in the bag). True once they left the bag."""
-    for attempt in range(MAIL_TRIES):
-        if attempt:
-            print(f'{name}: the server did not take the mail - sending it again in {MAIL_RETRY:.0f}s')
-            time.sleep(MAIL_RETRY)
-            ids = [i for i in ids if i in in_bag()]
-            if not ids:
-                return True
-        game_actions.mail_send(pid, to_id, ids)
-        if _wait(lambda: not in_bag() & set(ids)) is not None:
-            return True
-    print(f'{name}: the mail to {to} was not taken - the items are still in the bag')
-    return False
-
-
 def transfer(pid, name, to, once=False):
-    """Mails the compose warehouse's items from `name` to the character `to` - the + items already
-    in the bag first (left by an earlier run). Returns how many went."""
+    """Mails the compose warehouse's items from `name` to the character `to`. Returns how many went."""
     to_id = _receiver(pid, to)
     if not to_id:
         here = [game_memory._name_pid(p) for p in game_memory.game_pids()]
@@ -108,11 +88,13 @@ def transfer(pid, name, to, once=False):
         return 0
     sent = 0
     while True:
-        ids = sorted(_bag(pid))[:game_actions.MAIL_ITEMS_MAX] or _withdraw(pid, name)
+        ids = _withdraw(pid, name)
         if not ids:
             print(f'{name}: nothing (more) came out of the compose warehouse')
             break
-        if not _mail(pid, name, to, to_id, ids, lambda: _bag(pid)):
+        game_actions.mail_send(pid, to_id, ids)
+        if _wait(lambda: not _bag(pid) & set(ids)) is None:
+            print(f'{name}: the mail to {to} was not taken - the items are still in the bag')
             break
         sent += len(ids)
         print(f'{name}: mailed {len(ids)} item(s) to {to}')
@@ -137,8 +119,9 @@ def send_scrolls(pid, name, to):
                 scrolls = _scrolls_from_bank(pid, name)
             if not scrolls:
                 break
-            if not _mail(pid, name, to, to_id, scrolls,
-                         lambda: set(game_memory.bag_items_of(pid, game_memory.DB_SCROLL))):
+            game_actions.mail_send(pid, to_id, scrolls)
+            if _wait(lambda: not set(game_memory.bag_items_of(pid, game_memory.DB_SCROLL)) & set(scrolls)) is None:
+                print(f'{name}: the mail to {to} was not taken - the scrolls are still in the bag')
                 break
             sent += len(scrolls)
             print(f'{name}: mailed {len(scrolls)} dragonball scroll(s) to {to}')
