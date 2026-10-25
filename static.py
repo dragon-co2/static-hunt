@@ -504,7 +504,7 @@ def _manual_window():
             worker = _Account(slot, pid=pid, name=name)
             worker.in_game()
             kill_watch.set_character(name, slot)
-            var = tk.BooleanVar(value=False)
+            var = tk.BooleanVar(master=root, value=False)   # this window's, not the overlay's Tk
             row = tk.Frame(rows)
             row.pack(fill='x', pady=1)
             tk.Checkbutton(row, text=name, variable=var, width=16, anchor='w', font=('Segoe UI', 10),
