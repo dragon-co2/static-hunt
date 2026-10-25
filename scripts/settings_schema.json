@@ -46,6 +46,18 @@
       "default": 100,
       "label": "Arrows minimum",
       "desc": "On every visit to a desktop, the equipped arrows are read from the game's memory; when fewer than this, a new pack is taken from the bank right away - going through the bank tabs one by one, any pack, full or not - and equipped. No need to wait for the service round."
+    },
+    "MAIL_COMPOSE": {
+      "type": "bool",
+      "default": false,
+      "label": "Mail compose items",
+      "desc": "Every 10 minutes, each account takes its VIP compose warehouse's items out (highest plus first) and mails them, 5 a mail, to the receiving character below. The receiving character itself, if it runs too, claims its mail (Claim All) and deposits the items into its own compose warehouse."
+    },
+    "MAIL_TO": {
+      "type": "text",
+      "default": "",
+      "label": "Receiving character",
+      "desc": "The character name that gets the compose items by mail (as the mail's Search finds it). Leave empty to not mail anything."
     }
   },
   "accounts": {

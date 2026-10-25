@@ -36,6 +36,7 @@ freed. Unlike game_memory.py it is not read-only.
 import ctypes
 import ctypes.wintypes
 import struct
+import time
 
 import game_memory
 
@@ -86,6 +87,12 @@ CO_COMPOSE_DEPOSIT = 0x8BE70  # Co.dll + this: the VIP Compose Warehouse 'Deposi
 CO_SEND      = 0x8B940        # Co.dll + this: its message send (ecx = type, edx = data, push length)
 CO_MSG_REMOTE_WH = 0x1F45     # its message 8005: a VIP command (vip_command)
 VIP_REPAIR_ALL = 30           # 8005 {30}: Repair All
+CO_MSG_COMPOSE = 0x1F6B       # its message 8043: the VIP compose warehouse - {1} list, {3, type, plus, amount} withdraw
+COMPOSE_LIST, COMPOSE_WITHDRAW = 1, 3
+CO_MSG_MAIL  = 0x1FA4         # its message 8100: the mail window's (NoteData.dll) messages, wrapped
+MAIL_SEARCH, MAIL_WRITE = 1, 0x14   # its messages: {1, name[32]} Search, {0x14, ...} Write > Send,
+MAIL_LIST, MAIL_CLAIM_ALL = 0x16, 0x15   # {0x16} the mailbox's mails (opening it), {0x15} Claim All
+MAIL_ITEMS_MAX = 5            # items one mail can carry
 HERO_PICK_UP = 0x00683A4F     # CHero::PickUp(item id, x, y) - left-clicking an item on the ground
 ON_HOTKEY    = 0x0059170B     # main UI.OnHotkey(slot | id << 8) - what pressing F1..F10 does
 HOTKEY_BAR   = 0x008D5C74     # -> [this] + HOTKEY_IDS + 4 * slot = the id in hotkey slot (F1 = 0)
@@ -126,10 +133,11 @@ def _stub(create, args):
             + b'\x33\xC0\xC9\xC2\x04\x00')                     # xor eax, eax; leave; ret 4
 
 
-def _run(pid, code, timeout_ms=5000, read=0):
+def _run(pid, code, timeout_ms=5000, read=0, data=b''):
     """Copies `code` into game process `pid`, runs it on a new thread and waits for it. With
     `read`, `code` is a function of an output address (in the same block) and the `read` bytes
-    written there are returned."""
+    written there are returned. With `data`, `code` is a function of the address (in the same
+    block) `data` is copied to."""
     handle = _k32.OpenProcess(_ACCESS, False, pid)
     if not handle:
         raise OSError(f'cannot open game process {pid} (error {ctypes.GetLastError()})')
@@ -140,9 +148,14 @@ def _run(pid, code, timeout_ms=5000, read=0):
             raise OSError(f'VirtualAllocEx failed ({ctypes.GetLastError()})')
         running = False   # never free the stub while it may still be running
         try:
+            written = ctypes.c_size_t()
             if read:
                 code = code(mem + size - read)
-            written = ctypes.c_size_t()
+            elif data:
+                code = code(mem + size - len(data))
+                if not _k32.WriteProcessMemory(handle, mem + size - len(data), data, len(data),
+                                               ctypes.byref(written)):
+                    raise OSError(f'WriteProcessMemory failed ({ctypes.GetLastError()})')
             if not _k32.WriteProcessMemory(handle, mem, code, len(code), ctypes.byref(written)):
                 raise OSError(f'WriteProcessMemory failed ({ctypes.GetLastError()})')
             thread = _k32.CreateRemoteThread(handle, None, 0, mem, None, 0, None)
@@ -563,18 +576,64 @@ def repair_all(pid):
 def vip_command(pid, code):
     """A VIP menu command - Co.dll's own send of its message 8005 {code, 0}: 10 = open the remote
     warehouse, 30 = repair all."""
+    _co_send(pid, CO_MSG_REMOTE_WH, struct.pack('<HI', code, 0))
+
+
+def _co_send(pid, message, data):
+    """Sends Co.dll's (the server's add-on) message `message` with `data` - through its own send."""
     base = game_memory._module_base(pid, 'Co.dll')
     if not base:
         raise OSError('Co.dll is not loaded in the game')
-    _run(pid, b'\x55\x8B\xEC\x83\xEC\x08'                      # push ebp; mov ebp, esp; sub esp, 8
-         + b'\x66\xC7\x45\xF8' + struct.pack('<H', code)       # mov word [ebp-8], code
-         + b'\xC7\x45\xFA\x00\x00\x00\x00'                     # mov dword [ebp-6], 0
-         + b'\x6A\x06'                                         # push 6 (bytes)
-         + b'\x8D\x55\xF8'                                     # lea edx, [ebp-8] (the data)
-         + b'\xB9' + struct.pack('<I', CO_MSG_REMOTE_WH)       # mov ecx, 8005 (the message)
+    _run(pid, lambda at: b'\x55\x8B\xEC'                       # push ebp; mov ebp, esp
+         + b'\x68' + struct.pack('<I', len(data))              # push the length
+         + b'\xBA' + struct.pack('<I', at)                     # mov edx, the data
+         + b'\xB9' + struct.pack('<I', message)                # mov ecx, the message
          + b'\xB8' + struct.pack('<I', base + CO_SEND) + b'\xFF\xD0'   # call Co.dll's send
          + b'\x83\xC4\x04'                                     # add esp, 4 (the caller pops it)
-         + b'\x33\xC0\xC9\xC2\x04\x00')
+         + b'\x33\xC0\xC9\xC2\x04\x00', data=data)
+
+
+def compose_list(pid):
+    """Asks the server for the VIP compose warehouse's items (game_memory.compose_items) - what
+    opening its window does: message 8043 {1}."""
+    _co_send(pid, CO_MSG_COMPOSE, struct.pack('<3I', COMPOSE_LIST, 0, 0))
+
+
+def compose_withdraw(pid, item_type, amount, plus):
+    """VIP > Compose > Compose Warehouse: takes `amount` x `item_type` of `plus` out into the bag -
+    its Withdraw: message 8043 {3, type, plus, amount} (tested: 5 x +2 for plus 2, amount 5)."""
+    _co_send(pid, CO_MSG_COMPOSE, struct.pack('<4I', COMPOSE_WITHDRAW, item_type, plus, amount))
+
+
+def _note_send(pid, data):
+    """Sends a message of the mail window (NoteData.dll) - what its link to Co.dll does: Co.dll's
+    message 8100 with it. Works with the mail window never opened."""
+    _co_send(pid, CO_MSG_MAIL, data)
+
+
+def mail_search(pid, name):
+    """Mail > Write: the To box's Search for the character `name` - the server's answer sets the
+    receiver (game_memory.mail_receiver), only while the mail window is open."""
+    _note_send(pid, struct.pack('<I32s', MAIL_SEARCH, name.encode('cp1252')[:31]))
+
+
+def mail_claim_all(pid):
+    """Mail: asks for the mailbox (what opening it does), then its Claim All - the items, gold and
+    CPs of every mail go to this character."""
+    _note_send(pid, struct.pack('<I', MAIL_LIST))
+    time.sleep(1)
+    _note_send(pid, struct.pack('<I', MAIL_CLAIM_ALL))
+
+
+def mail_send(pid, to_id, item_ids, gold=0, cps=0, subject='', text=''):
+    """Mail > Write > Send: a mail to the character with id `to_id` (mail_search) carrying the bag
+    items `item_ids` (MAIL_ITEMS_MAX at most), `gold` and `cps`."""
+    if len(item_ids) > MAIL_ITEMS_MAX:
+        raise ValueError(f'a mail carries {MAIL_ITEMS_MAX} items at most')
+    subject_b, text_b = subject.encode('cp1252')[:32], text.encode('cp1252')[:200]
+    ids = list(item_ids) + [0] * (MAIL_ITEMS_MAX - len(item_ids))
+    _note_send(pid, struct.pack('<5IB5IB32sB200s', MAIL_WRITE, to_id, gold & 0xFFFFFFFF, gold >> 32,
+                                cps, len(item_ids), *ids, len(subject_b), subject_b, len(text_b), text_b))
 
 
 def close_bank_windows(pid):

@@ -5,7 +5,8 @@ injection, game_memory.py reads):
   - log in      bg_login.py: the launcher (it pulls updates, PLAY pressed for you) + the login
                 screen's own auto-login; again whenever a game closes, crashes or gets disconnected
   - hunt        Scatter 4 times around the character, over and over (background_hunt.py)
-  - + items     -> VIP compose warehouse (Deposit)
+  - + items     -> VIP compose warehouse (Deposit); with MAIL_COMPOSE on, mailed to MAIL_TO every
+                MAIL_EVERY seconds, which claims them and deposits them in its own (mail_compose.py)
   - dragonballs 10 -> a dragonball scroll -> a regular remote bank tab
   - repair      VIP Repair All (1000 gold) every REPAIR_INTERVAL seconds
   - arrows      fewer than ARROWS_MIN equipped -> a pack from the bag or the remote bank, equipped
@@ -41,6 +42,7 @@ import game_actions
 import game_memory
 import kill_reply
 import kill_watch
+import mail_compose
 import notify
 import overlay
 from dragon_settings import get_settings, override_dir
@@ -48,12 +50,17 @@ from dragon_settings import get_settings, override_dir
 LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
 LOG_BACKUPS = 3   # ...keeping this many old files
 
-_S = get_settings('static', {'F10_CYCLONE': False, 'REPAIR_INTERVAL': 8000, 'FIRST_RUN_REPAIR': False})
+_S = get_settings('static', {'F10_CYCLONE': False, 'REPAIR_INTERVAL': 8000, 'FIRST_RUN_REPAIR': False,
+                             'MAIL_COMPOSE': False, 'MAIL_TO': ''})
 F10_CYCLONE = bool(_S['F10_CYCLONE'])   # use the F10 hotkey every F10_EVERY seconds while hunting
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']          # seconds between repairs of each account's gear
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])   # repair as soon as an account is in the game
+MAIL_TO = (_S['MAIL_TO'] or '').strip() if _S['MAIL_COMPOSE'] else ''   # gets the compose items by mail
 F10_EVERY   = 10
 F10_SLOT    = 9                         # F10
+MAIL_EVERY  = 600                       # seconds between mails of the compose items to MAIL_TO (the
+                                        # first right as an account is in the game)
+RECEIVE_AGAIN = 60                      # MAIL_TO claims at start, then again this long after
 
 _R = get_settings('revive', {'REVIVE_DELAY': 360, 'REVIVE_TIME_MULTIPLIER': 2, 'MAX_REVIVE_WAIT': 1800,
                              'MONSTERS': 'Pheasant*\nBloodyBat*\nBullMonster*\nBullKing*\nHawKing*\nSandMonster*'})
@@ -291,6 +298,7 @@ class _Account:
         self.last_service = 0.0
         self.last_repair = 0.0 if FIRST_RUN_REPAIR else time.time()
         self.last_f10 = 0.0
+        self.last_mail = 0.0
         self.arrows_alerted = 0.0
         self.reply_tries = {}
 
@@ -443,6 +451,15 @@ class _Account:
             background_hunt.repair(self.pid, self.name)
         background_hunt.dragonball_scrolls(self.pid, self.name)
         background_hunt.deposit_plus(self.pid, self.name)
+        if MAIL_TO and time.time() - self.last_mail >= MAIL_EVERY:
+            first = not self.last_mail
+            self.last_mail = time.time()
+            if self.name.lower() == MAIL_TO.lower():
+                mail_compose.receive(self.pid, self.name)      # Claim All, then Deposit
+                if first:                                      # again once the others' first mails are in
+                    self.last_mail -= MAIL_EVERY - RECEIVE_AGAIN
+            else:
+                mail_compose.transfer(self.pid, self.name, MAIL_TO)
         if not background_hunt.ensure_arrows(self.pid, self.name):
             left = game_memory._read_equipped_pid(self.pid)[0]
             if (left == 0 or not game_memory.bank_items(self.pid)) and \

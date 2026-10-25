@@ -401,6 +401,104 @@ def bag_plus_items(pid):
         _kernel32.CloseHandle(handle)
 
 
+HERO_ID = 0xC8            # [HERO_PTR] + this: the character's id
+
+
+def hero_id(pid):
+    """This game's character id, or None."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        hero = _u32(handle, HERO_PTR)
+        return hero and _u32(handle, hero + HERO_ID) or None
+    except OSError:
+        return None
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def bag_plus_ids(pid):
+    """[(item id, item type, plus)] of the items of +1 or better in this character's bag. None if
+    the bag can't be read."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        hero = _u32(handle, HERO_PTR)
+        out = []
+        for item in _bag(handle, hero):
+            if item and _u32(handle, item) == ITEM_VTABLE:
+                plus = _read(handle, item + ITEM_PLUS, 1)[0]
+                if plus:
+                    out.append((_u32(handle, item + ITEM_ID), _u32(handle, item + ITEM_TYPE), plus))
+        return out
+    except (OSError, struct.error):
+        return None
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+COMPOSE_LIST  = 0x2417D8  # Co.dll + this: vector (begin, end) of the VIP compose warehouse's items -
+COMPOSE_ENTRY = 0x40      # 0x40-byte entries: item type, entry id, best plus, category, value (the
+                          # items in it, a +n counting as 3^(n-1) +1s), ..., name (std::string) at +0x1C
+
+
+def compose_items(pid):
+    """[(item type, name, best plus, how many of that plus)] of the VIP compose warehouse's items
+    (only the ones it holds) - read from Co.dll, as its window lists them. [] if unknown."""
+    base = _module_base(pid, 'Co.dll')
+    if not base:
+        return []
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        begin, end = struct.unpack('<2I', _read(handle, base + COMPOSE_LIST, 8))
+        count = (end - begin) // COMPOSE_ENTRY
+        if not 0 < count <= 500:
+            return []
+        raw = _read(handle, begin, count * COMPOSE_ENTRY)
+        out = []
+        for n in range(count):
+            entry = raw[n * COMPOSE_ENTRY:(n + 1) * COMPOSE_ENTRY]
+            item_type, _, plus, _, value = struct.unpack_from('<5I', entry)
+            if not plus or not value:
+                continue
+            length, capacity = struct.unpack_from('<2I', entry, 0x2C)
+            text = entry[0x1C:0x2C] if capacity < 16 else _read(handle, struct.unpack_from('<I', entry, 0x1C)[0], length)
+            out.append((item_type, text[:length].decode('cp1252', 'replace'), plus, value // 3 ** (plus - 1)))
+        return out
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+MAIL_RECEIVER = 0x63BC0   # NoteData.dll + this: the mail Write tab's receiver, as the server's answer
+                          # to Search set it: id, then name (std::string: 16-byte buffer, length, capacity)
+
+
+def mail_receiver(pid):
+    """(id, name) of the character the mail Write tab's last Search found, or None."""
+    base = _module_base(pid, 'NoteData.dll')
+    if not base:
+        return None
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        raw = _read(handle, base + MAIL_RECEIVER, 0x1C)
+        receiver, = struct.unpack_from('<I', raw)
+        length, capacity = struct.unpack_from('<2I', raw, 0x14)
+        text = raw[4:0x14] if capacity < 16 else _read(handle, struct.unpack_from('<I', raw, 4)[0], length)
+        return (receiver, text[:length].decode('cp1252', 'replace')) if receiver else None
+    except (OSError, struct.error):
+        return None
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
 PACKAGES    = 0x008E8710  # the warehouse manager: an STLport map - [this] = header node, whose +4 is
                           # the root; node: +8 left, +0xC right, +0x10 key (kind, id), +0x18 the
                           # warehouse, whose +4 is a deque of its items (like the bag)
