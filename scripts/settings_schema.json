@@ -53,7 +53,7 @@
     "ENABLED": {
       "type": "bool",
       "default": false,
-      "desc": "Run up to 4 game accounts, one per desktop (the first filled-in account on desktop 1, ...). When on, the script opens and logs into each account, logs back in after a crash, and turns on auto hunt. Works at any screen size. Passwords are stored encrypted for this Windows user only."
+      "desc": "Off (default): a window lists the games you opened yourself - tick the ones to run. On: the script logs these accounts in by itself, one after another, through the launcher (updates included) and logs them back in after a crash or disconnect. Everything runs in the background, on one desktop. Passwords are stored encrypted for this Windows user only."
     },
     "GAME_PATH": {
       "type": "file",
