@@ -3,7 +3,8 @@
 VIP > Compose > Compose Warehouse > Withdraw - and mails them, MAIL_ITEMS_MAX a mail, to the
 character - Mail > Write: Search the name, the items in the boxes, Send. Until the warehouse is empty.
 (game_actions.py compose_withdraw / mail_search / mail_send, game_memory.py compose_items.)
-    python mail_compose.py <from character> <to character>          everything
+    python mail_compose.py <from character> --send <to character>   everything
+    python mail_compose.py <from character> <to character>          the same
     python mail_compose.py <from character> <to character> --once   one mail only
     python mail_compose.py <character> --receive    Claim All, Deposit, every mail marked read"""
 import sys
@@ -78,7 +79,8 @@ def transfer(pid, name, to, once=False):
     """Mails the compose warehouse's items from `name` to the character `to`. Returns how many went."""
     to_id = _receiver(pid, to)
     if not to_id:
-        print(f'{name}: the mail Search did not find {to}')
+        here = [game_memory._name_pid(p) for p in game_memory.game_pids()]
+        print(f'{name}: {to} is not among the games read here {here}, and the mail Search did not find it')
         return 0
     sent = 0
     while True:
@@ -133,7 +135,7 @@ def mark_read(pid, name):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a not in ('--once', '--receive')]
+    args = [a for a in sys.argv[1:] if a not in ('--once', '--receive', '--send')]
     accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids()}
     if args and args[0] not in accounts:
         sys.exit(f'{args[0]} is not logged in')
