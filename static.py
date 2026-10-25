@@ -63,7 +63,7 @@ MAX_REVIVE_WAIT = _R['MAX_REVIVE_WAIT']  # ...up to this
 MONSTERS = [m.strip() for m in (_R['MONSTERS'] or '').replace('\\n', '\n').splitlines() if m.strip()]
 
 SERVICE_EVERY   = 10     # seconds between looks at the bag (+ items) and the equipped arrows
-LAUNCH_COOLDOWN = 120    # seconds before a failed login is tried again
+LAUNCH_COOLDOWN = 10     # seconds before a failed login is tried again
 ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" alert again
 REPLY_TRIES     = 3      # failed whispers to one player before giving up
 NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character
@@ -329,7 +329,7 @@ class _Account:
             if self.down and not self.down[1]:
                 self.down[1] = True
                 notify.send(f'⚠️ {self.who()}: {self.down[0]} — could not get back in yet, '
-                            f'retrying every {LAUNCH_COOLDOWN // 60} min')
+                            f'retrying every {LAUNCH_COOLDOWN}s')
             return False
         return self._got(pid)
 
