@@ -6,10 +6,14 @@ character - Mail > Write: Search the name, the items in the boxes, Send. Until t
     python mail_compose.py <from character> --send <to character>   everything
     python mail_compose.py <from character> <to character>          the same
     python mail_compose.py <from character> <to character> --once   one mail only
-    python mail_compose.py <character> --receive    Claim All, Deposit, every mail marked read"""
+    python mail_compose.py <from character> --send-scrolls <to character>   the dragonball scrolls
+                                                     (bag, then the regular remote bank tabs)
+    python mail_compose.py <character> --receive    Claim All, Deposit, every mail marked read
+    python mail_compose.py <character> --claim      Claim All, every mail marked read - no Deposit"""
 import sys
 import time
 
+import background_hunt
 import game_actions
 import game_memory
 
@@ -99,10 +103,60 @@ def transfer(pid, name, to, once=False):
     return sent
 
 
-def receive(pid, name):
-    """The receiving side: Claim All in the mail, then the + items that came into the bag go to the
-    compose warehouse (Deposit), and every unread mail is marked read (as if clicked - no red dots
-    left). Returns how many items came."""
+def send_scrolls(pid, name, to):
+    """Mails the dragonball scrolls - the bag's, then the regular remote bank tabs' (taken out
+    MAIL_ITEMS_MAX at a time) - from `name` to the character `to`. Returns how many went."""
+    to_id = _receiver(pid, to)
+    if not to_id:
+        here = [game_memory._name_pid(p) for p in game_memory.game_pids()]
+        print(f'{name}: {to} is not among the games read here {here}, and the mail Search did not find it')
+        return 0
+    sent = 0
+    try:
+        while True:
+            scrolls = game_memory.bag_items_of(pid, game_memory.DB_SCROLL)[:game_actions.MAIL_ITEMS_MAX]
+            if not scrolls:
+                scrolls = _scrolls_from_bank(pid, name)
+            if not scrolls:
+                break
+            game_actions.mail_send(pid, to_id, scrolls)
+            if _wait(lambda: not set(game_memory.bag_items_of(pid, game_memory.DB_SCROLL)) & set(scrolls)) is None:
+                print(f'{name}: the mail to {to} was not taken - the scrolls are still in the bag')
+                break
+            sent += len(scrolls)
+            print(f'{name}: mailed {len(scrolls)} dragonball scroll(s) to {to}')
+    finally:
+        game_actions.close_bank_windows(pid)            # the bank and the bag it brought up
+    return sent
+
+
+def _scrolls_from_bank(pid, name):
+    """Up to MAIL_ITEMS_MAX dragonball scrolls out of the regular remote bank tabs into the bag.
+    Their ids in the bag ([] when the banks have none left)."""
+    for key in background_hunt.REGULAR_BANKS:
+        if not background_hunt._open_bank(pid, key):
+            continue
+        time.sleep(1)
+        in_bank = [i[0] for i in game_memory.bank_items(pid, key) or [] if i[1] == game_memory.DB_SCROLL]
+        if not in_bank:
+            continue
+        taking = in_bank[:game_actions.MAIL_ITEMS_MAX]
+        for scroll in taking:
+            game_actions.bank_withdraw(pid, scroll, key)
+            time.sleep(0.3)
+        in_bag = lambda: [i for i in game_memory.bag_items_of(pid, game_memory.DB_SCROLL) if i in taking]
+        _wait(lambda: len(in_bag()) == len(taking))
+        got = in_bag()
+        print(f'{name}: {len(got)} dragonball scroll(s) out of bank tab {key}')
+        return got
+    print(f'{name}: no dragonball scrolls left in the bank')
+    return []
+
+
+def receive(pid, name, deposit=True):
+    """The receiving side: Claim All in the mail, then (with `deposit`) the + items that came into
+    the bag go to the compose warehouse (Deposit), and every unread mail is marked read (as if
+    clicked - no red dots left). Returns how many + items came."""
     before = _bag(pid)
     game_actions.mail_claim_all(pid)
     _wait(lambda: _bag(pid) - before)
@@ -110,8 +164,9 @@ def receive(pid, name):
     came = len(_bag(pid) - before)
     if came:
         print(f'{name}: {came} + item(s) claimed from the mail')
-        game_actions.compose_deposit(pid)
-        print(f'{name}: deposited to the compose warehouse')
+        if deposit:
+            game_actions.compose_deposit(pid)
+            print(f'{name}: deposited to the compose warehouse')
     mark_read(pid, name)
     return came
 
@@ -135,15 +190,20 @@ def mark_read(pid, name):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a not in ('--once', '--receive', '--send')]
+    flags = ('--once', '--receive', '--claim', '--send', '--send-scrolls')
+    args = [a for a in sys.argv[1:] if a not in flags]
     accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids()}
     if args and args[0] not in accounts:
         sys.exit(f'{args[0]} is not logged in')
-    if '--receive' in sys.argv and len(args) == 1:
-        receive(accounts[args[0]], args[0])
+    if ('--receive' in sys.argv or '--claim' in sys.argv) and len(args) == 1:
+        receive(accounts[args[0]], args[0], deposit='--claim' not in sys.argv)
         return
     if len(args) != 2:
         sys.exit(__doc__)
+    if '--send-scrolls' in sys.argv:
+        sent = send_scrolls(accounts[args[0]], args[0], args[1])
+        print(f'{sent} dragonball scroll(s) mailed to {args[1]}')
+        return
     sent = transfer(accounts[args[0]], args[0], args[1], once='--once' in sys.argv)
     print(f'{sent} item(s) mailed to {args[1]}')
 
