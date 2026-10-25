@@ -6,12 +6,13 @@ ini/MapDestination.dat) - and goes to the nearest one, then on to the nearest mo
     python travel.py <character>              to the nearest hunting area, then to a monster
     python travel.py <character> <x> <y>      to that cell of its map
     python travel.py <character> --areas      the hunting areas of its map
-    python travel.py <character> --tour       for good: every hunting area of the map in turn (30s
-                                              jumping among its monsters), then a VIP teleport
-                                              to the next city"""
+    python travel.py <character> --tour       for good: each map's zone drawn with hunt_zones.py
+                                              (or, with none, every hunting area of it in turn),
+                                              then a VIP teleport to the next city"""
 import ctypes
 import ctypes.wintypes
 import heapq
+import json
 import math
 import os
 import random
@@ -20,6 +21,7 @@ import struct
 import sys
 import time
 
+import _paths
 import background_hunt
 import game_actions
 import game_memory
@@ -34,7 +36,7 @@ CAST_SENT   = 0.15          # bounce: seconds after a Scatter before jumping on 
 SCATTER_MIN = 3             # auto hunt: a Scatter only with this many monsters or more...
 SCATTER_REACH = 6           # ...this close (also a monster's crowd, which guides where to jump next)
 SCATTER_EVERY = 0.5         # ...and one this often at most (once landed), aimed the way it went
-MIN_JUMP    = 3             # bounce: monsters closer than this aren't jumped to (the game refuses a
+MIN_JUMP    = 5             # bounce: monsters closer than this aren't jumped to (the game refuses a
                             # jump of a cell or two; the Scatter hits them anyway)
 CMD_IN_AIR  = {20, 25}      # my command during a jump
 NEIGHBOURS  = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
@@ -46,12 +48,19 @@ LOOT_CELLS  = 40            # + items lying this close are gone for (farther tha
 BEEN_SECONDS = 10          # bounce: a monster just jumped next to isn't the next one for this long
 LANDINGS    = 6             # bounce: its last landing spots kept...
 LANDED_CELLS = 5            # ...and monsters this close to one of them not picked (unless no other)
-AREA_SECONDS = 500           # tour: time among each hunting area's monsters before the next area
+AREA_SECONDS = 300           # tour: time among each hunting area's monsters before the next area
 EMPTY_SECONDS = 8           # tour: an area with no monsters this long (none came back) is left
 STATUS_EVERY = 5            # seconds between the console lines saying where the hunt is at
 AREA_RADIUS = 40           # tour: an area's monsters are the ones this close to its spot
-TOUR_SECONDS = 500           # tour: time around a map with no hunting areas listed (exploring it)
+TOUR_SECONDS = 300           # tour: time on each map before the teleport to the next city
 EXPLORE_NEAR, EXPLORE_FAR = 60, 150   # explore: how far the random spots are
+ZONES_PATH  = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'hunt_zones.json')
+ZONES_DEFAULT = os.path.join(_paths.scripts_dir(), 'hunt_zones.json')   # the zones that come with
+                            # the program - for the maps this PC hasn't drawn (ZONES_PATH)
+ZONE_CELLS  = 10           # zones: drawn in squares this big (hunt_zones.py)
+ZONE_SCATTER_EVERY = 0.5    # zones: a Scatter this often (once landed), whatever the monsters around
+ZONE_PART   = 5             # zones: roamed in parts of this many squares across (50 cells) - each
+                            # visited before any twice
 TELEPORT_WAIT = 10          # seconds for a teleport to land on the new map
 TELEPORTS   = [(21, 1002), (22, 1011), (23, 1020), (24, 1000), (25, 1015)]   # VIP Remote Travel:
 TELEPORT_NAMES = {21: 'Twin City', 22: 'Phoenix Castle', 23: 'Ape City', 24: 'Desert',   # (code, map)
@@ -270,21 +279,22 @@ def _wait_landed(pid):
         time.sleep(0.02)
 
 
-def _scatter_ahead(pid, came_from):
-    """A Scatter only where it pays - SCATTER_MIN or more monsters within SCATTER_REACH (each cast
-    halves the jumping: the game takes no jump till its animation ends), at most one every
-    SCATTER_EVERY seconds, SCATTER_CELLS ahead - the way the last jump went (from `came_from`);
-    not moved: towards the monsters near. True if cast."""
-    if time.time() - _last_cast.get(pid, 0) < SCATTER_EVERY:
+def _scatter_ahead(pid, came_from, need=None, every=None):
+    """A Scatter only where it pays - `need` (SCATTER_MIN) or more monsters within SCATTER_REACH;
+    0 = always (each cast slows the jumping: the game takes no jump till its animation ends) - at
+    most one every `every` (SCATTER_EVERY) seconds, SCATTER_CELLS ahead - the way the last jump
+    went (from `came_from`); not moved: towards the monsters near. True if cast."""
+    need = SCATTER_MIN if need is None else need
+    if time.time() - _last_cast.get(pid, 0) < (SCATTER_EVERY if every is None else every):
         return False
     me = game_actions.my_pos(pid)
     if not me:
         return False
     near = [m for m in _monster_cells(pid, ()) if m[0] <= SCATTER_REACH]
-    if len(near) < SCATTER_MIN:
+    if len(near) < need:
         return False
     dx, dy = me[0] - came_from[0], me[1] - came_from[1]
-    if not dx and not dy:                               # didn't move: towards the monsters
+    if not dx and not dy and near:                      # didn't move: towards the monsters
         dx = sum(m[3][0] for m in near) / len(near) - me[0]
         dy = sum(m[3][1] for m in near) / len(near) - me[1]
     length = math.hypot(dx, dy) or 1
@@ -296,10 +306,12 @@ def _scatter_ahead(pid, came_from):
     return True
 
 
-def go(pid, name, x, y, stop=None, claiming=False):
+def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None, cast_every=None):
     """Jumps the character to (x, y) of its map. A refused jump is tried again shorter; the way is
     worked out again from where it stands then. `stop`() True ends the trip early; `claiming`: a
-    tour's trip (keeps its claim fresh, a Scatter ahead where 3+ monsters crowd). True if there."""
+    tour's trip (keeps its claim fresh, a Scatter ahead - where `cast_need` monsters crowd, at most
+    every `cast_every` seconds: _scatter_ahead - + items on the way picked up); `on_land`(cell)
+    after each jump. True if there."""
     root, the_map = game_root(pid), map_id(pid)
     grid = load_map(map_file(root, the_map))
     reach, refused, stops, loot_skip = JUMP_CELLS, 0, [], {}
@@ -342,8 +354,10 @@ def go(pid, name, x, y, stop=None, claiming=False):
             if reach != JUMP_CELLS:                     # past it: full jumps again
                 stops = []
             reach, refused = JUMP_CELLS, 0
+            if on_land:
+                on_land(now)
             if cast:                                    # a crowd on the way: a Scatter ahead
-                _scatter_ahead(pid, me)
+                _scatter_ahead(pid, me, cast_need, cast_every)
             if claiming and loot(pid, name, loot_skip, JUMP_CELLS):   # a + item on the way:
                 stops = []                              # picked up - the way again from there
     return False
@@ -352,7 +366,8 @@ def go(pid, name, x, y, stop=None, claiming=False):
 def loot(pid, name, skip, reach=LOOT_CELLS):
     """Picks up the nearest +1 or better item lying within `reach` cells: farther than a jump, the
     way there first (go), then the game's own pick-up (monk_hunt.collect). `skip`: {item id: until
-    when} - ones that couldn't be picked up. True if there was one to go for."""
+    when} - ones that couldn't be picked up. 'picked' / 'missed' if there was one to go for, else
+    False."""
     import monk_hunt
     me = game_actions.my_pos(pid)
     if not me:
@@ -370,9 +385,9 @@ def loot(pid, name, skip, reach=LOOT_CELLS):
         go(pid, name, x, y, stop=lambda: gone() or _far(game_actions.my_pos(pid) or me, (x, y)) <= JUMP_CELLS)
     if monk_hunt.collect(pid, item_id, x, y):
         print(f'{name}: picked up item {kind} +{plus}')
-    else:
-        skip[item_id] = time.time() + monk_hunt.LOOT_SKIP
-    return True
+        return 'picked'
+    skip[item_id] = time.time() + monk_hunt.LOOT_SKIP
+    return 'missed'
 
 
 def _block(grid, cell):
@@ -558,18 +573,111 @@ def _route(areas, start):
     return out
 
 
+# ---------------------------------------------------------------- drawn zones (hunt_zones.py)
+
+def _load_json(path):
+    try:
+        with open(path, encoding='utf-8') as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def zone(the_map):
+    """The ZONE_CELLS squares drawn on this map as where to hunt: {(square x, square y)} - this
+    PC's drawing (ZONES_PATH) if it has one for the map, else the one that comes with the program
+    (ZONES_DEFAULT); empty if neither."""
+    for path in (ZONES_PATH, ZONES_DEFAULT):
+        squares = _load_json(path).get(str(the_map))
+        if squares is not None:
+            return {tuple(sq) for sq in squares}
+    return set()
+
+
+def save_zone(the_map, squares):
+    """Saves this PC's drawing of the map (none drawn: an empty one, which also turns the default
+    zone off for it)."""
+    data = _load_json(ZONES_PATH)
+    data[str(the_map)] = sorted([list(sq) for sq in squares])
+    os.makedirs(os.path.dirname(ZONES_PATH), exist_ok=True)
+    with open(ZONES_PATH + '.tmp', 'w', encoding='utf-8') as f:
+        json.dump(data, f)
+    os.replace(ZONES_PATH + '.tmp', ZONES_PATH)
+
+
+
+
+def _zone_parts(grid, squares):
+    """The zone cut into parts of ZONE_PART x ZONE_PART squares: {part: [its walkable cells]}."""
+    width, _, walkable = grid
+    parts = {}
+    for sq in squares:
+        cells = [(sq[0] * ZONE_CELLS + dx, sq[1] * ZONE_CELLS + dy)
+                 for dx in range(ZONE_CELLS) for dy in range(ZONE_CELLS)]
+        cells = [c for c in cells if 0 <= c[0] < width and 0 <= c[1] < len(walkable) // width
+                 and walkable[c[1] * width + c[0]]]
+        if cells:
+            parts.setdefault((sq[0] // ZONE_PART, sq[1] // ZONE_PART), []).extend(cells)
+    return parts
+
+
+def patrol(pid, name, seconds, stop=None):
+    """Roams the zone drawn on this map for `seconds`, at random but all of it: again and again a
+    random cell in one of the parts (_zone_parts) visited least so far - every part before any
+    twice - and the way there jump by jump (go), a Scatter every ZONE_SCATTER_EVERY seconds on the
+    way whatever the monsters around, + items picked up. Returns how many jumps."""
+    the_map = map_id(pid)
+    grid = load_map(map_file(game_root(pid), the_map))
+    parts = _zone_parts(grid, zone(the_map))
+    if not parts:
+        print(f'{name}: [map {the_map}] its zone has no walkable cell')
+        return 0
+    start = time.time()
+    end, visits, count, told = start + seconds, {part: 0 for part in parts}, [0], [0.0]
+    cast = background_hunt.SCATTER in game_actions.skills(pid)
+    part_of = lambda cell: (cell[0] // ZONE_CELLS // ZONE_PART, cell[1] // ZONE_CELLS // ZONE_PART)
+    print(f'{name}: [map {the_map}] roaming its drawn zone ({len(parts)} parts) for {seconds}s')
+
+    def landed(cell):                                   # every jump of the way
+        count[0] += 1
+        if part_of(cell) in visits:
+            visits[part_of(cell)] += 1
+        if time.time() - told[0] >= STATUS_EVERY:
+            told[0] = time.time()
+            seen = sum(1 for v in visits.values() if v)
+            print(f'{name}: [map {the_map} zone] {time.time() - start:.0f}s of {seconds:.0f}s, '
+                  f'{count[0]} jumps, {seen} of {len(parts)} parts visited - going to {goal}')
+
+    while time.time() < end and not (stop and stop()):
+        least = min(visits.values())
+        part = random.choice([p for p, v in visits.items() if v == least])
+        goal = random.choice(parts[part])
+        visits[part] += 1                               # chosen: not the next one too
+        go(pid, name, *goal, claiming=True, on_land=landed,
+           cast_need=0, cast_every=ZONE_SCATTER_EVERY,
+           stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map)
+        if map_id(pid) != the_map:
+            break
+    return count[0]
+
+
 def tour(pid, name, seconds=AREA_SECONDS, stop=None):
-    """For good (or until `stop`()): every hunting area of the map in turn, nearest first -
-    `seconds` of jumping among each one's monsters (less if it runs out of them) - then a teleport
-    to the next city, round and round TELEPORTS. A map with no areas listed: a minute around."""
+    """For good (or until `stop`()): on each map, its zone drawn with hunt_zones.py if it has one
+    (patrol, TOUR_SECONDS) - else every hunting area of it in turn, nearest first, `seconds` of
+    jumping among each one's monsters (less if it runs out of them) - then a teleport to the next
+    city, round and round TELEPORTS."""
     codes = [c for c, _ in TELEPORTS]
     here = next((i for i, (_, m) in enumerate(TELEPORTS) if m == map_id(pid)), -1)
     while not (stop and stop()):
         city, me = map_id(pid), game_actions.my_pos(pid)
-        areas = _route(hunting_areas(game_root(pid), city), me) if me else []
-        print(f'{name}: map {city} - {len(areas)} hunting area(s)')
         count = 0
-        for title, x, y, says in areas:
+        if zone(city):
+            count = patrol(pid, name, TOUR_SECONDS, stop)
+            areas = None
+        else:
+            areas = _route(hunting_areas(game_root(pid), city), me) if me else []
+            print(f'{name}: map {city} - {len(areas)} hunting area(s)')
+        for title, x, y, says in areas or []:
             if stop and stop():
                 return
             print(f'{name}: going to {title} ({x}, {y}) - {says}')
@@ -581,7 +689,7 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
             jumped = bounce(pid, name, seconds, stop, wander=False, center=(x, y), label=title)
             print(f'{name}: {jumped} jumps at {title}')
             count += jumped
-        if not areas:
+        if areas == []:
             count += explore(pid, name, TOUR_SECONDS, stop)
         print(f'{name}: {count} jumps on map {city}')
         here = (here + 1) % len(codes)
