@@ -31,6 +31,7 @@ ITEM_VTABLE  = 0x007FC66C
 ITEM_ID      = 0x0C      # the item's own id (what the server knows it by)
 ITEM_TYPE    = 0x1C
 ITEM_AMOUNT  = 0x190
+ITEM_PLUS    = 0x61      # byte: the item's +1, +2...
 ARROW_TYPES  = range(1050000, 1060000)
 HERO_NAME    = 0x15C
 HERO_CP      = 0x10      # CPs (the Shopping Mall's currency); +0x14 = CPs (B)
@@ -351,6 +352,112 @@ def all_vitals():
         if name:
             out[name] = vitals_pid(pid)
     return out
+
+
+class _ModuleEntry(ctypes.Structure):   # MODULEENTRY32 (this 64-bit process's layout)
+    _fields_ = [('dwSize', ctypes.wintypes.DWORD), ('th32ModuleID', ctypes.wintypes.DWORD),
+                ('th32ProcessID', ctypes.wintypes.DWORD), ('GlblcntUsage', ctypes.wintypes.DWORD),
+                ('ProccntUsage', ctypes.wintypes.DWORD), ('modBaseAddr', ctypes.c_void_p),
+                ('modBaseSize', ctypes.wintypes.DWORD), ('hModule', ctypes.c_void_p),
+                ('szModule', ctypes.c_char * 256), ('szExePath', ctypes.c_char * 260)]
+
+
+def _module_base(pid, name):
+    """Load address of the module `name` (e.g. 'Co.dll') in game process `pid`, or None."""
+    _kernel32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+    snap = _kernel32.CreateToolhelp32Snapshot(0x18, pid)   # TH32CS_SNAPMODULE | SNAPMODULE32
+    if not snap or snap == ctypes.c_void_p(-1).value:
+        return None
+    try:
+        entry = _ModuleEntry()
+        entry.dwSize = ctypes.sizeof(entry)
+        ok = _kernel32.Module32First(ctypes.c_void_p(snap), ctypes.byref(entry))
+        while ok:
+            if entry.szModule.decode('ascii', 'replace').lower() == name.lower():
+                return entry.modBaseAddr
+            ok = _kernel32.Module32Next(ctypes.c_void_p(snap), ctypes.byref(entry))
+        return None
+    finally:
+        _kernel32.CloseHandle(ctypes.c_void_p(snap))
+
+
+def bag_plus_items(pid):
+    """[(item type, plus)] of the items of +1 or better in this character's bag."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        hero = _u32(handle, HERO_PTR)
+        out = []
+        for item in _bag(handle, hero):
+            if item and _u32(handle, item) == ITEM_VTABLE:
+                plus = _read(handle, item + ITEM_PLUS, 1)[0]
+                if plus:
+                    out.append((_u32(handle, item + ITEM_TYPE), plus))
+        return out
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+GAME_MAP    = 0x008D366C  # -> the map; + MAP_ITEMS = its item manager: a vector (+4 begin, +8 end) of
+MAP_ITEMS   = 0x78        # pointers to {id, type * 1000 + 990 + plus, x, y} - the items on the ground
+
+
+def ground_items(pid):
+    """[(item id, item type, plus, x, y)] of the items lying on the ground around this character
+    (map cells; plus = the +1, +2... of the item), from the game's own item manager. [] if none."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        game_map = _u32(handle, GAME_MAP)
+        begin, end = struct.unpack('<2I', _read(handle, game_map + MAP_ITEMS + 4, 8))
+        if not 0 <= end - begin <= 4 * 2000:
+            return []
+        out = []
+        for at in range(begin, end, 4):
+            item_id, kind, x, y = struct.unpack('<4I', _read(handle, _u32(handle, at), 16))
+            out.append((item_id, kind // 1000, max(0, kind % 1000 - 990), x, y))
+        return out
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+LOOT_LABELS = 0x330C48    # Co.dll + this: vector (begin, end, capacity) of the loot names drawn on
+LOOT_ENTRY  = 0x2C        # the screen - 0x2C-byte entries: name (std::string: 16-byte buffer, length,
+                          # capacity), screen x, y (floats), quality (5 = super), ?, item type
+
+
+def loot(pid):
+    """[(name, item type, quality, (screen x, screen y))] of the items lying on the ground that the
+    game shows a name for (the ones on screen) - read from Co.dll, the server's add-on. [] if none."""
+    base = _module_base(pid, 'Co.dll')
+    if not base:
+        return []
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        begin, end = struct.unpack('<2I', _read(handle, base + LOOT_LABELS, 8))
+        count = (end - begin) // LOOT_ENTRY
+        if not 0 < count <= 500:
+            return []
+        raw = _read(handle, begin, count * LOOT_ENTRY)
+        out = []
+        for n in range(count):
+            entry = raw[n * LOOT_ENTRY:(n + 1) * LOOT_ENTRY]
+            length, capacity, x, y, quality, _, item_type = struct.unpack_from('<2I2f3I', entry, 16)
+            text = entry[:16] if capacity < 16 else _read(handle, struct.unpack_from('<I', entry)[0], length)
+            out.append((text[:length].decode('cp1252', 'replace'), item_type, quality, (x, y)))
+        return out
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
 
 
 if __name__ == '__main__':

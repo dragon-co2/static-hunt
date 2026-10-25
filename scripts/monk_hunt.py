@@ -27,10 +27,58 @@ JUMP_TIMEOUT = 2.5                    # longest wait for a jump to land (a 15-ce
 XP_SLOT     = 9                       # hotkey slot used while the XP bar is full: 9 = F10 (0 = F1);
                                       # None = never. Pressed from inside the game, not as a key
 XP_EVERY    = 2.0                     # seconds between presses while the XP bar stays full
+LOOT_PLUS   = 1                       # pick up items of +1 or better from the ground; 0 = not by plus
+LOOT        = set()                   # and these item types too (e.g. {1091000} = GoldBullion).
+                                      # Picked up before the next monster
+LOOT_CELLS  = 15                      # only loot this close
+LOOT_RUN_CELLS = 2                    # this close: just run to it; farther: jump next to it first
+LOOT_TIMEOUT = 3.0                    # seconds to get one item before leaving it for LOOT_SKIP
+LOOT_SKIP   = 20.0
+LOOT_WAIT   = 0.4                     # seconds after a pick-up try, for the server to answer
+DEPOSIT_PLUS = True                   # + items in the bag go to the VIP compose warehouse (Deposit)
+DEPOSIT_EVERY = 10.0                  # seconds between looks at the bag (and right after a pick-up)
 
 
 def _distance(a, b):
     return max(abs(a[0] - b[0]), abs(a[1] - b[1]))
+
+
+def _wanted(kind, plus):
+    """True for an item worth picking up: LOOT_PLUS or better, or one of the LOOT types."""
+    return (LOOT_PLUS and plus >= LOOT_PLUS) or kind in LOOT
+
+
+def _loot_near(pid, me, skip_ids):
+    """[(item id, type, plus, x, y)] of the wanted items on the ground within LOOT_CELLS, nearest
+    first."""
+    items = [i for i in game_memory.ground_items(pid)
+             if _wanted(i[1], i[2]) and i[0] not in skip_ids and _distance(me, i[3:]) <= LOOT_CELLS]
+    return sorted(items, key=lambda i: _distance(me, i[3:]))
+
+
+def _sign(n):
+    return (n > 0) - (n < 0)
+
+
+def collect(pid, item_id, x, y):
+    """Picks the item up like a player would: jumps next to it (a cell short, on our side) when it's
+    far, then runs onto it with the game's own pick-up (left-clicking it). True once it's gone from
+    the ground. A monster's hit cancels the run, so it's tried again until LOOT_TIMEOUT."""
+    end = time.time() + LOOT_TIMEOUT
+    while time.time() < end:
+        if not any(i[0] == item_id for i in game_memory.ground_items(pid)):
+            return True
+        me = game_actions.my_pos(pid)
+        if not me:
+            return False
+        if _distance(me, (x, y)) > LOOT_RUN_CELLS:          # far: jump next to it first
+            game_actions.jump_to(pid, x + _sign(me[0] - x), y + _sign(me[1] - y))
+            _wait_for(pid, lambda c: c in CMD_IN_AIR, 0.3)
+            _wait_for(pid, lambda c: c not in CMD_IN_AIR, JUMP_TIMEOUT)
+            continue
+        game_actions.go_pick_up(pid, item_id, x, y)              # run onto it and pick it up
+        time.sleep(LOOT_WAIT)
+    return not any(i[0] == item_id for i in game_memory.ground_items(pid))
 
 
 def monsters(pid, me, skip_ids):
@@ -94,6 +142,8 @@ def _hunt(pid, name):
     """One character's hunt, on a thread of its own - until it's unticked or its game closes."""
     hits, hit_ids = 0, {}                         # hit_ids: monster id -> when it may be hit again
     xp_pressed = 0.0                              # when the XP hotkey was last pressed
+    picked, loot_skip = 0, {}                     # loot_skip: item id -> when to try it again
+    deposited, checked_bag = 0, 0.0
     print(f'{name}: hunting')
     while True:
         with _lock:
@@ -107,9 +157,30 @@ def _hunt(pid, name):
                 print(f'{name}: XP bar full - F{XP_SLOT + 1} pressed')
             except (OSError, TimeoutError):
                 pass
+        if DEPOSIT_PLUS and now - checked_bag >= DEPOSIT_EVERY:
+            checked_bag = now
+            plus_items = game_memory.bag_plus_items(pid)
+            if plus_items:
+                try:
+                    game_actions.compose_deposit(pid)
+                    deposited += len(plus_items)
+                    print(f'{name}: {len(plus_items)} + item(s) in the bag - deposited to the compose warehouse')
+                except (OSError, TimeoutError) as e:
+                    print(f'{name}: deposit failed - {e}')
         hit_ids = {i: t for i, t in hit_ids.items() if t > now}
+        loot_skip = {i: t for i, t in loot_skip.items() if t > now}
         try:
             me = game_actions.my_pos(pid)
+            loot = _loot_near(pid, me, loot_skip) if me and (LOOT or LOOT_PLUS) else []
+            if loot:
+                item_id, kind, plus, x, y = loot[0]
+                if collect(pid, item_id, x, y):
+                    picked += 1
+                    checked_bag = 0.0                     # look at the bag (deposit) right away
+                    print(f'{name}: picked up item {kind} +{plus} ({picked})')
+                else:
+                    loot_skip[item_id] = time.time() + LOOT_SKIP
+                continue
             found = monsters(pid, me, hit_ids) if me else []
         except (OSError, TimeoutError, struct.error):
             if game_memory._name_pid(pid) != name:
@@ -128,9 +199,9 @@ def _hunt(pid, name):
             continue
         hit_ids[mob_id] = time.time() + HIT_AGAIN
         hits += 1
-        _status[name] = f'{hits} hits - last: {mob}'
-    _status[name] = f'stopped - {hits} hits'
-    print(f'{name}: stopped - {hits} hits')
+        _status[name] = f'{hits} hits, {picked} picked up, {deposited} deposited - last: {mob}'
+    _status[name] = f'stopped - {hits} hits, {picked} picked up, {deposited} deposited'
+    print(f'{name}: stopped - {hits} hits, {picked} picked up, {deposited} deposited')
 
 
 def _accounts():

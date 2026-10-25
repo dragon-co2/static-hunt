@@ -69,6 +69,10 @@ TASK_ANSWER  = 0x006D1619     # CHero: send MsgTaskDialog 2032 (option, text, ta
                               # what clicking a line of an NPC dialog does (handler 0x524577)
 TASK_ACTION_ANSWER = 0x65
 HERO_ATTACK  = 0x00616560     # CHero attack(target shared pointer, 1, 1) - left-clicking a role
+MAP_MSG_CTOR, MAP_MSG_CREATE, MAP_MSG_SEND, MAP_MSG_DTOR = (   # CMsgMapItem (1101): the ground items
+    0x006E7174, 0x006E71DA, 0x006E73A6, 0x006E71CF)            # Create(id, x, y, action) - 3 = pick up
+CO_COMPOSE_DEPOSIT = 0x8BE70  # Co.dll + this: the VIP Compose Warehouse 'Deposit' button's function
+HERO_PICK_UP = 0x00683A4F     # CHero::PickUp(item id, x, y) - left-clicking an item on the ground
 ON_HOTKEY    = 0x0059170B     # main UI.OnHotkey(slot | id << 8) - what pressing F1..F10 does
 HOTKEY_BAR   = 0x008D5C74     # -> [this] + HOTKEY_IDS + 4 * slot = the id in hotkey slot (F1 = 0)
 HOTKEY_IDS   = 0x11CA8C + 0x14B8
@@ -481,6 +485,47 @@ def press_hotkey(pid, slot):
          + b'\x50'                                             # push eax
          + b'\x8B\x0D' + struct.pack('<I', MAIN_UI)            # mov ecx, [main UI]
          + b'\xB8' + struct.pack('<I', ON_HOTKEY) + b'\xFF\xD0'   # call OnHotkey (pops its arg)
+         + b'\x33\xC0\xC9\xC2\x04\x00')                        # xor eax, eax; leave; ret 4
+
+
+def jump_to(pid, x, y):
+    """Jumps onto the map cell (x, y) - CHero::Jump, with the game's checks (16 cells at most)."""
+    _hero_call(pid, HERO_JUMP, (x, y))
+
+
+def compose_deposit(pid):
+    """VIP > Compose > Compose Warehouse > Deposit: puts the compose materials (the + items) from the
+    bag into the compose warehouse - the button's own function in Co.dll (the server's add-on), which
+    sends its message 8043."""
+    base = game_memory._module_base(pid, 'Co.dll')
+    if not base:
+        raise OSError('Co.dll is not loaded in the game')
+    _run(pid, b'\x55\x8B\xEC'                                  # push ebp; mov ebp, esp
+         + b'\xB8' + struct.pack('<I', base + CO_COMPOSE_DEPOSIT) + b'\xFF\xD0'   # call it
+         + b'\x33\xC0\xC9\xC2\x04\x00')                        # xor eax, eax; leave; ret 4
+
+
+def go_pick_up(pid, item_id, x, y):
+    """Runs to the item `item_id` lying on (x, y) (game_memory.ground_items) and picks it up - what
+    left-clicking it does: CHero::PickUp (0x683A4F) gives the hero a 'pick up' command."""
+    _hero_call(pid, HERO_PICK_UP, (item_id, x, y))
+
+
+def pick_up(pid, item_id, x, y):
+    """Picks up the item `item_id` lying on (x, y) (game_memory.ground_items) - the message the game
+    sends once you stand on it: MsgMapItem (1101) action 3. Stand on its cell first."""
+    lea_ecx = b'\x8D\x8D\x00\xFB\xFF\xFF'                      # lea ecx, [ebp-0x500]  (the message)
+    call = lambda addr: b'\xB8' + struct.pack('<I', addr) + b'\xFF\xD0'
+    send = lea_ecx + call(MAP_MSG_SEND)
+    _run(pid, b'\x55\x8B\xEC\x81\xEC\x00\x05\x00\x00'         # push ebp; mov ebp, esp; sub esp, 0x500
+         + lea_ecx + call(MAP_MSG_CTOR)
+         + b'\x6A\x03'                                         # push 3 (pick up)
+         + b'\x68' + struct.pack('<I', y) + b'\x68' + struct.pack('<I', x)
+         + b'\x68' + struct.pack('<I', item_id)
+         + lea_ecx + call(MAP_MSG_CREATE)                      # Create(id, x, y, 3) pops its args
+         + b'\x85\xC0' + bytes([0x74, len(send)])              # test eax, eax; jz past the send
+         + send
+         + lea_ecx + call(MAP_MSG_DTOR)
          + b'\x33\xC0\xC9\xC2\x04\x00')                        # xor eax, eax; leave; ret 4
 
 
