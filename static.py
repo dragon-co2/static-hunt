@@ -39,6 +39,7 @@ import bg_login
 import game_actions
 import game_memory
 import auto_reply
+import hunt_stats
 import kill_reply
 import kill_watch
 import mail_compose
@@ -465,6 +466,7 @@ class _Account:
                         self.say('waiting for its turn to log in')
                     time.sleep(2)
                     continue
+                hunt_stats.watch(self.pid, self.name)   # the daily counts (hunt_stats.py)
                 self.handle_kills()
                 if not self.alive_or_revived():
                     time.sleep(2)
@@ -510,6 +512,7 @@ def _watch_chat(workers):
     kill_watch.ensure_chat_log(accounts.game_path())
     kill_watch.on_kill = _on_kill
     kill_watch.on_whisper = _on_whisper
+    kill_watch.on_drop = hunt_stats.on_drop
     kill_watch.monster_lookup = _monster_named
     notify.on_reply = _on_tg_reply
     notify.on_command = _on_tg_command

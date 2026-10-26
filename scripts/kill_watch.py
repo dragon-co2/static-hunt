@@ -64,6 +64,8 @@ _pending = {}        # victim (lower) -> [killer, ...] not yet handled by the ma
 _last_killer = {}    # victim (lower) -> killer of their previous death
 _seen_streak = {}    # victim (lower) -> (killer lower, kills in a row) as seen in the chat
 on_kill = None       # optional listener: on_kill(character, desktop, killer, streak), called at once
+on_drop = None       # optional listener: on_drop(character, text) - each "You killed a monster
+                     # and it dropped ..." line of that character's game, once
 on_whisper = None    # optional listener: on_whisper(sender, character, desktop, text, channel) —
                      # a player wrote to one of our characters (Whisper, or Talk / Team... to them)
 _WHISPER = re.compile(r'^\[(?P<channel>[A-Za-z]+)\](?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+): ?(?P<text>.*?)'
@@ -140,7 +142,8 @@ def _on_text(text, character=''):
         kill = (character, kill[1]) if character else None
     now = time.time()
     with _lock:
-        key = f'{kill[0].lower()}>{kill[1].lower()}>{text[-20:]}' if kill else text
+        key = (f'{kill[0].lower()}>{kill[1].lower()}>{text[-20:]}' if kill else
+               f'{character.lower()}>{text}' if 'killed a monster' in text.lower() else text)
         if key in _recent:
             return
         for t in [t for t, at in _recent.items() if now - at > DEDUPE_FOR]:
@@ -156,6 +159,12 @@ def _on_text(text, character=''):
     w = _WHISPER.match(text.strip())
     if w:
         _on_whisper_line(w, stamp)
+        return
+    if on_drop and character and 'killed a monster and it dropped' in text.lower():
+        try:
+            on_drop(character, text)
+        except Exception as e:   # a listener problem must never stop the chat reading
+            print(f'[KILL] drop listener failed ({type(e).__name__}: {e})')
         return
     low = text.lower()
     if not kill:
