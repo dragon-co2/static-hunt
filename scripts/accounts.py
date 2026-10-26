@@ -1,24 +1,27 @@
-"""Game accounts from the 'accounts' settings section: up to 4. The filled-in accounts run one
+"""Game accounts from the 'accounts' settings section: 4 or more (the settings page's "+"). The filled-in accounts run one
 per virtual desktop, in order (the first filled-in account on desktop 1, the next on desktop 2...).
 Passwords are stored DPAPI-encrypted (see secret.py) and only decrypted here, when needed."""
 import os
 from dataclasses import dataclass
 
 import secret
-from dragon_settings import get_settings
-
-MAX_ACCOUNTS = 4
+from dragon_settings import account_slots, get_settings
 
 _DEFAULTS = {'ENABLED': False, 'GAME_PATH': ''}
-for _i in range(1, MAX_ACCOUNTS + 1):
-    _DEFAULTS[f'ACCOUNT_{_i}_USER'] = ''
-    _DEFAULTS[f'ACCOUNT_{_i}_PASS'] = ''
-    _DEFAULTS[f'ACCOUNT_{_i}_NAME'] = ''
+
+
+def _defaults(slots):
+    out = dict(_DEFAULTS)
+    for i in range(1, slots + 1):
+        out[f'ACCOUNT_{i}_USER'] = ''
+        out[f'ACCOUNT_{i}_PASS'] = ''
+        out[f'ACCOUNT_{i}_NAME'] = ''
+    return out
 
 
 @dataclass
 class Account:
-    slot: int        # 1..4 — its row in the settings
+    slot: int        # 1, 2... — its row in the settings
     desktop: int     # 1-based virtual desktop it runs on (its position among the filled-in ones)
     username: str
     password: str    # decrypted
@@ -36,11 +39,12 @@ def enabled():
 def load():
     """Configured accounts (username + a password that decrypts), in slot order. Slots with no
     username are skipped. Empty if the feature is off."""
-    s = get_settings('accounts', _DEFAULTS)
+    slots = account_slots()
+    s = get_settings('accounts', _defaults(slots))
     if not s['ENABLED']:
         return []
     out = []
-    for i in range(1, MAX_ACCOUNTS + 1):
+    for i in range(1, slots + 1):
         user = (s[f'ACCOUNT_{i}_USER'] or '').strip()
         if not user:
             continue

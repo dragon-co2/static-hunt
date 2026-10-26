@@ -170,6 +170,7 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .tab-strip button .tab-dot { color: var(--modified); margin-left: 6px; }
+  .tab-strip button.tab-add { flex: 0 0 64px; text-align: center; font-size: 26px; color: var(--accent); }
   .group-body { display: none; }
   .group-body.active { display: block; }
   .group-tabs.searching .tab-strip { display: none; }
@@ -781,10 +782,38 @@ function renderContent() {
       }
       body.appendChild(buildFieldRow(script, name));
     }
+    if (schema[script].ACCOUNT_4_USER) addAccountButton(script, panel);
     $content.appendChild(panel);
     updateGroupTabs(script);
     applySectionEnabled(script);
   }
+}
+
+// Accounts: 4 tabs always; "+" adds one more (a copy of account 4's fields). The new account is
+// kept once it's saved with something filled in.
+function addAccountButton(script, panel) {
+  const strip = panel.querySelector('.group-tabs .tab-strip');
+  if (!strip) return;
+  const plus = document.createElement('button');
+  plus.className = 'tab-add';
+  plus.textContent = '+';
+  plus.title = 'Add an account';
+  plus.addEventListener('click', () => {
+    const section = schema[script];
+    let n = 1;
+    while (section[`ACCOUNT_${n}_USER`]) n++;
+    for (const field of ['USER', 'PASS', 'NAME']) {
+      const meta = { ...section[`ACCOUNT_4_${field}`], group: `Account ${n}` };
+      meta.desc = (meta.desc || '').replace('desktop 4', `desktop ${n}`);
+      section[`ACCOUNT_${n}_${field}`] = meta;
+      state[script][`ACCOUNT_${n}_${field}`] = meta.default;
+    }
+    renderContent();
+    selectScript(script);
+    const groups = $content.querySelector(`.script-panel[data-script="${script}"] .group-tabs`);
+    if (groups) selectGroup(groups, `Account ${n}`);
+  });
+  strip.appendChild(plus);
 }
 
 function selectGroup(groups, group) {
@@ -798,7 +827,7 @@ function selectGroup(groups, group) {
 function updateGroupTabs(script) {
   const panel = $content.querySelector(`.script-panel[data-script="${script}"]`);
   if (!panel) return;
-  for (const tab of panel.querySelectorAll('.tab-strip button')) {
+  for (const tab of panel.querySelectorAll('.tab-strip button[data-group]')) {
     const group = tab.dataset.group;
     const names = Object.keys(schema[script]).filter(n => n !== '__title__' && schema[script][n].group === group);
     const first = names.find(n => schema[script][n].type === 'text');
