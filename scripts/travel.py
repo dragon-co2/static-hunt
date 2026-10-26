@@ -9,6 +9,7 @@ ini/MapDestination.dat) - and goes to the nearest one, then on to the nearest mo
     python travel.py <character> --tour       for good: each map's zone drawn with hunt_zones.py
                                               (or, with none, every hunting area of it in turn),
                                               then a VIP teleport to the next city"""
+import base64
 import ctypes
 import ctypes.wintypes
 import heapq
@@ -18,6 +19,7 @@ import os
 import random
 import re
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -50,6 +52,11 @@ LOOT_CELLS  = 40            # + items lying this close are gone for (farther tha
 LOOT_NEVER  = ('Coat',)     # items never picked up, by name (every quality of it)
 SKIP_SUPER_PLUS = True      # never pick up an item both Super and +1 or better
 SUPER       = 9             # an item type's last digit for Super quality (8 Elite, 7 Unique, 6 Refined)
+DROP_KEEP   = 60            # the game's "...it dropped a +1 X" lines: one not picked up yet is gone
+                            # back for (where the character stood then) for this many seconds
+DROP_SETTLE = 1.0           # seconds after the line before going back (the item to show up first)
+DROP_SAID   = re.compile(r'You killed a monster and it dropped an? (?P<item>\+\d+ [^.\[]+?|DragonBall)\.?\s*'
+                         r'(?:\[[\d\-, :]*\])?\s*$', re.I)   # (the line ends in the game's time stamp)
 BEEN_SECONDS = 10         # bounce: a monster just jumped next to isn't the next one for this long
 LANDINGS    = 6             # bounce: its last landing spots kept...
 LANDED_CELLS = 5            # ...and monsters this close to one of them not picked (unless no other)
@@ -94,6 +101,10 @@ CLAIM_FRESH = 10.0          # static.py leaves the casting to the tour while the
 _maps = {}                  # DMap path -> (width, height, walkable bytearray)
 _pristine = {}              # DMap path -> its walkable bytes as in the file (before _block)
 _never = None               # the item types of LOOT_NEVER, once read (_never_types)
+_names = None               # item type -> its name, once read (_item_names)
+_drops = {}                 # game pid -> [[when, (x, y) of the character then, item name]] said dropped
+_drops_lock = threading.Lock()
+_watching = False
 _claimed = {}               # character -> when its claim file was last touched
 _last_cast = {}             # game pid -> when the steady Scatter was last cast
 
@@ -405,24 +416,122 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
                 on_land(now)
             if cast:                                    # a crowd on the way: a Scatter ahead
                 _scatter_ahead(pid, me, cast_need, cast_every, cast_reach, around)
-            if claiming and loot(pid, name, loot_skip, loot_reach):   # a + item on the way:
+            if claiming and pick_all(pid, name, loot_skip, loot_reach):   # + items on the way:
                 stops = []                              # picked up - the way again from there
     return False
 
 
-def _never_types(pid):
-    """The item types named in LOOT_NEVER (all their qualities) - from the client's
-    ini/itemtype.txt (id@@name@@...), read once."""
-    if _never is None:
-        names = {n.lower() for n in LOOT_NEVER}
-        found = set()
+def _item_names(pid):
+    """{item type: name} - from the client's ini/itemtype.txt (id@@name@@...), read once."""
+    if _names is None:
+        found = {}
         with open(os.path.join(game_root(pid), 'ini', 'itemtype.txt'), encoding='latin1') as f:
             for line in f:
                 parts = line.split('@@', 2)
-                if len(parts) > 2 and parts[1].lower() in names and parts[0].isdigit():
-                    found.add(int(parts[0]))
-        globals()['_never'] = found
+                if len(parts) > 2 and parts[0].isdigit():
+                    found[int(parts[0])] = parts[1]
+        globals()['_names'] = found
+    return _names
+
+
+def _never_types(pid):
+    """The item types named in LOOT_NEVER (all their qualities)."""
+    if _never is None:
+        names = {n.lower() for n in LOOT_NEVER}
+        globals()['_never'] = {t for t, n in _item_names(pid).items() if n.lower() in names}
     return _never
+
+
+def watch_drops():
+    """Starts reading the games' chat (kill_watch's read-only chat_reader.ps1, on a thread) for
+    "You killed a monster and it dropped a +1 X" / "...a DragonBall": each one is kept in _drops
+    with where the character stood, until picked up (pick_all) or DROP_KEEP old. Once a run."""
+    global _watching
+    if _watching:
+        return
+    _watching = True
+    threading.Thread(target=_drops_loop, daemon=True).start()
+
+
+def _drops_loop():
+    import kill_watch
+    while True:
+        try:
+            proc = subprocess.Popen(
+                ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', kill_watch.READER],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except OSError as e:
+            print(f'could not start the chat reader for the drops ({e})')
+            time.sleep(30)
+            continue
+        kill_watch._tie_to_us(proc)
+        for raw in proc.stdout:
+            try:
+                msg = json.loads(raw)
+                said = DROP_SAID.search(base64.b64decode(msg.get('text') or '').decode('cp1252', 'replace'))
+            except ValueError:
+                continue
+            if said and msg.get('pid') and not any(n.lower() in said.group('item').lower() for n in LOOT_NEVER):
+                pid = msg['pid']
+                me = game_actions.my_pos(pid)
+                if me:
+                    with _drops_lock:
+                        _drops.setdefault(pid, []).append([time.time(), me, said.group('item')])
+                    print(f'{game_memory._name_pid(pid) or pid}: the game says it dropped a '
+                          f'{said.group("item")} near {me}')
+        proc.wait()
+        time.sleep(5)
+
+
+def _dropped(pid, kind, plus):
+    """A + item / dragonball just picked up: its line in _drops (the oldest of that name) done."""
+    item = 'dragonball' if kind == game_memory.DRAGONBALL else f'+{plus} {_item_names(pid).get(kind, "")}'.lower()
+    with _drops_lock:
+        waiting = _drops.get(pid, [])
+        for drop in waiting:
+            if drop[2].lower() == item:
+                waiting.remove(drop)
+                return
+
+
+def pick_all(pid, name, skip, reach=LOOT_CELLS):
+    """Every + item / dragonball in reach picked up (loot, again and again) - then each one the
+    game said dropped (_drops) and still not picked up: back to where the character stood then, and
+    picked up there. True if any was picked up."""
+    picked = _loot_all(pid, name, skip, reach)
+    now = time.time()
+    with _drops_lock:
+        waiting = _drops.get(pid, [])
+        waiting[:] = [d for d in waiting if now - d[0] < DROP_KEEP]
+        due = [d for d in waiting if now - d[0] >= DROP_SETTLE]
+    for drop in due:
+        when, spot, item = drop
+        me = game_actions.my_pos(pid)
+        if not me:
+            break
+        claim(name)
+        print(f"{name}: the {item} dropped {now - when:.0f}s ago isn't picked up - back to {spot} for it")
+        if _far(me, spot) > JUMP_CELLS:
+            go(pid, name, *spot, stop=lambda: _far(game_actions.my_pos(pid) or me, spot) <= JUMP_CELLS)
+        claim(name)
+        picked = _loot_all(pid, name, skip, LOOT_CELLS) or picked
+        with _drops_lock:                               # looked for: done with it either way
+            if drop in _drops.get(pid, []):
+                _drops[pid].remove(drop)
+                print(f'{name}: no {item} found near {spot} - left it')
+    return picked
+
+
+def _loot_all(pid, name, skip, reach):
+    """loot again and again until nothing more is in reach. True if any was picked up."""
+    picked = False
+    for _ in range(20):
+        got = loot(pid, name, skip, reach)
+        if not got:
+            break
+        picked = picked or got == 'picked'
+    return picked
 
 
 def loot(pid, name, skip, reach=LOOT_CELLS):
@@ -451,6 +560,7 @@ def loot(pid, name, skip, reach=LOOT_CELLS):
         print(f'{name}: a +{plus} item lies {_far(me, (x, y)):.0f} cells away - going for it')
         go(pid, name, x, y, stop=lambda: gone() or _far(game_actions.my_pos(pid) or me, (x, y)) <= JUMP_CELLS)
     if monk_hunt.collect(pid, item_id, x, y):
+        _dropped(pid, kind, plus)
         if kind == game_memory.DRAGONBALL:
             print(f'{name}: picked up a dragonball - into the bank')
             background_hunt.bank_dragonballs(pid, name)
@@ -545,7 +655,7 @@ def bounce(pid, name, seconds, stop=None, wander=True, center=None, label=''):
         me = game_actions.my_pos(pid)
         if not me:
             return count
-        if loot(pid, name, loot_skip):                  # a + item within LOOT_CELLS first
+        if pick_all(pid, name, loot_skip):              # + items within LOOT_CELLS first
             continue
         everyone = _monster_cells(pid, (), center)
         found = [m for m in everyone if m[2] not in been] or everyone   # all just visited: again
@@ -749,6 +859,7 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
     (patrol, TOUR_SECONDS) - else every hunting area of it in turn, nearest first, `seconds` of
     jumping among each one's monsters (less if it runs out of them) - then a teleport to the next
     city, round and round TELEPORTS."""
+    watch_drops()
     codes = [c for c, _ in TELEPORTS]
     here = next((i for i, (_, m) in enumerate(TELEPORTS) if m == map_id(pid)), -1)
     while not (stop and stop()):
