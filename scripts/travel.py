@@ -99,6 +99,14 @@ TELEPORT_WAIT = 10         # seconds for a teleport to land on the new map
 TELEPORTS   = [(21, 1002), (22, 1011), (23, 1020), (24, 1000), (25, 1015)]   # VIP Remote Travel:
 TELEPORT_NAMES = {21: 'Twin City', 22: 'Phoenix Castle', 23: 'Ape City', 24: 'Desert',   # (code, map)
                   25: 'Bird Island'}
+SIDE_MAPS   = {                                     # tour: after a city, these maps too - each
+    1011: [([('portal', (379, 23))], 1013, 'Tiger Cave')],   # reached by its steps in turn:
+    1000: [([('vip', 24, (500, 650)),                   # a VIP teleport (code) to near this cell,
+             ('npc', 'Conductress', (478, 631), [2], (80, 320)),   # an NPC's options to near a cell,
+             ('portal', (77, 319))], 1001, 'Mystic Castle')],      # onto a portal (the map file's)
+}
+ARRIVE_CELLS = 15           # this close to a step's cell counts as there
+PORTAL_WAIT = 10            # seconds for a portal to take the character to the other map
 
 CLAIM_DIR   = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'auto_hunt')
 CLAIM_EVERY = 2.0           # seconds between touches of a character's claim file while it tours
@@ -912,34 +920,19 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
     """For good (or until `stop`()): on each map, its zone drawn with hunt_zones.py if it has one
     (patrol, TOUR_SECONDS) - else every hunting area of it in turn, nearest first, `seconds` of
     jumping among each one's monsters (less if it runs out of them) - then a teleport to the next
-    city, round and round TELEPORTS."""
+    city, round and round TELEPORTS - and, after a city with SIDE_MAPS, those maps too (through
+    their portals)."""
     watch_drops()
     codes = [c for c, _ in TELEPORTS]
     here = next((i for i, (_, m) in enumerate(TELEPORTS) if m == map_id(pid)), -1)
     while not (stop and stop()):
-        city, me = map_id(pid), game_actions.my_pos(pid)
-        count = 0
-        if zone(city):
-            count = patrol(pid, name, TOUR_SECONDS, stop)
-            areas = None
-        else:
-            areas = _route(hunting_areas(game_root(pid), city), me) if me else []
-            print(f'{name}: map {city} - {len(areas)} hunting area(s)')
-        for title, x, y, says in areas or []:
+        city = map_id(pid)
+        _hunt_map(pid, name, seconds, stop)
+        for steps, side, title in SIDE_MAPS.get(city, []):
             if stop and stop():
                 return
-            print(f'{name}: going to {title} ({x}, {y}) - {says}')
-            near = lambda: (_far(game_actions.my_pos(pid) or (0, 0), (x, y)) <= AREA_RADIUS
-                            and bool(_monster_cells(pid, (), (x, y))))
-            if not go(pid, name, x, y, stop=near, claiming=True):
-                print(f'{name}: could not get to {title}')
-                continue
-            jumped = bounce(pid, name, seconds, stop, wander=False, center=(x, y), label=title)
-            print(f'{name}: {jumped} jumps at {title}')
-            count += jumped
-        if areas == []:
-            count += explore(pid, name, TOUR_SECONDS, stop)
-        print(f'{name}: {count} jumps on map {city}')
+            if side_trip(pid, name, steps, side, title):
+                _hunt_map(pid, name, seconds, stop)
         here = (here + 1) % len(codes)
         print(f'{name}: teleport to {TELEPORT_NAMES[codes[here]]}')
         teleport(pid, name, codes[here])
@@ -948,6 +941,80 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
                 market_run(pid, name)
             except (OSError, TimeoutError, LookupError) as e:
                 print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
+
+
+def _hunt_map(pid, name, seconds, stop):
+    """One map of the tour: its drawn zone (patrol, TOUR_SECONDS), else each hunting area in turn
+    (`seconds` each), else explore. Returns how many jumps."""
+    city, me = map_id(pid), game_actions.my_pos(pid)
+    count = 0
+    if zone(city):
+        count = patrol(pid, name, TOUR_SECONDS, stop)
+        areas = None
+    else:
+        areas = _route(hunting_areas(game_root(pid), city), me) if me else []
+        print(f'{name}: map {city} - {len(areas)} hunting area(s)')
+    for title, x, y, says in areas or []:
+        if stop and stop():
+            return count
+        print(f'{name}: going to {title} ({x}, {y}) - {says}')
+        near = lambda: (_far(game_actions.my_pos(pid) or (0, 0), (x, y)) <= AREA_RADIUS
+                        and bool(_monster_cells(pid, (), (x, y))))
+        if not go(pid, name, x, y, stop=near, claiming=True):
+            print(f'{name}: could not get to {title}')
+            continue
+        jumped = bounce(pid, name, seconds, stop, wander=False, center=(x, y), label=title)
+        print(f'{name}: {jumped} jumps at {title}')
+        count += jumped
+    if areas == []:
+        count += explore(pid, name, TOUR_SECONDS, stop)
+    print(f'{name}: {count} jumps on map {city}')
+    return count
+
+
+def _near(pid, cell, seconds):
+    """Waits for the character to be within ARRIVE_CELLS of `cell`. True once it is."""
+    end = time.time() + seconds
+    while time.time() < end:
+        me = game_actions.my_pos(pid)
+        if me and _far(me, cell) <= ARRIVE_CELLS:
+            time.sleep(1)                               # the spot loading
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def side_trip(pid, name, steps, the_map, title=''):
+    """Takes the character to `the_map` by `steps` (SIDE_MAPS), one after another. True if there."""
+    for step in steps:
+        if step[0] == 'vip':
+            _, code, cell = step
+            game_actions.vip_command(pid, code)
+            ok = _near(pid, cell, TELEPORT_WAIT)
+        elif step[0] == 'npc':
+            _, npc, cell, options, arrive = step
+            ok = _talk(pid, name, npc, cell, options) and _near(pid, arrive, TELEPORT_WAIT)
+        else:
+            ok = enter(pid, name, step[1], the_map, title)
+        if not ok:
+            print(f'{name}: the way to {title or the_map} stopped at {step[:2]} - skipped it')
+            return False
+    return map_id(pid) == the_map
+
+
+def enter(pid, name, portal, the_map, title=''):
+    """Goes onto the portal cell `portal` of this map and waits to be on `the_map`. True if there."""
+    print(f'{name}: to the portal at {portal} - into {title or the_map}')
+    here = map_id(pid)
+    if go(pid, name, *portal, claiming=True) is None:
+        return False
+    if map_id(pid) == here:                             # go stops a cell or two short: onto the
+        game_actions.jump_to(pid, *portal)              # very cell
+        _wait_landed(pid)
+    if (map_id(pid) != here or _wait_map(pid, here, PORTAL_WAIT)) and map_id(pid) == the_map:
+        return True
+    print(f'{name}: the portal at {portal} did not take it to {title or the_map}')
+    return False
 
 
 # ---------------------------------------------------------------- the Market: dragonballs -> CPs

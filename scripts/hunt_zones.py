@@ -18,7 +18,7 @@ import travel
 VIEW = 820                      # the map is drawn this many pixels across (its longer side)
 REFRESH_MS = 2000               # how often the characters' places are drawn again
 MAP_NAMES = {1002: 'Twin City', 1011: 'Phoenix Castle', 1020: 'Ape City', 1000: 'Desert',
-             1015: 'Bird Island'}
+             1015: 'Bird Island', 1013: 'Tiger Cave', 1001: 'Mystic Castle'}
 GROUND, WALL, ZONE = (190, 180, 150), (40, 40, 45), (60, 200, 80)
 
 
