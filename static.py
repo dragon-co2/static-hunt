@@ -416,9 +416,10 @@ class _Account:
             self.last_mail = time.time()
             if mail_compose.transfer(self.pid, self.name, MAIL_TO):
                 _mail_sent.set()
-        if not background_hunt.ensure_arrows(self.pid, self.name):
+        armed = background_hunt.ensure_arrows(self.pid, self.name)   # None: no pack in any tab
+        if not armed:
             left = game_memory._read_equipped_pid(self.pid)[0]
-            if (left == 0 or not game_memory.bank_items(self.pid)) and \
+            if (left == 0 or armed is None) and \
                     time.time() - self.arrows_alerted >= ARROWS_ALERT_EVERY:
                 self.arrows_alerted = time.time()
                 notify.send(f'\U0001F3F9 {self.name}: out of arrows and no pack to take — {left} equipped')

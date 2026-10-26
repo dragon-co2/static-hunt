@@ -24,7 +24,9 @@ ARROWS_MIN   = 100              # default for the settings' ARROWS_MIN: fewer eq
 BANK_WAIT    = 4.0              # seconds for the server to answer a bank / equip request
 DRAGONBALLS_MIN = 10            # dragonballs before one is used (10 make a dragonball scroll)
 REGULAR_BANKS = [(8, 10), (10011, 10), (10012, 10), (10027, 10), (10028, 10)]   # remote bank tabs
-                                # for the scrolls - not the arrows tab (4101) nor compose (44)
+                                # for the scrolls - not the arrows tab (4101) nor (44)
+ARROW_TABS = [game_memory.ARROW_BANK] + REGULAR_BANKS + [(44, 10)]   # all 7 remote bank tabs: where
+                                # an arrow pack is looked for, in order
 
 
 def _wait_cast(pid):
@@ -67,7 +69,8 @@ def _wait(check, seconds):
 def ensure_arrows(pid, name):
     """Below ARROWS_MIN arrows equipped: equips a fuller pack from the bag, else takes the biggest
     pack out of the bank (opened from afar, loaded first if this client hasn't yet) and equips
-    that. True if fine."""
+    that - the arrows tab first, then every other tab. True if fine, None if no tab holds a pack,
+    False if it failed."""
     equipped = game_memory._read_equipped_pid(pid)[0]
     if equipped is None or equipped >= _arrows_min():
         return True
@@ -81,16 +84,21 @@ def ensure_arrows(pid, name):
 
 
 def _arrows_from_bank(pid, name, equipped):
-    """The biggest arrow pack out of the bank (opened from afar), equipped."""
-    _open_bank(pid, game_memory.ARROW_BANK)             # from afar, reloaded (else no withdraw)
-    time.sleep(1)
-    bank = _wait(lambda: game_memory.bank_items(pid), BANK_WAIT) or []
-    in_bank = sorted((i for i in bank if i[1] in game_memory.ARROW_TYPES), key=lambda i: -i[2])
-    if not in_bank:
-        print(f'{name}: only {equipped} arrows equipped and no arrow pack in the bank')
-        return False
+    """The biggest arrow pack out of the bank (opened from afar), equipped: the arrows tab first,
+    then the other 6 tabs (ARROW_TABS). None if no tab holds one."""
+    for key in ARROW_TABS:
+        if not _open_bank(pid, key):                    # from afar, reloaded (else no withdraw)
+            continue
+        time.sleep(1)
+        bank = _wait(lambda: game_memory.bank_items(pid, key), BANK_WAIT) or []
+        in_bank = sorted((i for i in bank if i[1] in game_memory.ARROW_TYPES), key=lambda i: -i[2])
+        if in_bank:
+            break
+    else:
+        print(f'{name}: only {equipped} arrows equipped and no arrow pack in any bank tab')
+        return None
     pack_id = in_bank[0][0]
-    game_actions.bank_withdraw(pid, pack_id)
+    game_actions.bank_withdraw(pid, pack_id, key)
     packs = _wait(lambda: [p for p in game_memory.bag_arrow_packs(pid) if p[0] == pack_id], BANK_WAIT)
     if not packs:
         print(f'{name}: the arrow pack never left the bank')
