@@ -37,6 +37,10 @@ REFUSED_WAIT = 0.4          # not moved after a jump: wait this long more before
 KEEP_FREE   = 3             # cells this close to the character are never learnt as blocked
 GIVE_UP     = 8            # refused jumps in a row before a trip gives up (the tour moves on)
 CAST_SENT   = 0.15          # bounce: seconds after a Scatter before jumping on (not its animation)
+SCATTER_FAN = 45            # a Scatter is aimed where the most monsters are within this many
+                            # degrees either side of its line
+CAST_BUSY   = 1.0           # a jump not taken this soon after a Scatter: its animation, not a
+                            # blocked cell - the same jump again at once
 SCATTER_MIN = 3             # auto hunt: a Scatter only with this many monsters or more...
 SCATTER_REACH = 6           # ...this close (also a monster's crowd, which guides where to jump next)
 SCATTER_EVERY = 0.5         # ...and one this often at most (once landed), aimed the way it went
@@ -70,10 +74,12 @@ ZONES_PATH  = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'h
 ZONES_DEFAULT = os.path.join(_paths.scripts_dir(), 'hunt_zones.json')   # the zones that come with
                             # the program - for the maps this PC hasn't drawn (ZONES_PATH)
 ZONE_CELLS  = 10           # zones: drawn in squares this big (hunt_zones.py)
-ZONE_SCATTER_EVERY = 0.5    # zones: a Scatter this often (once landed)...
-ZONE_SCATTER_REACH = 10     # ...when there's any monster this close - none: no Scatter
-CROWD_MANY  = 10            # zones: more monsters than this...
-CROWD_REACH = 15            # ...this close: half-length jumps, to stay longer in the crowd
+CROWD_FEW   = 2             # zones: this many monsters or more within CROWD_REACH: jumps of
+SHORT_JUMP  = 5             # SHORT_JUMP cells, to stay among them
+CROWD_MANY  = 5             # zones: more monsters than this...
+CROWD_REACH = 10            # ...this close: a Scatter every
+ZONE_SCATTER_EVERY = 0.3    # ZONE_SCATTER_EVERY seconds - fewer: no Scatter, the jumps go on
+                            # without a stop (the game takes no jump during a Scatter's animation)
 ZONE_PART   = 5             # zones: roamed in parts of this many squares across (50 cells) - each
                             # visited before any twice
 TWIN_CITY   = 1002
@@ -107,6 +113,7 @@ _drops_lock = threading.Lock()
 _watching = False
 _claimed = {}               # character -> when its claim file was last touched
 _last_cast = {}             # game pid -> when the steady Scatter was last cast
+_casts = {}                 # game pid -> Scatters cast in the air so far (the status lines)
 
 
 # ---------------------------------------------------------------- who casts
@@ -324,6 +331,41 @@ def _wait_landed(pid):
         time.sleep(0.02)
 
 
+def _airborne(pid):
+    """Waits (a moment at most) for the jump just sent to take off. True once in the air."""
+    end = time.time() + 0.3
+    while time.time() < end:
+        if game_actions.my_command(pid) in CMD_IN_AIR:
+            return True
+        time.sleep(0.02)
+    return False
+
+
+def _cast_ahead(pid, me, target, every=None, monsters=()):
+    """A Scatter while in the air, from where the jump lands (`target`) towards the most of
+    `monsters` (_monster_cells) - the direction with the most of them within SCATTER_FAN degrees
+    of it; none: the way the jump goes (from `me`). At most one every `every` (SCATTER_EVERY)
+    seconds. True if cast."""
+    if time.time() - _last_cast.get(pid, 0) < (SCATTER_EVERY if every is None else every):
+        return False
+    angles = [math.atan2(m[3][1] - target[1], m[3][0] - target[0]) for m in monsters
+              if m[3] != tuple(target) and _far(m[3], target) <= SCATTER_REACH * 2]
+    fan = math.radians(SCATTER_FAN)
+    inside = lambda a: sum(1 for b in angles if abs((b - a + math.pi) % (2 * math.pi) - math.pi) <= fan)
+    if angles:
+        best = max(angles, key=inside)
+        dx, dy = math.cos(best), math.sin(best)
+    else:
+        dx, dy = target[0] - me[0], target[1] - me[1]
+    length = math.hypot(dx, dy) or 1
+    game_actions.cast_at(pid, background_hunt.SCATTER,
+                         round(target[0] + dx / length * background_hunt.SCATTER_CELLS),
+                         round(target[1] + dy / length * background_hunt.SCATTER_CELLS))
+    _last_cast[pid] = time.time()
+    _casts[pid] = _casts.get(pid, 0) + 1
+    return True
+
+
 def _scatter_ahead(pid, came_from, need=None, every=None, reach=None, monsters=None):
     """A Scatter only where it pays - `need` (SCATTER_MIN) or more monsters within `reach`
     (SCATTER_REACH); 0 = always (each cast slows the jumping: the game takes no jump till its
@@ -359,14 +401,15 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
     worked out again from where it stands then. `stop`() True ends the trip early; `claiming`: a
     tour's trip (keeps its claim fresh, a Scatter ahead - with `cast_need` monsters within
     `cast_reach`, at most every `cast_every` seconds: _scatter_ahead - + items within `loot_reach`
-    picked up on the way); `crowd_slow`: half-length jumps while more than CROWD_MANY monsters are
-    within CROWD_REACH; `on_land`(cell) after each jump. True if there; None if there's no way there
+    picked up on the way); `crowd_slow`: SHORT_JUMP-cell jumps while CROWD_FEW or more monsters
+    are within CROWD_REACH; `on_land`(cell) after each jump. True if there; None if there's no way there
     at all."""
     root, the_map = game_root(pid), map_id(pid)
     grid = load_map(map_file(root, the_map))
     full = reach = JUMP_CELLS
     refused, stops, loot_skip = 0, [], {}
     cast = claiming and background_hunt.SCATTER in game_actions.skills(pid)
+    crowded, around = False, []                         # Scatter on the next jump (read on landing)
     for _ in range(200):
         if claiming:
             claim(name)
@@ -390,8 +433,17 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
                 return True
         target = stops.pop(0)
         game_actions.jump_to(pid, *target)
+        if crowded and _airborne(pid):                  # a crowd here: Scatters in the air, the
+            end = time.time() + JUMP_WAIT               # way it jumps - their animation no stop
+            while time.time() < end and game_actions.my_command(pid) in CMD_IN_AIR:
+                _cast_ahead(pid, me, target, cast_every, around)
+                time.sleep(0.02)
         _wait_landed(pid)
         now = game_actions.my_pos(pid)
+        if now == me and time.time() - _last_cast.get(pid, 0) < CAST_BUSY:   # the Scatter's
+            stops.insert(0, target)                     # animation, not the cell: the same jump again
+            time.sleep(0.05)
+            continue
         if now == me:                                   # not moved yet: a late start?
             time.sleep(REFUSED_WAIT)
             _wait_landed(pid)
@@ -407,15 +459,15 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
         else:
             around = _monster_cells(pid, ()) if (crowd_slow or cast) else []   # read once a landing
             if crowd_slow:                              # a big crowd: shorter jumps, more casts in it
-                many = sum(1 for m in around if m[0] <= CROWD_REACH) > CROWD_MANY
-                full = JUMP_CELLS // 2 if many else JUMP_CELLS
+                near = sum(1 for m in around if m[0] <= CROWD_REACH)
+                full = SHORT_JUMP if near >= CROWD_FEW else JUMP_CELLS
             if reach != full:                           # past a refused one / the crowd changed:
                 stops = []                              # the jumps worked out again
             reach, refused = full, 0
             if on_land:
                 on_land(now)
-            if cast:                                    # a crowd on the way: a Scatter ahead
-                _scatter_ahead(pid, me, cast_need, cast_every, cast_reach, around)
+            near = [m for m in around if m[0] <= (SCATTER_REACH if cast_reach is None else cast_reach)]
+            crowded = cast and len(near) >= (SCATTER_MIN if cast_need is None else cast_need)
             if claiming and pick_all(pid, name, loot_skip, loot_reach):   # + items on the way:
                 stops = []                              # picked up - the way again from there
     return False
@@ -806,9 +858,9 @@ def _zone_parts(grid, squares):
 def patrol(pid, name, seconds, stop=None):
     """Roams the zone drawn on this map for `seconds`, at random but all of it: again and again a
     random cell in one of the parts (_zone_parts) visited least so far - every part before any
-    twice - and the way there jump by jump (go): a Scatter every ZONE_SCATTER_EVERY seconds while
-    any monster is within ZONE_SCATTER_REACH (none: no Scatter), half-length jumps in a crowd of
-    more than CROWD_MANY, + items picked up. Returns how many jumps."""
+    twice - and the way there jump by jump (go): SHORT_JUMP-cell jumps with CROWD_FEW or more
+    monsters within CROWD_REACH, Scatters in the air every ZONE_SCATTER_EVERY seconds with more
+    than CROWD_MANY (fewer: no Scatter, no stop), + items picked up. Returns how many jumps."""
     the_map = map_id(pid)
     grid = load_map(map_file(game_root(pid), the_map))
     parts = _zone_parts(grid, zone(the_map))
@@ -820,6 +872,7 @@ def patrol(pid, name, seconds, stop=None):
     cast = background_hunt.SCATTER in game_actions.skills(pid)
     part_of = lambda cell: (cell[0] // ZONE_CELLS // ZONE_PART, cell[1] // ZONE_CELLS // ZONE_PART)
     print(f'{name}: [map {the_map}] roaming its drawn zone ({len(parts)} parts) for {seconds}s')
+    casts0 = _casts.get(pid, 0)
 
     def landed(cell):                                   # every jump of the way
         count[0] += 1
@@ -829,7 +882,8 @@ def patrol(pid, name, seconds, stop=None):
             told[0] = time.time()
             seen = sum(1 for v in visits.values() if v)
             print(f'{name}: [map {the_map} zone] {time.time() - start:.0f}s of {seconds:.0f}s, '
-                  f'{count[0]} jumps, {seen} of {len(parts)} parts visited - going to {goal}')
+                  f'{count[0]} jumps, {_casts.get(pid, 0) - casts0} Scatters, {seen} of {len(parts)} '
+                  f'parts visited - going to {goal}')
 
     while time.time() < end and not (stop and stop()):
         least = min(visits.values())
@@ -837,7 +891,7 @@ def patrol(pid, name, seconds, stop=None):
         goal = random.choice(parts[part])
         visits[part] += 1                               # chosen: not the next one too
         went = go(pid, name, *goal, claiming=True, on_land=landed, loot_reach=LOOT_CELLS,
-                  cast_need=1, cast_reach=ZONE_SCATTER_REACH, cast_every=ZONE_SCATTER_EVERY,
+                  cast_need=CROWD_MANY + 1, cast_reach=CROWD_REACH, cast_every=ZONE_SCATTER_EVERY,
                   crowd_slow=True,
                   stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map)
         if map_id(pid) != the_map:

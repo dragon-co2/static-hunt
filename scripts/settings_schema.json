@@ -216,6 +216,29 @@
       "desc": "One message per line — each reply picks one line at random. English letters, numbers and symbols only (it is typed on a US keyboard)."
     }
   },
+  "auto_reply": {
+    "__title__": "Auto reply",
+    "ENABLED": {
+      "type": "bool",
+      "default": false,
+      "desc": "When a player whispers one of your accounts to start talking (hi, hey, yo...), whisper back a short line after a few seconds, like a person would. Only whispers (not World / Team / Guild). Each player gets one auto reply per Once per player; a talk that goes on is yours to answer from Telegram. Whispers are read from the game's chat (read-only)."
+    },
+    "COOLDOWN": {
+      "type": "int",
+      "min": 1,
+      "max": 1440,
+      "step": 1,
+      "unit": "min",
+      "default": 30,
+      "label": "Once per player",
+      "desc": "Minutes before the same player can get another auto reply."
+    },
+    "RULES": {
+      "type": "lines",
+      "default": "hi, hii, hey, hello, helo, yo, hola, salam, slm, hala, heya => what? | hi? | yes? | ? | hey?\nbro, dude, man, sir, mate => what? | ? | yes?\nsup, wassup, whats up, wsup => nm | nothing u? | ?\nhow are you, how r u, hru, how are u => fine | good u? | ok\n? => ?",
+      "desc": "One rule a line: the words a message starts with, then =>, then the replies split by | (one picked at random). Case, punctuation and drawn-out letters are ignored (\"HEYYY!!\" is \"hey\"). English letters, numbers and symbols only."
+    }
+  },
   "telegram": {
     "__title__": "Notifications",
     "ENABLED": {

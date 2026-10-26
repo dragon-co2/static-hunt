@@ -38,6 +38,7 @@ import background_hunt
 import bg_login
 import game_actions
 import game_memory
+import auto_reply
 import kill_reply
 import kill_watch
 import mail_compose
@@ -77,6 +78,7 @@ _logging_in = set()               # slots being logged in right now (one at a ti
 _reply_lock = threading.Lock()
 _reply_due  = {}    # slot -> [killer, ...] to whisper once revived
 _custom_due = {}    # slot -> [(player, text, telegram msg id)] typed in Telegram
+_auto_due   = {}    # slot -> [(player, text, when)] auto replies (auto_reply) - sent from `when` on
 _rev_now    = set() # slots told from Telegram to revive without the wait
 _status     = {}    # slot -> one line for the on-screen panel
 _accts      = []
@@ -210,6 +212,11 @@ def _on_whisper(sender, character, slot, text, channel='Whisper'):
     via = '' if channel.lower() == 'whisper' else f' [{channel}]'
     notify.send(f'\U0001F4E8 {sender} → {character} (account {slot}){via}: {text}',
                 ref={'desktop': slot, 'player': sender, 'character': character})
+    reply = auto_reply.reply_for(sender, text, channel)
+    if reply:
+        with _reply_lock:
+            _auto_due.setdefault(slot, []).append((sender, reply, auto_reply.when()))
+        print(f'[AUTO REPLY] {character} will whisper {sender}: {reply}')
 
 
 def _on_tg_reply(ref, text, msg_id):
@@ -359,6 +366,7 @@ class _Account:
         with _reply_lock:
             due = list(_reply_due.get(self.slot) or [])
             custom = list(_custom_due.get(self.slot) or [])
+            auto = [a for a in _auto_due.get(self.slot) or [] if a[2] <= time.time()]
         for killer in due:
             done = kill_reply.already_messaged(killer)
             message = None if done else kill_reply.send_with(whisper, killer)
@@ -383,6 +391,16 @@ class _Account:
                 with _reply_lock:
                     if item in _custom_due.get(self.slot, []):
                         _custom_due[self.slot].remove(item)
+        for item in auto:
+            player, text, _ = item
+            ok = kill_reply.send_with(whisper, player, message=text)
+            if ok:
+                notify.send(f'\U0001F916 {self.name} auto-replied to {player}: "{text}"',
+                            ref={'desktop': self.slot, 'player': player, 'character': self.name})
+            if self._tried(('auto', player.lower(), text), bool(ok)):
+                with _reply_lock:
+                    if item in _auto_due.get(self.slot, []):
+                        _auto_due[self.slot].remove(item)
 
     def _tried(self, key, done):
         """Counts a failed send; True when the item is finished (sent, or given up)."""
