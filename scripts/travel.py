@@ -59,7 +59,10 @@ ZONES_PATH  = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'h
 ZONES_DEFAULT = os.path.join(_paths.scripts_dir(), 'hunt_zones.json')   # the zones that come with
                             # the program - for the maps this PC hasn't drawn (ZONES_PATH)
 ZONE_CELLS  = 10           # zones: drawn in squares this big (hunt_zones.py)
-ZONE_SCATTER_EVERY = 0.5    # zones: a Scatter this often (once landed), whatever the monsters around
+ZONE_SCATTER_EVERY = 0.5    # zones: a Scatter this often (once landed)...
+ZONE_SCATTER_REACH = 10     # ...when there's any monster this close - none: no Scatter
+CROWD_MANY  = 10            # zones: more monsters than this...
+CROWD_REACH = 15            # ...this close: half-length jumps, to stay longer in the crowd
 ZONE_PART   = 5             # zones: roamed in parts of this many squares across (50 cells) - each
                             # visited before any twice
 TELEPORT_WAIT = 10          # seconds for a teleport to land on the new map
@@ -292,18 +295,18 @@ def _wait_landed(pid):
         time.sleep(0.02)
 
 
-def _scatter_ahead(pid, came_from, need=None, every=None):
-    """A Scatter only where it pays - `need` (SCATTER_MIN) or more monsters within SCATTER_REACH;
-    0 = always (each cast slows the jumping: the game takes no jump till its animation ends) - at
-    most one every `every` (SCATTER_EVERY) seconds, SCATTER_CELLS ahead - the way the last jump
-    went (from `came_from`); not moved: towards the monsters near. True if cast."""
+def _scatter_ahead(pid, came_from, need=None, every=None, reach=None):
+    """A Scatter only where it pays - `need` (SCATTER_MIN) or more monsters within `reach`
+    (SCATTER_REACH); 0 = always (each cast slows the jumping: the game takes no jump till its
+    animation ends) - at most one every `every` (SCATTER_EVERY) seconds, SCATTER_CELLS ahead - the
+    way the last jump went (from `came_from`); not moved: towards the monsters near. True if cast."""
     need = SCATTER_MIN if need is None else need
     if time.time() - _last_cast.get(pid, 0) < (SCATTER_EVERY if every is None else every):
         return False
     me = game_actions.my_pos(pid)
     if not me:
         return False
-    near = [m for m in _monster_cells(pid, ()) if m[0] <= SCATTER_REACH]
+    near = [m for m in _monster_cells(pid, ()) if m[0] <= (SCATTER_REACH if reach is None else reach)]
     if len(near) < need:
         return False
     dx, dy = me[0] - came_from[0], me[1] - came_from[1]
@@ -320,15 +323,18 @@ def _scatter_ahead(pid, came_from, need=None, every=None):
 
 
 def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None, cast_every=None,
-       loot_reach=JUMP_CELLS):
+       cast_reach=None, loot_reach=JUMP_CELLS, crowd_slow=False):
     """Jumps the character to (x, y) of its map. A refused jump is tried again shorter; the way is
     worked out again from where it stands then. `stop`() True ends the trip early; `claiming`: a
-    tour's trip (keeps its claim fresh, a Scatter ahead - where `cast_need` monsters crowd, at most
-    every `cast_every` seconds: _scatter_ahead - + items within `loot_reach` picked up on the way);
-    `on_land`(cell) after each jump. True if there; None if there's no way there at all."""
+    tour's trip (keeps its claim fresh, a Scatter ahead - with `cast_need` monsters within
+    `cast_reach`, at most every `cast_every` seconds: _scatter_ahead - + items within `loot_reach`
+    picked up on the way); `crowd_slow`: half-length jumps while more than CROWD_MANY monsters are
+    within CROWD_REACH; `on_land`(cell) after each jump. True if there; None if there's no way there
+    at all."""
     root, the_map = game_root(pid), map_id(pid)
     grid = load_map(map_file(root, the_map))
-    reach, refused, stops, loot_skip = JUMP_CELLS, 0, [], {}
+    full = reach = JUMP_CELLS
+    refused, stops, loot_skip = 0, [], {}
     cast = claiming and background_hunt.SCATTER in game_actions.skills(pid)
     for _ in range(200):
         if claiming:
@@ -368,13 +374,16 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
             reach, stops = max(3, reach // 2), []
             print(f'{name}: the jump to {target} was refused - blocked it, trying {reach} cells')
         else:
-            if reach != JUMP_CELLS:                     # past it: full jumps again
-                stops = []
-            reach, refused = JUMP_CELLS, 0
+            if crowd_slow:                              # a big crowd: shorter jumps, more casts in it
+                many = sum(1 for m in _monster_cells(pid, ()) if m[0] <= CROWD_REACH) > CROWD_MANY
+                full = JUMP_CELLS // 2 if many else JUMP_CELLS
+            if reach != full:                           # past a refused one / the crowd changed:
+                stops = []                              # the jumps worked out again
+            reach, refused = full, 0
             if on_land:
                 on_land(now)
             if cast:                                    # a crowd on the way: a Scatter ahead
-                _scatter_ahead(pid, me, cast_need, cast_every)
+                _scatter_ahead(pid, me, cast_need, cast_every, cast_reach)
             if claiming and loot(pid, name, loot_skip, loot_reach):   # a + item on the way:
                 stops = []                              # picked up - the way again from there
     return False
@@ -642,8 +651,9 @@ def _zone_parts(grid, squares):
 def patrol(pid, name, seconds, stop=None):
     """Roams the zone drawn on this map for `seconds`, at random but all of it: again and again a
     random cell in one of the parts (_zone_parts) visited least so far - every part before any
-    twice - and the way there jump by jump (go), a Scatter every ZONE_SCATTER_EVERY seconds on the
-    way whatever the monsters around, + items picked up. Returns how many jumps."""
+    twice - and the way there jump by jump (go): a Scatter every ZONE_SCATTER_EVERY seconds while
+    any monster is within ZONE_SCATTER_REACH (none: no Scatter), half-length jumps in a crowd of
+    more than CROWD_MANY, + items picked up. Returns how many jumps."""
     the_map = map_id(pid)
     grid = load_map(map_file(game_root(pid), the_map))
     parts = _zone_parts(grid, zone(the_map))
@@ -672,7 +682,8 @@ def patrol(pid, name, seconds, stop=None):
         goal = random.choice(parts[part])
         visits[part] += 1                               # chosen: not the next one too
         went = go(pid, name, *goal, claiming=True, on_land=landed, loot_reach=LOOT_CELLS,
-                  cast_need=0, cast_every=ZONE_SCATTER_EVERY,
+                  cast_need=1, cast_reach=ZONE_SCATTER_REACH, cast_every=ZONE_SCATTER_EVERY,
+                  crowd_slow=True,
                   stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map)
         if map_id(pid) != the_map:
             break
