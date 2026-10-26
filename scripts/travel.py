@@ -19,6 +19,7 @@ import random
 import re
 import struct
 import sys
+import threading
 import time
 
 import _paths
@@ -52,11 +53,11 @@ SUPER       = 9             # an item type's last digit for Super quality (8 Eli
 BEEN_SECONDS = 10         # bounce: a monster just jumped next to isn't the next one for this long
 LANDINGS    = 6             # bounce: its last landing spots kept...
 LANDED_CELLS = 5            # ...and monsters this close to one of them not picked (unless no other)
-AREA_SECONDS = 300           # tour: time among each hunting area's monsters before the next area
+AREA_SECONDS = 500           # tour: time among each hunting area's monsters before the next area
 EMPTY_SECONDS = 8           # tour: an area with no monsters this long (none came back) is left
 STATUS_EVERY = 5            # seconds between the console lines saying where the hunt is at
 AREA_RADIUS = 40           # tour: an area's monsters are the ones this close to its spot
-TOUR_SECONDS = 300           # tour: time on each map before the teleport to the next city
+TOUR_SECONDS = 500           # tour: time on each map before the teleport to the next city
 EXPLORE_NEAR, EXPLORE_FAR = 60, 150   # explore: how far the random spots are
 ZONES_PATH  = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'hunt_zones.json')
 ZONES_DEFAULT = os.path.join(_paths.scripts_dir(), 'hunt_zones.json')   # the zones that come with
@@ -69,6 +70,8 @@ CROWD_REACH = 15            # ...this close: half-length jumps, to stay longer i
 ZONE_PART   = 5             # zones: roamed in parts of this many squares across (50 cells) - each
                             # visited before any twice
 TWIN_CITY   = 1002
+MARKET      = 1036
+NO_SCATTER_MAPS = {MARKET}  # static.py never casts Scatter on these maps
 CONDUCTRESS = ('Conductress', (435, 440), [6])          # Twin City: (name, where, options) - 6 = Market
 EXCHANGE_DB = ('Exchange~DB', (183, 184), [1, 10])      # Market: 1 = Exchange DragonBall (215 CPs), 10 = Yes
 MARK_CONTROLLER = ('Mark.Controller', (212, 220), [1])  # Market: 1 = I'm ready (back to the city before)
@@ -885,16 +888,29 @@ def market_run(pid, name):
     (buy_arrows), the Conductress to the Market, every dragonball (bag and bank) sold at
     Exchange~DB, Mark.Controller back to Twin City."""
     print(f'{name}: round of the cities done - to the Market to sell the dragonballs')
-    buy_arrows(pid, name)
-    if not _talk(pid, name, *CONDUCTRESS) or not _wait_map(pid, TWIN_CITY):
-        print(f'{name}: the Conductress did not take it to the Market')
-        return
-    market = map_id(pid)
-    sell_dragonballs(pid, name)
-    if not _talk(pid, name, *MARK_CONTROLLER) or not _wait_map(pid, market):
-        print(f'{name}: Mark.Controller did not take it back - teleport to Twin City')
-        teleport(pid, name, TELEPORTS[0][0])
-    print(f'{name}: back from the Market')
+    done = threading.Event()                            # its claim kept fresh all the trip long:
+    threading.Thread(target=_keep_claim, args=(name, done), daemon=True).start()   # no static Scatter
+    try:
+        buy_arrows(pid, name)
+        if not _talk(pid, name, *CONDUCTRESS) or not _wait_map(pid, TWIN_CITY):
+            print(f'{name}: the Conductress did not take it to the Market')
+            return
+        market = map_id(pid)
+        sell_dragonballs(pid, name)
+        if not _talk(pid, name, *MARK_CONTROLLER) or not _wait_map(pid, market):
+            print(f'{name}: Mark.Controller did not take it back - teleport to Twin City')
+            teleport(pid, name, TELEPORTS[0][0])
+        print(f'{name}: back from the Market')
+    finally:
+        done.set()
+
+
+def _keep_claim(name, done):
+    """Touches `name`'s claim every CLAIM_EVERY seconds until `done` - static.py then casts nothing
+    for it (a Market trip: long bank and NPC steps with no jump to touch it)."""
+    while not done.wait(CLAIM_EVERY):
+        _claimed.pop(name, None)
+        claim(name)
 
 
 def main():

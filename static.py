@@ -458,6 +458,10 @@ class _Account:
                     self.say(f'auto hunt - arrows {arrows}')
                     time.sleep(1)
                     continue
+                if travel.map_id(self.pid) in travel.NO_SCATTER_MAPS:   # the Market: no monsters
+                    self.say(f'in the Market - no Scatter, arrows {arrows}')
+                    time.sleep(1)
+                    continue
                 self.say(f'hunting - arrows {arrows}')
                 background_hunt.scatter_around(self.pid)
             except Exception as e:      # one account's trouble never stops the others
