@@ -76,7 +76,7 @@ ZONES_DEFAULT = os.path.join(_paths.scripts_dir(), 'hunt_zones.json')   # the zo
 ZONE_CELLS  = 10           # zones: drawn in squares this big (hunt_zones.py)
 CROWD_FEW   = 2             # zones: this many monsters or more within CROWD_REACH: jumps of
 SHORT_JUMP  = 5             # SHORT_JUMP cells, to stay among them
-CROWD_MANY  = 5             # zones: more monsters than this...
+CROWD_MANY  = 1             # zones: more monsters than this...
 CROWD_REACH = 10            # ...this close: a Scatter every
 ZONE_SCATTER_EVERY = 0.3    # ZONE_SCATTER_EVERY seconds - fewer: no Scatter, the jumps go on
                             # without a stop (the game takes no jump during a Scatter's animation)
