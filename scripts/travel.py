@@ -31,7 +31,8 @@ JUMP_CELLS  = 15            # longest jump, straight-line (the game refuses more
 ARRIVED     = 2             # this close to the goal counts as there
 JUMP_WAIT   = 2.5           # longest wait for one jump to land
 REFUSED_WAIT = 0.4          # not moved after a jump: wait this long more before calling it refused
-GIVE_UP     = 8             # refused jumps in a row before a trip gives up (the tour moves on)
+KEEP_FREE   = 3             # cells this close to the character are never learnt as blocked
+GIVE_UP     = 8            # refused jumps in a row before a trip gives up (the tour moves on)
 CAST_SENT   = 0.15          # bounce: seconds after a Scatter before jumping on (not its animation)
 SCATTER_MIN = 3             # auto hunt: a Scatter only with this many monsters or more...
 SCATTER_REACH = 6           # ...this close (also a monster's crowd, which guides where to jump next)
@@ -71,6 +72,7 @@ CLAIM_EVERY = 2.0           # seconds between touches of a character's claim fil
 CLAIM_FRESH = 10.0          # static.py leaves the casting to the tour while the file is this fresh
 
 _maps = {}                  # DMap path -> (width, height, walkable bytearray)
+_pristine = {}              # DMap path -> its walkable bytes as in the file (before _block)
 _claimed = {}               # character -> when its claim file was last touched
 _last_cast = {}             # game pid -> when the steady Scatter was last cast
 
@@ -153,7 +155,18 @@ def load_map(path):
             walkable[y * width:(y + 1) * width] = bytes(1 if m == 0 else 0 for m in masks)
             at += width * 6 + 4
         _maps[path] = (width, height, walkable)
+        _pristine[path] = bytes(walkable)
     return _maps[path]
+
+
+def _unblock(grid):
+    """Forgets the cells learnt as blocked on this map (_block) - back to the map file's. True if
+    there were any."""
+    for path, kept in _maps.items():
+        if kept is grid and bytes(grid[2]) != _pristine[path]:
+            grid[2][:] = _pristine[path]
+            return True
+    return False
 
 
 def _decrypt(data, seed=0x2537):
@@ -306,12 +319,13 @@ def _scatter_ahead(pid, came_from, need=None, every=None):
     return True
 
 
-def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None, cast_every=None):
+def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None, cast_every=None,
+       loot_reach=JUMP_CELLS):
     """Jumps the character to (x, y) of its map. A refused jump is tried again shorter; the way is
     worked out again from where it stands then. `stop`() True ends the trip early; `claiming`: a
     tour's trip (keeps its claim fresh, a Scatter ahead - where `cast_need` monsters crowd, at most
-    every `cast_every` seconds: _scatter_ahead - + items on the way picked up); `on_land`(cell)
-    after each jump. True if there."""
+    every `cast_every` seconds: _scatter_ahead - + items within `loot_reach` picked up on the way);
+    `on_land`(cell) after each jump. True if there; None if there's no way there at all."""
     root, the_map = game_root(pid), map_id(pid)
     grid = load_map(map_file(root, the_map))
     reach, refused, stops, loot_skip = JUMP_CELLS, 0, [], {}
@@ -328,9 +342,12 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
             return True
         if not stops:                                   # the way, worked out once - again only
             path = find_path(grid, me, (x, y))          # after a refused jump
+            if not path and _unblock(grid):             # walled in by cells learnt as blocked:
+                print(f'{name}: no way from {me} - forgetting the cells learnt as blocked on map {the_map}')
+                path = find_path(grid, me, (x, y))      # the map file's cells again
             if not path:
                 print(f'{name}: no way from {me} to {(x, y)} on map {the_map}')
-                return False
+                return None                             # (not False: no way at all, not refused)
             stops = jumps(grid, path, reach)
             if not stops:                               # already on the walkable cell nearest it
                 return True
@@ -344,7 +361,7 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
             now = game_actions.my_pos(pid)
         if now == me:                                   # refused: a shorter one next, and that
             refused += 1                                # cell learnt as blocked (a tree, a rock -
-            _block(grid, target)                        # scene objects the DMap's cells don't show)
+            _block(grid, target, me)                    # scene objects the DMap's cells don't show)
             if refused >= GIVE_UP:
                 print(f'{name}: {refused} jumps refused in a row near {me} - giving up on {(x, y)}')
                 return False
@@ -358,7 +375,7 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
                 on_land(now)
             if cast:                                    # a crowd on the way: a Scatter ahead
                 _scatter_ahead(pid, me, cast_need, cast_every)
-            if claiming and loot(pid, name, loot_skip, JUMP_CELLS):   # a + item on the way:
+            if claiming and loot(pid, name, loot_skip, loot_reach):   # a + item on the way:
                 stops = []                              # picked up - the way again from there
     return False
 
@@ -390,13 +407,14 @@ def loot(pid, name, skip, reach=LOOT_CELLS):
     return 'missed'
 
 
-def _block(grid, cell):
-    """Marks `cell` and the cells around it not walkable (in this session's copy of the map)."""
+def _block(grid, cell, me):
+    """Marks `cell` and the cells around it not walkable (in this session's copy of the map) - never
+    the ones within KEEP_FREE of where the character stands, so it can't wall itself in."""
     width, height, walkable = grid
     for dx in (-1, 0, 1):
         for dy in (-1, 0, 1):
             x, y = cell[0] + dx, cell[1] + dy
-            if 0 <= x < width and 0 <= y < height:
+            if 0 <= x < width and 0 <= y < height and _far((x, y), me) > KEEP_FREE:
                 walkable[y * width + x] = 0
 
 
@@ -653,11 +671,20 @@ def patrol(pid, name, seconds, stop=None):
         part = random.choice([p for p, v in visits.items() if v == least])
         goal = random.choice(parts[part])
         visits[part] += 1                               # chosen: not the next one too
-        go(pid, name, *goal, claiming=True, on_land=landed,
-           cast_need=0, cast_every=ZONE_SCATTER_EVERY,
-           stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map)
+        went = go(pid, name, *goal, claiming=True, on_land=landed, loot_reach=LOOT_CELLS,
+                  cast_need=0, cast_every=ZONE_SCATTER_EVERY,
+                  stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map)
         if map_id(pid) != the_map:
             break
+        if went is None:                                # no way there (a corner of the drawing
+            parts[part].remove(goal)                    # walled off): never again
+            if not parts[part]:
+                del parts[part], visits[part]
+                print(f'{name}: [map {the_map}] a part of the zone can\'t be reached - dropped it')
+                if not parts:
+                    return count[0]
+        elif went is False:                             # jumps refused (stunned, in town...)
+            time.sleep(1)
     return count[0]
 
 
