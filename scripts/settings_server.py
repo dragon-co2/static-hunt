@@ -41,10 +41,8 @@ WINDOW_HEIGHT = 900
 WINDOW_MIN_SIZE = (1000, 700)
 
 
-def load_schema(names=None):
-    """The schema, with as many account slots as the saved Accounts fields (and `names`) need."""
-    saved = set(load_overrides().get('accounts', {})) | set(names or ())
-    return ds.with_account_slots(ds._load_json(ds.SCHEMA_PATH), ds.account_slots(saved))
+def load_schema():
+    return ds._load_json(ds.SCHEMA_PATH)
 
 
 def load_overrides():
@@ -207,7 +205,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/api/save':
             body = self._read_json_body()
             values = body.get('values', {})
-            schema = load_schema(values.get('accounts', {}))
+            schema = load_schema()
             overrides = compute_overrides(values, schema)
             overrides = _protect_passwords(overrides, schema, load_overrides())
             save_overrides(overrides)

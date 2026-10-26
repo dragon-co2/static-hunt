@@ -37,7 +37,6 @@ itself is never touched by the UI.
 """
 import json
 import os
-import re
 
 _BASE = os.path.dirname(os.path.abspath(__file__))
 SCHEMA_PATH = os.path.join(_BASE, 'settings_schema.json')
@@ -74,32 +73,3 @@ def get_settings(script_name, fallback_defaults):
         elif key in schema_section and isinstance(schema_section[key], dict) and 'default' in schema_section[key]:
             result[key] = schema_section[key]['default']
     return result
-
-
-# The Accounts section: 4 account slots in the schema; the settings page's "+" adds more (5, 6...).
-# A slot past the 4th exists while any of its fields is saved in the override file.
-MIN_ACCOUNTS = 4
-_ACCOUNT_FIELD = re.compile(r'^ACCOUNT_(\d+)_(USER|PASS|NAME)$')
-
-
-def account_slots(names=None):
-    """How many account slots: at least MIN_ACCOUNTS, or the highest ACCOUNT_<n>_... among `names`
-    (default: the saved Accounts fields)."""
-    if names is None:
-        names = _load_json(override_path()).get('accounts', {})
-    found = [int(m.group(1)) for m in map(_ACCOUNT_FIELD.match, names) if m]
-    return max([MIN_ACCOUNTS] + found)
-
-
-def with_account_slots(schema, slots):
-    """`schema` with the Accounts fields of slots 5..`slots` added - copies of slot 4's."""
-    section = schema.get('accounts')
-    if not section or 'ACCOUNT_4_USER' not in section:
-        return schema
-    for n in range(MIN_ACCOUNTS + 1, slots + 1):
-        for field in ('USER', 'PASS', 'NAME'):
-            meta = dict(section[f'ACCOUNT_4_{field}'])
-            meta['group'] = f'Account {n}'
-            meta['desc'] = meta.get('desc', '').replace('desktop 4', f'desktop {n}')
-            section.setdefault(f'ACCOUNT_{n}_{field}', meta)
-    return schema
