@@ -78,6 +78,7 @@ BANK_OPEN    = 0x0068D811     # warehouse manager.Open(kind, id): load a warehou
 BANK_WITHDRAW = 0x0068DA98    # warehouse manager.Withdraw(kind, id, item id) (MsgPackage 2)
 CLOSE_BUTTONS = [(1622, 1536),   # the warehouse window: its X (1622), its first tab (1536)
                  (1128, 1126)]   # the bag window: its Close (1128), its item grid (1126)
+NPC_DIALOG_CLOSE = [(1180, 1549)]   # an NPC's dialog: its X (1180), its other button (1549)
 BANK_DEPOSIT = 0x0068D9FD     # warehouse manager.Deposit(kind, id, item id) (MsgPackage 1)
 BANK_QUERY   = 0x0068D957     # warehouse manager.Query(kind, id, page): its items again (MsgPackage 0)
 HERO_REVIVE  = 0x006186C3     # CHero::Revive(mode) - the death window: 0 = revive, 1 = revive here
@@ -102,6 +103,7 @@ STATUS_XP    = 0x10           # hero status bit: the XP bar is full (the XP skil
 ACTION_BUY, ACTION_USE = 1, 4
 MALL_SHOP  = 2888
 PAY_CP     = 1
+PAY_GOLD   = 0
 BAG_SLOTS  = 40
 POUCHES    = {'7StarPouch': 725067, 'SerenityPouch': 725068}
 
@@ -183,6 +185,12 @@ def buy(pid, item_type, amount):
     if not 1 <= amount <= BAG_SLOTS:
         raise ValueError(f'amount {amount} out of range')
     _run(pid, _stub(MSG_CREATE_BUY, (MALL_SHOP, item_type, ACTION_BUY, amount, PAY_CP)))
+
+
+def shop_buy(pid, shop_id, item_type, amount=1, pay=PAY_GOLD):
+    """Buys `amount` x `item_type` from an NPC's shop (ini/Shop.dat ID, e.g. 5 = Twin City's
+    Blacksmith) - stand by it; paid in gold by default (the server still decides)."""
+    _run(pid, _stub(MSG_CREATE_BUY, (shop_id, item_type, ACTION_BUY, amount, pay)))
 
 
 def use(pid, item_id):
@@ -649,8 +657,19 @@ def mail_send(pid, to_id, item_ids, gold=0, cps=0, subject='', text=''):
 
 def close_bank_windows(pid):
     """Closes the warehouse window and the bag (inventory) that opening the bank brings up - as if
-    their close buttons were clicked: WM_COMMAND to each (MFC) dialog with its button's id. Returns
-    how many were closed."""
+    their close buttons were clicked. Returns how many were closed."""
+    return _close_dialogs(pid, CLOSE_BUTTONS)
+
+
+def close_npc_dialog(pid):
+    """Closes an NPC's dialog left open on the screen (npc_answer picks a line without the window
+    knowing) - its X clicked. Returns how many were closed."""
+    return _close_dialogs(pid, NPC_DIALOG_CLOSE)
+
+
+def _close_dialogs(pid, buttons):
+    """WM_COMMAND to each visible (MFC) dialog of the game that has one of `buttons` - (its close
+    button's id, a button only it has) - as if that close button were clicked. Returns how many."""
     user32 = ctypes.windll.user32
     closed = 0
     cb = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -672,7 +691,7 @@ def close_bank_windows(pid):
 
     user32.EnumWindows(cb(_top), 0)
     for dialog in dialogs:
-        for button_id, other_id in CLOSE_BUTTONS:          # (its close button, a button only it has)
+        for button_id, other_id in buttons:                # (its close button, a button only it has)
             button = user32.GetDlgItem(dialog, button_id)
             if button and user32.GetDlgItem(dialog, other_id):
                 user32.PostMessageW(dialog, 0x111, button_id, button)   # WM_COMMAND, BN_CLICKED

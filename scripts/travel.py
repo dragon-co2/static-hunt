@@ -46,7 +46,10 @@ MONSTER_CELLS = 18          # at the area: a monster this close ends the trip
 SKIP        = ('guard',)    # monsters whose name starts so don't count (the guards' ids are monsters')
 LOOT_CELLS  = 40            # + items lying this close are gone for (farther than a jump: the way
                             # there first) - the jumps carry it away from where a monster died
-BEEN_SECONDS = 10          # bounce: a monster just jumped next to isn't the next one for this long
+LOOT_NEVER  = ('Coat',)     # items never picked up, by name (every quality of it)
+SKIP_SUPER_PLUS = True      # never pick up an item both Super and +1 or better
+SUPER       = 9             # an item type's last digit for Super quality (8 Elite, 7 Unique, 6 Refined)
+BEEN_SECONDS = 10         # bounce: a monster just jumped next to isn't the next one for this long
 LANDINGS    = 6             # bounce: its last landing spots kept...
 LANDED_CELLS = 5            # ...and monsters this close to one of them not picked (unless no other)
 AREA_SECONDS = 300           # tour: time among each hunting area's monsters before the next area
@@ -65,7 +68,18 @@ CROWD_MANY  = 10            # zones: more monsters than this...
 CROWD_REACH = 15            # ...this close: half-length jumps, to stay longer in the crowd
 ZONE_PART   = 5             # zones: roamed in parts of this many squares across (50 cells) - each
                             # visited before any twice
-TELEPORT_WAIT = 10          # seconds for a teleport to land on the new map
+TWIN_CITY   = 1002
+CONDUCTRESS = ('Conductress', (435, 440), [6])          # Twin City: (name, where, options) - 6 = Market
+EXCHANGE_DB = ('Exchange~DB', (183, 184), [1, 10])      # Market: 1 = Exchange DragonBall (215 CPs), 10 = Yes
+MARK_CONTROLLER = ('Mark.Controller', (212, 220), [1])  # Market: 1 = I'm ready (back to the city before)
+BLACKSMITH  = ('Blacksmith', (452, 333), 5)            # Twin City: (name, where, shop id - ini/Shop.dat)
+ARROW_TYPE  = 1050002       # SpeedArrow (3,400 gold) - bought before the Market...
+ARROWS_TO_BUY = 2           # ...this many, into the arrow bank tab
+NPC_CELLS   = 6            # this close to an NPC's spot before clicking it
+NPC_STEP    = 0.5           # seconds between the clicks of a dialog (the server's answer)
+NPC_WAIT    = 3.0           # seconds for an exchanged dragonball to leave the bag
+MARKET_BATCH = 20           # dragonballs taken out of the bank at a time to sell
+TELEPORT_WAIT = 10         # seconds for a teleport to land on the new map
 TELEPORTS   = [(21, 1002), (22, 1011), (23, 1020), (24, 1000), (25, 1015)]   # VIP Remote Travel:
 TELEPORT_NAMES = {21: 'Twin City', 22: 'Phoenix Castle', 23: 'Ape City', 24: 'Desert',   # (code, map)
                   25: 'Bird Island'}
@@ -76,6 +90,7 @@ CLAIM_FRESH = 10.0          # static.py leaves the casting to the tour while the
 
 _maps = {}                  # DMap path -> (width, height, walkable bytearray)
 _pristine = {}              # DMap path -> its walkable bytes as in the file (before _block)
+_never = None               # the item types of LOOT_NEVER, once read (_never_types)
 _claimed = {}               # character -> when its claim file was last touched
 _last_cast = {}             # game pid -> when the steady Scatter was last cast
 
@@ -295,18 +310,20 @@ def _wait_landed(pid):
         time.sleep(0.02)
 
 
-def _scatter_ahead(pid, came_from, need=None, every=None, reach=None):
+def _scatter_ahead(pid, came_from, need=None, every=None, reach=None, monsters=None):
     """A Scatter only where it pays - `need` (SCATTER_MIN) or more monsters within `reach`
     (SCATTER_REACH); 0 = always (each cast slows the jumping: the game takes no jump till its
     animation ends) - at most one every `every` (SCATTER_EVERY) seconds, SCATTER_CELLS ahead - the
-    way the last jump went (from `came_from`); not moved: towards the monsters near. True if cast."""
+    way the last jump went (from `came_from`); not moved: towards the monsters near. `monsters`:
+    _monster_cells already read for this spot (not read again). True if cast."""
     need = SCATTER_MIN if need is None else need
     if time.time() - _last_cast.get(pid, 0) < (SCATTER_EVERY if every is None else every):
         return False
     me = game_actions.my_pos(pid)
     if not me:
         return False
-    near = [m for m in _monster_cells(pid, ()) if m[0] <= (SCATTER_REACH if reach is None else reach)]
+    monsters = _monster_cells(pid, ()) if monsters is None else monsters
+    near = [m for m in monsters if m[0] <= (SCATTER_REACH if reach is None else reach)]
     if len(near) < need:
         return False
     dx, dy = me[0] - came_from[0], me[1] - came_from[1]
@@ -374,8 +391,9 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
             reach, stops = max(3, reach // 2), []
             print(f'{name}: the jump to {target} was refused - blocked it, trying {reach} cells')
         else:
+            around = _monster_cells(pid, ()) if (crowd_slow or cast) else []   # read once a landing
             if crowd_slow:                              # a big crowd: shorter jumps, more casts in it
-                many = sum(1 for m in _monster_cells(pid, ()) if m[0] <= CROWD_REACH) > CROWD_MANY
+                many = sum(1 for m in around if m[0] <= CROWD_REACH) > CROWD_MANY
                 full = JUMP_CELLS // 2 if many else JUMP_CELLS
             if reach != full:                           # past a refused one / the crowd changed:
                 stops = []                              # the jumps worked out again
@@ -383,14 +401,30 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
             if on_land:
                 on_land(now)
             if cast:                                    # a crowd on the way: a Scatter ahead
-                _scatter_ahead(pid, me, cast_need, cast_every, cast_reach)
+                _scatter_ahead(pid, me, cast_need, cast_every, cast_reach, around)
             if claiming and loot(pid, name, loot_skip, loot_reach):   # a + item on the way:
                 stops = []                              # picked up - the way again from there
     return False
 
 
+def _never_types(pid):
+    """The item types named in LOOT_NEVER (all their qualities) - from the client's
+    ini/itemtype.txt (id@@name@@...), read once."""
+    if _never is None:
+        names = {n.lower() for n in LOOT_NEVER}
+        found = set()
+        with open(os.path.join(game_root(pid), 'ini', 'itemtype.txt'), encoding='latin1') as f:
+            for line in f:
+                parts = line.split('@@', 2)
+                if len(parts) > 2 and parts[1].lower() in names and parts[0].isdigit():
+                    found.add(int(parts[0]))
+        globals()['_never'] = found
+    return _never
+
+
 def loot(pid, name, skip, reach=LOOT_CELLS):
-    """Picks up the nearest +1 or better item lying within `reach` cells: farther than a jump, the
+    """Picks up the nearest +1 or better item or dragonball (that one straight into the bank:
+    background_hunt.bank_dragonballs) lying within `reach` cells: farther than a jump, the
     way there first (go), then the game's own pick-up (monk_hunt.collect). `skip`: {item id: until
     when} - ones that couldn't be picked up. 'picked' / 'missed' if there was one to go for, else
     False."""
@@ -399,7 +433,11 @@ def loot(pid, name, skip, reach=LOOT_CELLS):
     if not me:
         return False
     now = time.time()
-    items = sorted((i for i in game_memory.ground_items(pid) if monk_hunt._wanted(i[1], i[2])
+    never = _never_types(pid)
+    items = sorted((i for i in game_memory.ground_items(pid)
+                    if (monk_hunt._wanted(i[1], i[2]) or i[1] == game_memory.DRAGONBALL)
+                    and i[1] not in never
+                    and not (SKIP_SUPER_PLUS and i[1] % 10 == SUPER and i[2] > 0)
                     and skip.get(i[0], 0) <= now and _far(me, i[3:]) <= reach),
                    key=lambda i: _far(me, i[3:]))
     if not items:
@@ -410,7 +448,11 @@ def loot(pid, name, skip, reach=LOOT_CELLS):
         print(f'{name}: a +{plus} item lies {_far(me, (x, y)):.0f} cells away - going for it')
         go(pid, name, x, y, stop=lambda: gone() or _far(game_actions.my_pos(pid) or me, (x, y)) <= JUMP_CELLS)
     if monk_hunt.collect(pid, item_id, x, y):
-        print(f'{name}: picked up item {kind} +{plus}')
+        if kind == game_memory.DRAGONBALL:
+            print(f'{name}: picked up a dragonball - into the bank')
+            background_hunt.bank_dragonballs(pid, name)
+        else:
+            print(f'{name}: picked up item {kind} +{plus}')
         return 'picked'
     skip[item_id] = time.time() + monk_hunt.LOOT_SKIP
     return 'missed'
@@ -733,6 +775,126 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
         here = (here + 1) % len(codes)
         print(f'{name}: teleport to {TELEPORT_NAMES[codes[here]]}')
         teleport(pid, name, codes[here])
+        if here == 0 and map_id(pid) == TWIN_CITY:      # round all the cities done: sell the
+            try:                                        # dragonballs in the Market, back here
+                market_run(pid, name)
+            except (OSError, TimeoutError, LookupError) as e:
+                print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
+
+
+# ---------------------------------------------------------------- the Market: dragonballs -> CPs
+
+def _npc(pid, name):
+    """The role id of the NPC called `name` around this character, or None."""
+    for role_name, role in game_actions.roles(pid):
+        if role_name == name:
+            try:
+                return game_actions.role_id(pid, role)
+            except OSError:
+                continue
+    return None
+
+
+def _talk(pid, name, npc, cell, options):
+    """Goes up to the NPC `npc` (standing at `cell`), clicks it and picks `options` in turn (the
+    numbers the server gave the lines). True if it was there to talk to."""
+    if _far(game_actions.my_pos(pid) or (0, 0), cell) > NPC_CELLS:     # (not onto the NPC: refused)
+        go(pid, name, *cell, stop=lambda: _far(game_actions.my_pos(pid) or cell, cell) <= NPC_CELLS)
+    npc_id = _npc(pid, npc)
+    if npc_id is None:
+        print(f'{name}: {npc} is not around {cell}')
+        return False
+    game_actions.talk_to_npc(pid, npc_id)
+    for option in options:
+        time.sleep(NPC_STEP)
+        game_actions.npc_answer(pid, option)
+    time.sleep(NPC_STEP)
+    game_actions.close_npc_dialog(pid)                  # picked without the window knowing: shut it
+    return True
+
+
+def _wait_map(pid, other_than, seconds=TELEPORT_WAIT):
+    """Waits for this character to be on a map other than `other_than`. True once it is."""
+    end = time.time() + seconds
+    while time.time() < end:
+        time.sleep(0.5)
+        now = map_id(pid)
+        if now and now != other_than and game_actions.my_pos(pid):
+            time.sleep(1)                               # the new map loading
+            return True
+    return False
+
+
+def sell_dragonballs(pid, name):
+    """Every dragonball - the bag's, then the bank's, MARKET_BATCH at a time - exchanged for CPs at
+    Exchange~DB (in the Market, standing by it). Returns how many."""
+    sold = 0
+    while True:
+        balls = game_memory.bag_items_of(pid, game_memory.DRAGONBALL) or \
+            background_hunt.withdraw_dragonballs(pid, name, MARKET_BATCH)
+        if not balls:
+            break
+        for ball in balls:
+            before = len(game_memory.bag_items_of(pid, game_memory.DRAGONBALL))
+            if not _talk(pid, name, *EXCHANGE_DB):
+                return sold
+            end = time.time() + NPC_WAIT
+            while time.time() < end and len(game_memory.bag_items_of(pid, game_memory.DRAGONBALL)) >= before:
+                time.sleep(0.1)
+            if len(game_memory.bag_items_of(pid, game_memory.DRAGONBALL)) >= before:
+                print(f'{name}: Exchange~DB did not take the dragonball - stopping the sale')
+                return sold
+            sold += 1
+    print(f'{name}: {sold} dragonball(s) sold for CPs')
+    return sold
+
+
+def buy_arrows(pid, name):
+    """At Twin City's Blacksmith: ARROWS_TO_BUY packs of ARROW_TYPE bought (gold) and put in the
+    arrow bank tab, the windows closed after. Returns how many went into the bank."""
+    npc, cell, shop = BLACKSMITH
+    if _far(game_actions.my_pos(pid) or (0, 0), cell) > NPC_CELLS:
+        go(pid, name, *cell, stop=lambda: _far(game_actions.my_pos(pid) or cell, cell) <= NPC_CELLS)
+    before = set(game_memory.bag_items_of(pid, ARROW_TYPE))
+    for _ in range(ARROWS_TO_BUY):
+        game_actions.shop_buy(pid, shop, ARROW_TYPE)
+        time.sleep(NPC_STEP)
+    bought = background_hunt._wait(lambda: len(set(game_memory.bag_items_of(pid, ARROW_TYPE)) - before)
+                                   >= ARROWS_TO_BUY, NPC_WAIT)
+    packs = sorted(set(game_memory.bag_items_of(pid, ARROW_TYPE)) - before)
+    if not packs:
+        print(f'{name}: the {npc} sold no arrows (gold? too far?)')
+        return 0
+    try:
+        background_hunt._open_bank(pid, game_memory.ARROW_BANK)
+        for pack in packs:
+            game_actions.bank_deposit(pid, pack, game_memory.ARROW_BANK)
+            time.sleep(0.5)
+        background_hunt._wait(lambda: not set(game_memory.bag_items_of(pid, ARROW_TYPE)) & set(packs),
+                              background_hunt.BANK_WAIT)
+    finally:
+        game_actions.close_bank_windows(pid)
+    left = set(game_memory.bag_items_of(pid, ARROW_TYPE)) & set(packs)
+    print(f'{name}: bought {len(packs)} arrow pack(s)' + (' (fewer than asked)' if not bought else '')
+          + f' - {len(packs) - len(left)} put in the arrow bank')
+    return len(packs) - len(left)
+
+
+def market_run(pid, name):
+    """From Twin City: ARROWS_TO_BUY arrow packs bought at the Blacksmith into the bank
+    (buy_arrows), the Conductress to the Market, every dragonball (bag and bank) sold at
+    Exchange~DB, Mark.Controller back to Twin City."""
+    print(f'{name}: round of the cities done - to the Market to sell the dragonballs')
+    buy_arrows(pid, name)
+    if not _talk(pid, name, *CONDUCTRESS) or not _wait_map(pid, TWIN_CITY):
+        print(f'{name}: the Conductress did not take it to the Market')
+        return
+    market = map_id(pid)
+    sell_dragonballs(pid, name)
+    if not _talk(pid, name, *MARK_CONTROLLER) or not _wait_map(pid, market):
+        print(f'{name}: Mark.Controller did not take it back - teleport to Twin City')
+        teleport(pid, name, TELEPORTS[0][0])
+    print(f'{name}: back from the Market')
 
 
 def main():
