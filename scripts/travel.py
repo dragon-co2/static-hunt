@@ -83,7 +83,10 @@ ZONE_SCATTER_EVERY = 0.3    # ZONE_SCATTER_EVERY seconds - fewer: no Scatter, th
 ZONE_ROUTE  = 'zigzag'      # zones: 'zigzag' - up and down lanes across it, left to right then
                             # back; 'random' - random spots, the least visited parts first
 LANE_SQUARES = 2            # zigzag: each lane this many squares wide (20 cells)...
-LANE_STEP   = 3             # ...and a stop every this many squares along it
+LANE_STEP   = 3             # ...and a stop every this many squares along it, at random among
+ZIGZAG_SPREAD = 4           # the 1/this of the lane's cells there nearest its middle
+TOUR_SPREAD = 0.15          # tour: the time on a map is TOUR_SECONDS give or take this much (each
+                            # character teleports at its own time)
 ZONE_PART   = 5             # zones: roamed in parts of this many squares across (50 cells) - each
                             # visited before any twice
 TWIN_CITY   = 1002
@@ -867,32 +870,34 @@ def _zone_parts(grid, squares):
     return parts
 
 
-def _zigzag(grid, squares):
-    """The zone's zigzag: [cells] down the first lane (LANE_SQUARES wide, from the left), up the
-    next, down the one after... - a stop every LANE_STEP squares along a lane and at its ends,
-    each the zone's walkable cell nearest the lane's middle there."""
+def _zigzag(grid, squares, shift=0):
+    """The zone's zigzag: [cells] down the first lane (LANE_SQUARES wide, from the left - `shift`
+    squares moved), up the next, down the one after... - a stop every LANE_STEP squares along a
+    lane and at its ends, a walkable cell of the zone near the lane's middle there (at random among
+    the nearest: each character its own way)."""
     width, _, walkable = grid
     height = len(walkable) // width
     lanes = {}
     for sx, sy in squares:
-        lanes.setdefault(sx // LANE_SQUARES, {}).setdefault(sy, []).append(sx)
+        lanes.setdefault((sx + shift) // LANE_SQUARES, {}).setdefault(sy, []).append(sx)
     route = []
     for n, lane in enumerate(sorted(lanes)):
         rows = sorted(lanes[lane])
         stops = rows[::LANE_STEP] + ([rows[-1]] if (len(rows) - 1) % LANE_STEP else [])
-        middle = (lane * LANE_SQUARES + LANE_SQUARES / 2) * ZONE_CELLS
+        middle = (lane * LANE_SQUARES - shift + LANE_SQUARES / 2) * ZONE_CELLS
         for row in (stops if n % 2 == 0 else stops[::-1]):
             cells = [(sx * ZONE_CELLS + dx, row * ZONE_CELLS + dy) for sx in lanes[lane][row]
                      for dx in range(ZONE_CELLS) for dy in range(ZONE_CELLS)]
             cells = [c for c in cells if c[0] < width and c[1] < height and walkable[c[1] * width + c[0]]]
             if cells:
-                route.append(min(cells, key=lambda c: abs(c[0] - middle) + abs(c[1] - (row + 0.5) * ZONE_CELLS)))
+                cells.sort(key=lambda c: abs(c[0] - middle) + abs(c[1] - (row + 0.5) * ZONE_CELLS))
+                route.append(random.choice(cells[:max(1, len(cells) // ZIGZAG_SPREAD)]))
     return route
 
 
 def patrol(pid, name, seconds, stop=None):
     """Roams the zone drawn on this map for `seconds`, all of it: in a zigzag (ZONE_ROUTE, _zigzag -
-    from the stop nearest, to the last lane and back again) or at random (a random cell in one of
+    from a random stop, either way, to the last lane and back again) or at random (a random cell in one of
     the parts (_zone_parts) visited least so far - every part before any twice); the way to each
     stop jump by jump (go): SHORT_JUMP-cell jumps with CROWD_FEW or more
     monsters within CROWD_REACH, Scatters in the air every ZONE_SCATTER_EVERY seconds with more
@@ -907,11 +912,12 @@ def patrol(pid, name, seconds, stop=None):
     end, visits, count, told = start + seconds, {part: 0 for part in parts}, [0], [0.0]
     cast = background_hunt.SCATTER in game_actions.skills(pid)
     part_of = lambda cell: (cell[0] // ZONE_CELLS // ZONE_PART, cell[1] // ZONE_CELLS // ZONE_PART)
-    route = _zigzag(grid, zone(the_map)) if ZONE_ROUTE == 'zigzag' else []
-    me = game_actions.my_pos(pid)
-    at = min(range(len(route)), key=lambda i: _far(route[i], me)) if route and me else 0
+    route = _zigzag(grid, zone(the_map), random.randrange(LANE_SQUARES)) if ZONE_ROUTE == 'zigzag' else []
+    if random.random() < 0.5:                           # each character its own way: either way,
+        route.reverse()                                 # from a random stop
+    at = random.randrange(len(route)) if route else 0
     print(f'{name}: [map {the_map}] roaming its drawn zone ({len(parts)} parts'
-          + (f', a zigzag of {len(route)} stops' if route else ', at random') + f') for {seconds}s')
+          + (f', a zigzag of {len(route)} stops' if route else ', at random') + f') for {seconds:.0f}s')
     casts0 = _casts.get(pid, 0)
 
     def landed(cell):                                   # every jump of the way
@@ -993,7 +999,7 @@ def _hunt_map(pid, name, seconds, stop):
     city, me = map_id(pid), game_actions.my_pos(pid)
     count = 0
     if zone(city):
-        count = patrol(pid, name, TOUR_SECONDS, stop)
+        count = patrol(pid, name, TOUR_SECONDS * random.uniform(1 - TOUR_SPREAD, 1 + TOUR_SPREAD), stop)
         areas = None
     else:
         areas = _route(hunting_areas(game_root(pid), city), me) if me else []
