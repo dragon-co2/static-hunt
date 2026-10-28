@@ -58,6 +58,21 @@
       "default": "",
       "label": "Receiving character",
       "desc": "The character name that gets the compose items by mail (as the mail's Search finds it). Leave empty to not mail anything."
+    },
+    "MAIL_CPS": {
+      "type": "bool",
+      "default": false,
+      "label": "Mail the CPs too",
+      "desc": "With the compose items, each account also mails its CPs to the receiving character - all but the amount below. Off by default: every account static.py runs mails them (check that's what you want)."
+    },
+    "CPS_KEEP": {
+      "type": "int",
+      "min": 0,
+      "max": 1000000,
+      "step": 1000,
+      "default": 5000,
+      "label": "CPs kept",
+      "desc": "The CPs each account keeps when it mails the rest (Mail the CPs too)."
     }
   },
   "accounts": {

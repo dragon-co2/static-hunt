@@ -53,11 +53,13 @@ LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
 LOG_BACKUPS = 3   # ...keeping this many old files
 
 _S = get_settings('static', {'F10_CYCLONE': False, 'REPAIR_INTERVAL': 8000, 'FIRST_RUN_REPAIR': False,
-                             'MAIL_COMPOSE': False, 'MAIL_TO': ''})
+                             'MAIL_COMPOSE': False, 'MAIL_TO': '', 'MAIL_CPS': False, 'CPS_KEEP': 5000})
 F10_CYCLONE = bool(_S['F10_CYCLONE'])   # use the F10 hotkey every F10_EVERY seconds while hunting
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']          # seconds between repairs of each account's gear
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])   # repair as soon as an account is in the game
 MAIL_TO = (_S['MAIL_TO'] or '').strip() if _S['MAIL_COMPOSE'] else ''   # gets the compose items by mail
+MAIL_CPS = bool(_S['MAIL_CPS'])          # ...and the CPs, all but CPS_KEEP
+CPS_KEEP = int(_S['CPS_KEEP'])
 F10_EVERY   = 2
 F10_SLOT    = 9                         # F10
 MAIL_EVERY  = 600                       # seconds between mails of the compose items to MAIL_TO (the
@@ -345,16 +347,13 @@ class _Account:
         if self.dead_since is None:
             self.dead_since = now
             print(f'  [REVIVE] {self.name} died')
+        if travel.claimed(self.name):                  # auto hunt: no revive wait - Revive (in town)
+            return self._revive_in_town()               # at once, then on to another city
         wait = REVIVE_DELAY if self.revive_wait is None else self.revive_wait
         left = wait - (now - self.dead_since)
         if left > 0 and self.slot not in _rev_now:
-            self.say(f'dead - {"Revive" if travel.claimed(self.name) else "Revive Here"} in {_fmt(left)}')
+            self.say(f'dead - Revive Here in {_fmt(left)}')
             return False
-        if travel.claimed(self.name):                  # auto hunt: back in town, not on the spot -
-            print(f'  [REVIVE] {self.name}: Revive (auto hunt - in town, then on to another city)')
-            game_actions.revive(self.pid, here=False)  # it moves away from whoever killed it
-            time.sleep(2)
-            return not game_actions.i_am_dead(self.pid)
         if not game_actions.revive_here_allowed(self.pid):
             if not self.here_refused_told:
                 self.here_refused_told = True
@@ -364,6 +363,18 @@ class _Account:
             return False
         print(f'  [REVIVE] {self.name}: Revive Here')
         game_actions.revive(self.pid, here=True)
+        time.sleep(2)
+        return not game_actions.i_am_dead(self.pid)
+
+    def _revive_in_town(self):
+        """Auto hunt: Revive (back in town, away from whoever killed it) - tried again each visit
+        till the game takes it (it refuses one too soon after the death)."""
+        self.say('dead - Revive (auto hunt, no wait)')
+        if time.time() - getattr(self, 'revive_tried', 0) < 2:
+            return False
+        self.revive_tried = time.time()
+        print(f'  [REVIVE] {self.name}: Revive (auto hunt - in town at once, then on to another city)')
+        game_actions.revive(self.pid, here=False)
         time.sleep(2)
         return not game_actions.i_am_dead(self.pid)
 
@@ -442,6 +453,8 @@ class _Account:
         elif MAIL_TO and time.time() - self.last_mail >= MAIL_EVERY:
             self.last_mail = time.time()
             if mail_compose.transfer(self.pid, self.name, MAIL_TO):
+                _mail_sent.set()
+            if MAIL_CPS and mail_compose.send_cps(self.pid, self.name, MAIL_TO, CPS_KEEP):   # its CPs
                 _mail_sent.set()
         armed = background_hunt.ensure_arrows(self.pid, self.name)   # None: no pack in any tab
         if not armed:

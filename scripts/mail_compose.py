@@ -6,6 +6,7 @@ character - Mail > Write: Search the name, the items in the boxes, Send. Until t
     python mail_compose.py <from character> --send <to character>   everything
     python mail_compose.py <from character> <to character>          the same
     python mail_compose.py <from character> <to character> --once   one mail only
+    python mail_compose.py <from character> --send-cps <to character>   its CPs, CPS_KEEP kept
     python mail_compose.py <from character> --send-scrolls <to character>   the dragonball scrolls
                                                      (bag, then the regular remote bank tabs)
     python mail_compose.py <character> --receive    Claim All, Deposit, every mail marked read
@@ -21,6 +22,7 @@ import game_actions
 import game_memory
 
 WAIT = 4.0                      # seconds for the server to answer a list / withdraw / search / send
+CPS_KEEP = 5000                 # send_cps: the CPs left on the account, the rest mailed
 
 
 def _wait(check, seconds=WAIT):
@@ -143,6 +145,29 @@ def transfer(pid, name, to, once=False):
     return sent
 
 
+def _cps(pid):
+    v = game_memory.vitals_pid(pid)
+    return v['cp'] if v else None
+
+
+def send_cps(pid, name, to, keep=CPS_KEEP):
+    """Mails `name`'s CPs but `keep` to the character `to` (a mail with no items). Returns how many."""
+    have = _cps(pid)
+    if have is None or have <= keep:
+        return 0
+    to_id = _receiver(pid, to)
+    if not to_id:
+        print(f'{name}: {to} not found - its CPs not mailed')
+        return 0
+    amount = have - keep
+    game_actions.mail_send(pid, to_id, [], cps=amount)
+    if _wait(lambda: (_cps(pid) or have) < have) is None:
+        print(f'{name}: the mail of {amount} CPs to {to} was not taken')
+        return 0
+    print(f'{name}: mailed {amount} CPs to {to} - {_cps(pid)} left')
+    return amount
+
+
 def send_scrolls(pid, name, to):
     """Mails the dragonball scrolls - the bag's, then the regular remote bank tabs' (taken out
     MAIL_ITEMS_MAX at a time) - from `name` to the character `to`. Returns how many went."""
@@ -230,7 +255,7 @@ def mark_read(pid, name):
 
 
 def main():
-    flags = ('--once', '--receive', '--claim', '--send', '--send-scrolls', '--withdraw')
+    flags = ('--once', '--receive', '--claim', '--send', '--send-scrolls', '--withdraw', '--send-cps')
     args = [a for a in sys.argv[1:] if a not in flags]
     accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids()}
     if args and args[0] not in accounts:
@@ -243,6 +268,10 @@ def main():
         return
     if len(args) != 2:
         sys.exit(__doc__)
+    if '--send-cps' in sys.argv:
+        sent = send_cps(accounts[args[0]], args[0], args[1])
+        print(f'{sent} CPs mailed to {args[1]}')
+        return
     if '--send-scrolls' in sys.argv:
         sent = send_scrolls(accounts[args[0]], args[0], args[1])
         print(f'{sent} dragonball scroll(s) mailed to {args[1]}')
