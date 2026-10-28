@@ -969,12 +969,13 @@ def patrol(pid, name, seconds, stop=None):
 def tour(pid, name, seconds=AREA_SECONDS, stop=None):
     """For good (or until `stop`()): on each map, its zone drawn with hunt_zones.py if it has one
     (patrol, TOUR_SECONDS) - else every hunting area of it in turn, nearest first, `seconds` of
-    jumping among each one's monsters (less if it runs out of them) - then a teleport to the next
-    city, round and round TELEPORTS - and, after a city with SIDE_MAPS, those maps too (through
-    their portals)."""
+    jumping among each one's monsters (less if it runs out of them) - then a teleport to a city
+    not hunted yet this round, at random; after a city with SIDE_MAPS, those maps too (through
+    their portals) before the next city. Every city done: the Market trip from Twin City
+    (market_run), and a new round."""
     watch_drops()
-    codes = [c for c, _ in TELEPORTS]
-    here = next((i for i, (_, m) in enumerate(TELEPORTS) if m == map_id(pid)), -1)
+    maps = dict(TELEPORTS)
+    done = set()                                        # the cities hunted this round
     while not (stop and stop()):
         city = map_id(pid)
         _hunt_map(pid, name, seconds, stop)
@@ -983,14 +984,23 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
                 return
             if side_trip(pid, name, steps, side, title):
                 _hunt_map(pid, name, seconds, stop)
-        here = (here + 1) % len(codes)
-        print(f'{name}: teleport to {TELEPORT_NAMES[codes[here]]}')
-        teleport(pid, name, codes[here])
-        if here == 0 and map_id(pid) == TWIN_CITY:      # round all the cities done: sell the
-            try:                                        # dragonballs in the Market, back here
-                market_run(pid, name)
-            except (OSError, TimeoutError, LookupError) as e:
-                print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
+        done.add(city)
+        left = [c for c, m in TELEPORTS if m not in done]
+        if not left:                                    # every city done: sell the dragonballs
+            print(f'{name}: every city hunted - to the Market from Twin City')
+            if map_id(pid) != TWIN_CITY:                # in the Market (from Twin City), a new
+                teleport(pid, name, TELEPORTS[0][0])    # round after
+            if map_id(pid) == TWIN_CITY:
+                try:
+                    market_run(pid, name)
+                except (OSError, TimeoutError, LookupError) as e:
+                    print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
+            done, left = set(), [c for c, _ in TELEPORTS]
+        code = random.choice(left)
+        if maps[code] == map_id(pid):                   # already there (Twin City after the Market)
+            continue
+        print(f'{name}: teleport to {TELEPORT_NAMES[code]} ({len(left) - 1} more cities this round)')
+        teleport(pid, name, code)
 
 
 def _hunt_map(pid, name, seconds, stop):
