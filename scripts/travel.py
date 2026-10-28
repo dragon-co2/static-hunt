@@ -23,6 +23,7 @@ import subprocess
 import sys
 import threading
 import time
+import zlib
 
 import _paths
 import background_hunt
@@ -94,10 +95,13 @@ MARKET      = 1036
 NO_SCATTER_MAPS = {MARKET}  # static.py never casts Scatter on these maps
 CONDUCTRESS = ('Conductress', (435, 440), [6])          # Twin City: (name, where, options) - 6 = Market
 EXCHANGE_DB = ('Exchange~DB', (183, 184), [1, 10])      # Market: 1 = Exchange DragonBall (215 CPs), 10 = Yes
+EXCHANGE_SCROLL = ('Exchange~DB', (183, 184), [2, 20])  # ...2 = Exchange DBScroll (2150 CPs), 20 = Yes
 MARK_CONTROLLER = ('Mark.Controller', (212, 220), [1])  # Market: 1 = I'm ready (back to the city before)
 BLACKSMITH  = ('Blacksmith', (452, 333), 5)            # Twin City: (name, where, shop id - ini/Shop.dat)
 ARROW_TYPE  = 1050002       # SpeedArrow (3,400 gold) - bought before the Market...
-ARROWS_TO_BUY = 2           # ...this many, into the arrow bank tab
+ARROWS_TO_BUY = 2           # ...this many, into the arrow bank tab; there too, the worn items
+                            # that lost durability repaired (repair_worn)
+ITEMTYPE_DURA = 21          # itemtype.txt: the column of an item's most durability (x 100)
 NPC_CELLS   = 6            # this close to an NPC's spot before clicking it
 NPC_STEP    = 0.5           # seconds between the clicks of a dialog (the server's answer)
 NPC_WAIT    = 3.0           # seconds for an exchanged dragonball to leave the bag
@@ -129,6 +133,8 @@ _watching = False
 _claimed = {}               # character -> when its claim file was last touched
 _last_cast = {}             # game pid -> when the steady Scatter was last cast
 _casts = {}                 # game pid -> Scatters cast in the air so far (the status lines)
+_died = set()               # game pids that died while hunting a map (the tour moves on)
+_durability = {}            # item type -> its most durability x 100 (_most_durability)
 
 
 # ---------------------------------------------------------------- who casts
@@ -429,7 +435,7 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
         if claiming:
             claim(name)
         me = game_actions.my_pos(pid)
-        if not me:
+        if not me or game_actions.i_am_dead(pid):
             return False
         if max(abs(me[0] - x), abs(me[1] - y)) <= ARRIVED:
             return True
@@ -870,13 +876,26 @@ def _zone_parts(grid, squares):
     return parts
 
 
-def _zigzag(grid, squares, shift=0):
+def _way(name, the_map, label):
+    """This character's own way over an area: (rng, across, shift, backwards, start) - from a seed
+    of its name, the map and the area, so it's the same on every PC and run, and each character's
+    differs: lanes up-down or across, moved 0..LANE_SQUARES-1 squares, either way round, starting
+    part way along."""
+    rng = random.Random(zlib.crc32(f'{name.lower()}|{the_map}|{label}'.encode()))
+    return rng, rng.random() < 0.5, rng.randrange(LANE_SQUARES), rng.random() < 0.5, rng.random()
+
+
+def _zigzag(grid, squares, shift=0, across=False, rng=random):
     """The zone's zigzag: [cells] down the first lane (LANE_SQUARES wide, from the left - `shift`
-    squares moved), up the next, down the one after... - a stop every LANE_STEP squares along a
-    lane and at its ends, a walkable cell of the zone near the lane's middle there (at random among
-    the nearest: each character its own way)."""
+    squares moved; `across`: lanes from the top, left to right), up the next, down the one after...
+    - a stop every LANE_STEP squares along a lane and at its ends, a walkable cell of the zone near
+    the lane's middle there (picked by `rng` among the nearest)."""
     width, _, walkable = grid
     height = len(walkable) // width
+    if across:                                          # worked out with x and y swapped, the
+        swap = lambda c: (c[1], c[0])                   # cells swapped back
+        return [swap(c) for c in _zigzag((height, width, _Swapped(walkable, width, height)),
+                                         [swap(q) for q in squares], shift, False, rng)]
     lanes = {}
     for sx, sy in squares:
         lanes.setdefault((sx + shift) // LANE_SQUARES, {}).setdefault(sy, []).append(sx)
@@ -891,33 +910,93 @@ def _zigzag(grid, squares, shift=0):
             cells = [c for c in cells if c[0] < width and c[1] < height and walkable[c[1] * width + c[0]]]
             if cells:
                 cells.sort(key=lambda c: abs(c[0] - middle) + abs(c[1] - (row + 0.5) * ZONE_CELLS))
-                route.append(random.choice(cells[:max(1, len(cells) // ZIGZAG_SPREAD)]))
+                route.append(rng.choice(cells[:max(1, len(cells) // ZIGZAG_SPREAD)]))
     return route
 
 
+class _Swapped:
+    """A map's walkable bytes read with x and y swapped (for _zigzag's lanes across)."""
+    def __init__(self, walkable, width, height):
+        self.walkable, self.width, self.height = walkable, width, height
+
+    def __len__(self):
+        return len(self.walkable)
+
+    def __getitem__(self, i):                           # i = y' * height + x' with x' = y, y' = x
+        return self.walkable[(i % self.height) * self.width + i // self.height]
+
+
+def _clusters(squares):
+    """The drawn squares in groups that touch (side or corner): [[square, ...], ...]."""
+    left, out = set(map(tuple, squares)), []
+    while left:
+        group, todo = [], [left.pop()]
+        while todo:
+            sq = todo.pop()
+            group.append(sq)
+            for dx, dy in NEIGHBOURS:
+                near = (sq[0] + dx, sq[1] + dy)
+                if near in left:
+                    left.remove(near)
+                    todo.append(near)
+        out.append(group)
+    return out
+
+
 def patrol(pid, name, seconds, stop=None):
-    """Roams the zone drawn on this map for `seconds`, all of it: in a zigzag (ZONE_ROUTE, _zigzag -
+    """Roams the zone drawn on this map for `seconds`: each separate area drawn (_clusters) on its
+    own, in a random order, the time shared out between them (_roam). Dead: waits to be revived
+    (static.py - in town, since it's auto hunting) and leaves the map (_died). Returns how many
+    jumps."""
+    the_map = map_id(pid)
+    areas = _clusters(zone(the_map))
+    random.shuffle(areas)
+    count = 0
+    for n, squares in enumerate(areas):
+        if (stop and stop()) or map_id(pid) != the_map:
+            break
+        label = f'area {n + 1} of {len(areas)}' if len(areas) > 1 else 'zone'
+        count += _roam(pid, name, the_map, squares, seconds / len(areas), stop, label)
+        if pid in _died:
+            _wait_revived(pid, name, stop)
+            break
+    return count
+
+
+def _wait_revived(pid, name, stop=None):
+    """Dead: waits (claim kept fresh) until static.py revives it."""
+    if not game_actions.i_am_dead(pid):
+        return
+    print(f'{name}: dead - waiting to be revived in town, then on to another city')
+    while game_actions.i_am_dead(pid) and not (stop and stop()):
+        claim(name)
+        time.sleep(2)
+    time.sleep(2)                                       # the town loading
+
+
+def _roam(pid, name, the_map, squares, seconds, stop, label):
+    """Roams this area of the zone (`squares`) for `seconds`, all of it: in a zigzag (ZONE_ROUTE, _zigzag -
     from a random stop, either way, to the last lane and back again) or at random (a random cell in one of
     the parts (_zone_parts) visited least so far - every part before any twice); the way to each
     stop jump by jump (go): SHORT_JUMP-cell jumps with CROWD_FEW or more
     monsters within CROWD_REACH, Scatters in the air every ZONE_SCATTER_EVERY seconds with more
     than CROWD_MANY (fewer: no Scatter, no stop), + items picked up. Returns how many jumps."""
-    the_map = map_id(pid)
     grid = load_map(map_file(game_root(pid), the_map))
-    parts = _zone_parts(grid, zone(the_map))
+    parts = _zone_parts(grid, squares)
     if not parts:
-        print(f'{name}: [map {the_map}] its zone has no walkable cell')
+        print(f'{name}: [map {the_map} {label}] no walkable cell')
         return 0
     start = time.time()
     end, visits, count, told = start + seconds, {part: 0 for part in parts}, [0], [0.0]
     cast = background_hunt.SCATTER in game_actions.skills(pid)
     part_of = lambda cell: (cell[0] // ZONE_CELLS // ZONE_PART, cell[1] // ZONE_CELLS // ZONE_PART)
-    route = _zigzag(grid, zone(the_map), random.randrange(LANE_SQUARES)) if ZONE_ROUTE == 'zigzag' else []
-    if random.random() < 0.5:                           # each character its own way: either way,
-        route.reverse()                                 # from a random stop
-    at = random.randrange(len(route)) if route else 0
-    print(f'{name}: [map {the_map}] roaming its drawn zone ({len(parts)} parts'
-          + (f', a zigzag of {len(route)} stops' if route else ', at random') + f') for {seconds:.0f}s')
+    rng, across, shift, backwards, begin = _way(name, the_map, label)   # its own way (same on
+    route = _zigzag(grid, squares, shift, across, rng) if ZONE_ROUTE == 'zigzag' else []   # any PC)
+    if backwards:
+        route.reverse()
+    at = int(begin * len(route)) if route else 0
+    print(f'{name}: [map {the_map} {label}] roaming it ({len(parts)} parts'
+          + (f', a zigzag of {len(route)} stops, lanes {"across" if across else "up-down"}' if route else ', at random') + f') for {seconds:.0f}s')
     casts0 = _casts.get(pid, 0)
 
     def landed(cell):                                   # every jump of the way
@@ -927,7 +1006,7 @@ def patrol(pid, name, seconds, stop=None):
         if time.time() - told[0] >= STATUS_EVERY:
             told[0] = time.time()
             seen = sum(1 for v in visits.values() if v)
-            print(f'{name}: [map {the_map} zone] {time.time() - start:.0f}s of {seconds:.0f}s, '
+            print(f'{name}: [map {the_map} {label}] {time.time() - start:.0f}s of {seconds:.0f}s, '
                   f'{count[0]} jumps, {_casts.get(pid, 0) - casts0} Scatters, {seen} of {len(parts)} '
                   f'parts visited - going to {goal}')
 
@@ -948,6 +1027,9 @@ def patrol(pid, name, seconds, stop=None):
                   crowd_slow=True,
                   stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map)
         if map_id(pid) != the_map:
+            break
+        if game_actions.i_am_dead(pid):
+            _died.add(pid)
             break
         if went is None and route:                      # no way to that stop: never again
             at -= 1
@@ -980,11 +1062,17 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
         city = map_id(pid)
         _hunt_map(pid, name, seconds, stop)
         for steps, side, title in SIDE_MAPS.get(city, []):
-            if stop and stop():
-                return
+            if stop and stop() or pid in _died:
+                break
             if side_trip(pid, name, steps, side, title):
                 _hunt_map(pid, name, seconds, stop)
+        if stop and stop():
+            return
         done.add(city)
+        if pid in _died or game_actions.i_am_dead(pid):  # killed: revived in town - away from
+            _died.discard(pid)                          # there, to another city (not this one)
+            _wait_revived(pid, name, stop)
+            done.add(map_id(pid))
         left = [c for c, m in TELEPORTS if m not in done]
         if not left:                                    # every city done: sell the dragonballs
             print(f'{name}: every city hunted - to the Market from Twin City')
@@ -1121,27 +1209,79 @@ def _wait_map(pid, other_than, seconds=TELEPORT_WAIT):
 
 
 def sell_dragonballs(pid, name):
-    """Every dragonball - the bag's, then the bank's, MARKET_BATCH at a time - exchanged for CPs at
-    Exchange~DB (in the Market, standing by it). Returns how many."""
+    """Every dragonball, then every dragonball scroll - the bag's, then the bank's, MARKET_BATCH at
+    a time - exchanged for CPs at Exchange~DB (in the Market, standing by it). Returns how many."""
+    return (_sell(pid, name, game_memory.DRAGONBALL, EXCHANGE_DB, 'dragonball')
+            + _sell(pid, name, game_memory.DB_SCROLL, EXCHANGE_SCROLL, 'dragonball scroll'))
+
+
+def _sell(pid, name, item_type, npc, what):
+    """Every `item_type` (bag, then bank) exchanged at the NPC `npc` (_talk's npc, cell, options)."""
     sold = 0
+    count = lambda: len(game_memory.bag_items_of(pid, item_type))
     while True:
-        balls = game_memory.bag_items_of(pid, game_memory.DRAGONBALL) or \
-            background_hunt.withdraw_dragonballs(pid, name, MARKET_BATCH)
-        if not balls:
+        items = game_memory.bag_items_of(pid, item_type) or \
+            background_hunt.withdraw_items(pid, name, item_type, MARKET_BATCH, f'{what}(s)')
+        if not items:
             break
-        for ball in balls:
-            before = len(game_memory.bag_items_of(pid, game_memory.DRAGONBALL))
-            if not _talk(pid, name, *EXCHANGE_DB):
+        for _ in items:
+            before = count()
+            if not _talk(pid, name, *npc):
                 return sold
             end = time.time() + NPC_WAIT
-            while time.time() < end and len(game_memory.bag_items_of(pid, game_memory.DRAGONBALL)) >= before:
+            while time.time() < end and count() >= before:
                 time.sleep(0.1)
-            if len(game_memory.bag_items_of(pid, game_memory.DRAGONBALL)) >= before:
-                print(f'{name}: Exchange~DB did not take the dragonball - stopping the sale')
+            if count() >= before:
+                print(f'{name}: {npc[0]} did not take the {what} - stopping the sale')
                 return sold
             sold += 1
-    print(f'{name}: {sold} dragonball(s) sold for CPs')
+    print(f'{name}: {sold} {what}(s) sold for CPs')
     return sold
+
+
+def _most_durability(pid):
+    """{item type: its most durability x 100} - itemtype.txt's amount limit, read once."""
+    if not _durability:
+        with open(os.path.join(game_root(pid), 'ini', 'itemtype.txt'), encoding='latin1') as f:
+            for line in f:
+                parts = line.split('@@')
+                if len(parts) > ITEMTYPE_DURA and parts[0].isdigit() and parts[ITEMTYPE_DURA].isdigit():
+                    _durability[int(parts[0])] = int(parts[ITEMTYPE_DURA])
+    return _durability
+
+
+def repair_worn(pid, name):
+    """By a shop NPC (the Blacksmith): each worn item below its most durability (not the arrows)
+    taken off, repaired (gold) and put back on - as with the shop's Repair hammer. Always put back
+    on, repaired or not. Returns how many were repaired."""
+    most = _most_durability(pid)
+    everything = game_memory.worn_durability(pid)
+    arrows = [w for w in everything if w[2] in game_memory.ARROW_TYPES]   # come off with the bow
+    worn = [w for w in everything if w[2] not in game_memory.ARROW_TYPES and w[3] < most.get(w[2], 0)]
+    repaired = 0
+    for position, item, kind, dura in worn:
+        game_actions.unequip(pid, item, position)
+        if background_hunt._wait(lambda: game_memory.bag_durability(pid, item) is not None, NPC_WAIT) is None:
+            print(f'{name}: could not take item {kind} off to repair it')
+            continue
+        try:
+            game_actions.repair_item(pid, item)
+            if background_hunt._wait(lambda: (game_memory.bag_durability(pid, item) or 0) > dura, NPC_WAIT):
+                repaired += 1
+            else:
+                print(f'{name}: the {BLACKSMITH[0]} did not repair item {kind} (gold?)')
+        finally:
+            game_actions.equip(pid, item, position)
+            if not background_hunt._wait(lambda: any(w[1] == item for w in game_memory.worn_durability(pid)),
+                                         NPC_WAIT):
+                game_actions.equip(pid, item, position)   # once more
+    for position, item, _, _ in arrows:                 # the arrows back on (the bow took them off)
+        if worn and not any(w[1] == item for w in game_memory.worn_durability(pid)):
+            game_actions.equip(pid, item, position)
+            background_hunt._wait(lambda: any(w[1] == item for w in game_memory.worn_durability(pid)), NPC_WAIT)
+    if worn:
+        print(f'{name}: {repaired} of {len(worn)} worn item(s) repaired at the {BLACKSMITH[0]}')
+    return repaired
 
 
 def buy_arrows(pid, name):
@@ -1150,6 +1290,7 @@ def buy_arrows(pid, name):
     npc, cell, shop = BLACKSMITH
     if _far(game_actions.my_pos(pid) or (0, 0), cell) > NPC_CELLS:
         go(pid, name, *cell, stop=lambda: _far(game_actions.my_pos(pid) or cell, cell) <= NPC_CELLS)
+    repair_worn(pid, name)
     before = set(game_memory.bag_items_of(pid, ARROW_TYPE))
     for _ in range(ARROWS_TO_BUY):
         game_actions.shop_buy(pid, shop, ARROW_TYPE)
@@ -1177,8 +1318,8 @@ def buy_arrows(pid, name):
 
 def market_run(pid, name):
     """From Twin City: ARROWS_TO_BUY arrow packs bought at the Blacksmith into the bank
-    (buy_arrows), the Conductress to the Market, every dragonball (bag and bank) sold at
-    Exchange~DB, Mark.Controller back to Twin City."""
+    (buy_arrows), the Conductress to the Market, every dragonball and dragonball scroll (bag and bank)
+    sold at Exchange~DB, Mark.Controller back to Twin City."""
     print(f'{name}: round of the cities done - to the Market to sell the dragonballs')
     done = threading.Event()                            # its claim kept fresh all the trip long:
     threading.Thread(target=_keep_claim, args=(name, done), daemon=True).start()   # no static Scatter

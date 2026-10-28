@@ -348,8 +348,13 @@ class _Account:
         wait = REVIVE_DELAY if self.revive_wait is None else self.revive_wait
         left = wait - (now - self.dead_since)
         if left > 0 and self.slot not in _rev_now:
-            self.say(f'dead - Revive Here in {_fmt(left)}')
+            self.say(f'dead - {"Revive" if travel.claimed(self.name) else "Revive Here"} in {_fmt(left)}')
             return False
+        if travel.claimed(self.name):                  # auto hunt: back in town, not on the spot -
+            print(f'  [REVIVE] {self.name}: Revive (auto hunt - in town, then on to another city)')
+            game_actions.revive(self.pid, here=False)  # it moves away from whoever killed it
+            time.sleep(2)
+            return not game_actions.i_am_dead(self.pid)
         if not game_actions.revive_here_allowed(self.pid):
             if not self.here_refused_told:
                 self.here_refused_told = True

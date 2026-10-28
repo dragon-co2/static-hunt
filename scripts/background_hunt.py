@@ -180,6 +180,12 @@ def bank_dragonballs(pid, name):
 def withdraw_dragonballs(pid, name, room):
     """Up to `room` dragonballs out of the regular bank tabs (from afar) into the bag, the windows
     closed after. Returns their ids in the bag."""
+    return withdraw_items(pid, name, game_memory.DRAGONBALL, room, 'dragonball(s)')
+
+
+def withdraw_items(pid, name, item_type, room, what):
+    """Up to `room` items of `item_type` out of the regular bank tabs (from afar) into the bag, the
+    windows closed after. Returns their ids in the bag."""
     taken = []
     try:
         for key in REGULAR_BANKS:
@@ -188,17 +194,17 @@ def withdraw_dragonballs(pid, name, room):
             if not _open_bank(pid, key):
                 continue
             time.sleep(1)
-            balls = [i[0] for i in game_memory.bank_items(pid, key) or [] if i[1] == game_memory.DRAGONBALL]
-            for ball in balls[:room - len(taken)]:
-                game_actions.bank_withdraw(pid, ball, key)
-                taken.append(ball)
+            items = [i[0] for i in game_memory.bank_items(pid, key) or [] if i[1] == item_type]
+            for item in items[:room - len(taken)]:
+                game_actions.bank_withdraw(pid, item, key)
+                taken.append(item)
                 time.sleep(0.3)
-        _wait(lambda: set(taken) <= set(game_memory.bag_items_of(pid, game_memory.DRAGONBALL)), BANK_WAIT)
+        _wait(lambda: set(taken) <= set(game_memory.bag_items_of(pid, item_type)), BANK_WAIT)
     finally:
         game_actions.close_bank_windows(pid)
-    got = [b for b in taken if b in game_memory.bag_items_of(pid, game_memory.DRAGONBALL)]
+    got = [i for i in taken if i in game_memory.bag_items_of(pid, item_type)]
     if got:
-        print(f'{name}: {len(got)} dragonball(s) out of the bank')
+        print(f'{name}: {len(got)} {what} out of the bank')
     return got
 
 

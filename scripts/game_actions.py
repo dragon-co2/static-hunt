@@ -101,6 +101,7 @@ HOTKEY_BAR   = 0x008D5C74     # -> [this] + HOTKEY_IDS + 4 * slot = the id in ho
 HOTKEY_IDS   = 0x11CA8C + 0x14B8
 STATUS_XP    = 0x10           # hero status bit: the XP bar is full (the XP skill icons are up)
 ACTION_BUY, ACTION_USE = 1, 4
+ACTION_UNEQUIP, ACTION_REPAIR = 6, 14   # MsgItem: take off (data = position) / repair (by a shop NPC)
 MALL_SHOP  = 2888
 PAY_CP     = 1
 PAY_GOLD   = 0
@@ -197,6 +198,22 @@ def use(pid, item_id):
     """Uses the bag item with this id (game_memory.vitals_pid()['ids']) - drinks a potion, opens
     a pouch - like right-clicking it."""
     _run(pid, _stub(MSG_CREATE, (item_id, 0, ACTION_USE)))
+
+
+def equip(pid, item_id, position):
+    """Puts the bag item on, at `position` (game_memory.worn_durability's)."""
+    _run(pid, _stub(MSG_CREATE, (item_id, position, ACTION_USE)))
+
+
+def unequip(pid, item_id, position):
+    """Takes the worn item at `position` off, into the bag."""
+    _run(pid, _stub(MSG_CREATE, (item_id, position, ACTION_UNEQUIP)))
+
+
+def repair_item(pid, item_id):
+    """Repairs the bag item (gold) - what the shop's Repair hammer does; the server takes it only
+    by a shop NPC (tested at Twin City's Blacksmith)."""
+    _run(pid, _stub(MSG_CREATE, (item_id, 0, ACTION_REPAIR)))
 
 
 def skills(pid):

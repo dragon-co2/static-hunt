@@ -572,6 +572,48 @@ EQUIPMENT   = range(0xE90, 0xF00, 8)   # hero + these: the equipped items (8-byt
 DRAGONBALL, DB_SCROLL = 1088000, 720028
 
 
+ITEM_DURA   = 0x190     # an item's durability x 100 (16 bits; the same field as an arrow pack's
+                        # amount) - its most: itemtype.txt's amount limit
+
+
+def worn_durability(pid):
+    """[(position, item id, item type, durability)] of the items this character wears - position
+    1, 2... (1 helmet, 2 necklace, 3 armor, 4 right hand, 5 left hand...: EQUIPMENT in order),
+    durability x 100. [] if it can't be read."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return []
+    try:
+        hero = _u32(handle, HERO_PTR)
+        out = []
+        for position, off in enumerate(EQUIPMENT, 1):
+            item = _u32(handle, hero + off)
+            if item and _u32(handle, item) == ITEM_VTABLE:
+                out.append((position, _u32(handle, item + ITEM_ID), _u32(handle, item + ITEM_TYPE),
+                            _u32(handle, item + ITEM_DURA) & 0xFFFF))
+        return out
+    except (OSError, struct.error):
+        return []
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
+def bag_durability(pid, item_id):
+    """The durability (x 100) of the bag item with this id, or None if it isn't in the bag."""
+    handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        return None
+    try:
+        for item in _bag(handle, _u32(handle, HERO_PTR)):
+            if item and _u32(handle, item) == ITEM_VTABLE and _u32(handle, item + ITEM_ID) == item_id:
+                return _u32(handle, item + ITEM_DURA) & 0xFFFF
+        return None
+    except (OSError, struct.error):
+        return None
+    finally:
+        _kernel32.CloseHandle(handle)
+
+
 def equipped_items(pid):
     """[(item id, item type)] of the items this character wears (arrows included)."""
     handle = _kernel32.OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, False, pid)
