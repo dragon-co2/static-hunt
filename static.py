@@ -424,6 +424,8 @@ class _Account:
     def service(self):
         if time.time() - self.last_service < SERVICE_EVERY:
             return
+        if travel.in_market_trip(self.name):            # auto hunt's Market trip: its dragonballs
+            return                                      # are for sale, not for scrolls and the bank
         self.last_service = time.time()
         if time.time() - self.last_repair >= REPAIR_INTERVAL:
             self.last_repair = time.time()

@@ -175,6 +175,20 @@ def claim(name):
         f.write(str(os.getpid()))
 
 
+def _trip_file(name):
+    return os.path.join(CLAIM_DIR, f'{name.lower()}.market')
+
+
+def in_market_trip(name):
+    """True while `name` is on the Market trip (its .market file touched within CLAIM_FRESH):
+    static.py leaves its bag and bank alone - the dragonballs taken out to be sold aren't made
+    scrolls and banked again."""
+    try:
+        return time.time() - os.path.getmtime(_trip_file(name)) < CLAIM_FRESH
+    except OSError:
+        return False
+
+
 def claimed(name):
     """True while a tour hunts with `name` (its claim file touched within CLAIM_FRESH seconds)."""
     try:
@@ -1649,9 +1663,18 @@ def market_run(pid, name):
 def _keep_claim(name, done):
     """Touches `name`'s claim every CLAIM_EVERY seconds until `done` - static.py then casts nothing
     for it (a Market trip: long bank and NPC steps with no jump to touch it)."""
-    while not done.wait(CLAIM_EVERY):
+    os.makedirs(CLAIM_DIR, exist_ok=True)
+    while True:
         _claimed.pop(name, None)
         claim(name)
+        with open(_trip_file(name), 'w') as f:          # static.py: hands off the bag and bank
+            f.write(str(os.getpid()))
+        if done.wait(CLAIM_EVERY):
+            break
+    try:
+        os.remove(_trip_file(name))
+    except OSError:
+        pass
 
 
 def main():
