@@ -9,7 +9,10 @@ character - Mail > Write: Search the name, the items in the boxes, Send. Until t
     python mail_compose.py <from character> --send-scrolls <to character>   the dragonball scrolls
                                                      (bag, then the regular remote bank tabs)
     python mail_compose.py <character> --receive    Claim All, Deposit, every mail marked read
-    python mail_compose.py <character> --claim      Claim All, every mail marked read - no Deposit"""
+    python mail_compose.py <character> --claim      Claim All, every mail marked read - no Deposit
+    python mail_compose.py <character> --withdraw   everything out of its compose warehouse into
+                                                    its bag (till the bag is full)"""
+import ctypes
 import sys
 import time
 
@@ -66,14 +69,15 @@ def _receiver(pid, name):
     return None
 
 
-def _withdraw(pid, name):
-    """Takes the best items out of the compose warehouse into the bag, MAIL_ITEMS_MAX at most.
-    Returns the bag ids of the ones that came out ([] when the warehouse is empty or refused)."""
+def _withdraw(pid, name, most=None):
+    """Takes the best items out of the compose warehouse into the bag, `most` (MAIL_ITEMS_MAX) at
+    most. Returns the bag ids of the ones that came out ([] when the warehouse is empty or refused)."""
+    most = game_actions.MAIL_ITEMS_MAX if most is None else most
     game_actions.compose_list(pid)
     time.sleep(1)
     items = sorted(game_memory.compose_items(pid), key=lambda i: (-i[2], -i[3]))
     before = _bag(pid)
-    room = game_actions.MAIL_ITEMS_MAX
+    room = most
     for item_type, item_name, plus, count in items:
         if not room:
             break
@@ -82,11 +86,37 @@ def _withdraw(pid, name):
         print(f'{name}: withdraw {amount} x {item_name} +{plus}')
         room -= amount
         time.sleep(0.5)
-    wanted = game_actions.MAIL_ITEMS_MAX - room
+    wanted = most - room
     if not wanted:
         return []
     _wait(lambda: len(_bag(pid) - before) >= wanted)
-    return sorted(_bag(pid) - before)[:game_actions.MAIL_ITEMS_MAX]
+    return sorted(_bag(pid) - before)[:most]
+
+
+def _bag_used(pid):
+    """How many of the bag's slots hold something."""
+    handle = ctypes.windll.kernel32.OpenProcess(0x0410, False, pid)
+    try:
+        return sum(1 for item in game_memory._bag(handle, game_memory._u32(handle, game_memory.HERO_PTR)) if item)
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def withdraw_all(pid, name):
+    """Everything out of the compose warehouse into the bag, a bagful at most. Returns how many."""
+    taken = 0
+    while True:
+        room = game_actions.BAG_SLOTS - _bag_used(pid)
+        if room <= 0:
+            print(f'{name}: the bag is full')
+            break
+        got = _withdraw(pid, name, room)
+        if not got:
+            break
+        taken += len(got)
+    left = sum(i[3] for i in game_memory.compose_items(pid))
+    print(f'{name}: {taken} item(s) taken out of the compose warehouse - {left} left in it')
+    return taken
 
 
 def transfer(pid, name, to, once=False):
@@ -200,11 +230,14 @@ def mark_read(pid, name):
 
 
 def main():
-    flags = ('--once', '--receive', '--claim', '--send', '--send-scrolls')
+    flags = ('--once', '--receive', '--claim', '--send', '--send-scrolls', '--withdraw')
     args = [a for a in sys.argv[1:] if a not in flags]
     accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids()}
     if args and args[0] not in accounts:
         sys.exit(f'{args[0]} is not logged in')
+    if '--withdraw' in sys.argv and len(args) == 1:
+        withdraw_all(accounts[args[0]], args[0])
+        return
     if ('--receive' in sys.argv or '--claim' in sys.argv) and len(args) == 1:
         receive(accounts[args[0]], args[0], deposit='--claim' not in sys.argv)
         return
