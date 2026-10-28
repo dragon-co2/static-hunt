@@ -58,6 +58,10 @@ class Editor:
         ttk.Combobox(bar, textvariable=self.choice, values=list(self.labels), state='readonly',
                      width=22).pack(side='left')
         self.choice.trace_add('write', lambda *_: self.load())
+        self.tool = tk.StringVar(value='paint')         # the left button's tool (the right one erases)
+        for value, text in (('paint', 'Paint'), ('erase', 'Erase')):
+            tk.Radiobutton(bar, text=text, value=value, variable=self.tool, indicatoron=False,
+                           width=6).pack(side='left', padx=(6 if value == 'paint' else 0, 0))
         tk.Label(bar, text='  Brush').pack(side='left')
         self.brush = tk.IntVar(value=2)
         tk.Scale(bar, from_=1, to=6, orient='horizontal', variable=self.brush, length=90,
@@ -68,9 +72,10 @@ class Editor:
         self.info.pack(side='left', padx=8)
         self.canvas = tk.Canvas(self.win, width=VIEW, height=VIEW, bg='black', highlightthickness=0)
         self.canvas.pack(padx=8, pady=(0, 8))
-        for button, paint in (('<B1-Motion>', True), ('<Button-1>', True),
-                              ('<B3-Motion>', False), ('<Button-3>', False)):
-            self.canvas.bind(button, lambda e, p=paint: self.paint(e, p))
+        for button in ('<B1-Motion>', '<Button-1>'):    # the left button: the tool picked
+            self.canvas.bind(button, lambda e: self.paint(e, self.tool.get() == 'paint'))
+        for button in ('<B3-Motion>', '<Button-3>'):    # the right one: always erases
+            self.canvas.bind(button, lambda e: self.paint(e, False))
         self.canvas.bind('<ButtonRelease-1>', lambda e: self.draw())
         self.canvas.bind('<ButtonRelease-3>', lambda e: self.draw())
         self.canvas.bind('<Motion>', self.hover)
