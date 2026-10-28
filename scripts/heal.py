@@ -25,6 +25,7 @@ import time
 
 import game_actions
 import game_memory
+import travel
 from dragon_settings import override_dir
 
 HP_MISSING  = 100   # drink once HP is this much below the max
@@ -335,7 +336,7 @@ def _window():
 
     def set_skip():
         SKIP_NEAR[0] = skip_var.get()
-    tk.Checkbutton(opts, text="don't jump if target is within", variable=skip_var,
+    tk.Checkbutton(opts, text="run, don't jump, if target is within", variable=skip_var,
                    command=set_skip, font=('Segoe UI', 9)).pack(side='left')
     near = tk.IntVar(value=NEAR_CELLS[0])
 
@@ -347,7 +348,13 @@ def _window():
     tk.Spinbox(opts, from_=1, to=16, width=3, textvariable=near, command=set_near,
                font=('Segoe UI', 9)).pack(side='left', padx=(2, 0))
     near.trace_add('write', set_near)
-    tk.Label(opts, text='cells (attack from here instead)', font=('Segoe UI', 9)).pack(side='left', padx=(2, 0))
+    path_var = tk.BooleanVar(value=PATH_FIND[0])
+
+    def set_path():
+        PATH_FIND[0] = path_var.get()
+    tk.Checkbutton(opts, text='path find (round walls, far targets)', variable=path_var,
+                   command=set_path, font=('Segoe UI', 9)).pack(side='left', padx=(12, 0))
+    tk.Label(opts, text='cells (run up to it, then attack)', font=('Segoe UI', 9)).pack(side='left', padx=(2, 0))
 
     def update_label():
         name = ''
@@ -366,8 +373,9 @@ JUMP_VK      = 0x46         # Ctrl+F in the game in front: jump next to the play
 RCLICK_TIMES = 2            # chat's name box (Shift+click them), then use the right-click skill
 RCLICK_EVERY = 0.5          # on them RCLICK_TIMES times, RCLICK_EVERY seconds apart
 JUMP_LAND    = 0            # seconds after the jump before the first skill: 0 = right away, in the air
-SKIP_NEAR = [False]         # don't jump when the target is within NEAR_CELLS - attack from here (window)
+SKIP_NEAR = [True]          # run, don't jump, when the target is within NEAR_CELLS - then attack (window)
 NEAR_CELLS = [3]            # how close "near" is, in map cells
+PATH_FIND = [True]          # a far target / a wall in the way: the way round on the map (window)
 
 
 def _foreground_game():
@@ -437,6 +445,64 @@ def _chat_box_target(pid, around):
         else (None, f'{_id_names.get(target_id, "the Shift+clicked player")} is not around')
 
 
+def _run_beside(pid, at):
+    """Runs to the cell one step from `at` on this side of it - never onto it (standing on the
+    target's very cell spoils the skill); already that close: stays put."""
+    me = game_actions.my_pos(pid)
+    if not me:
+        return
+    sign = lambda v: (v > 0) - (v < 0)
+    cell = (at[0] + sign(me[0] - at[0]), at[1] + sign(me[1] - at[1]))
+    if tuple(me) == tuple(at):                          # on its very cell: a step off it
+        try:
+            width, _, walkable = travel.load_map(travel.map_file(travel.game_root(pid), travel.map_id(pid)))
+            cell = next(((at[0] + dx, at[1] + dy) for dx, dy in travel.NEIGHBOURS
+                         if walkable[(at[1] + dy) * width + at[0] + dx]), None)
+        except (OSError, IndexError):
+            cell = (at[0] + 1, at[1])
+    if cell and cell != tuple(at) and cell != tuple(me):
+        game_actions.run_to(pid, *cell)
+
+
+def _jump_or_go_round(pid, me, role, target, target_id, stale):
+    """Next to the target: one jump if it's within a jump and the game takes it - else (farther, or
+    a wall the jump is refused over) the way round, worked out on the map (travel.go: jumps, and
+    runs for the short legs), till within NEAR_CELLS of where it is now, then a run / jump the rest.
+    False if it was given up (a newer Ctrl+F, the target gone)."""
+    me_pos = game_actions.my_pos(pid)
+    where = lambda: game_actions.positions(pid, [target_id]).get(target_id)
+    t_pos = where()
+    if me_pos and t_pos and travel._far(me_pos, t_pos) <= travel.JUMP_CELLS:
+        with _inject:
+            if stale():
+                return False
+            game_actions.jump_next_to(pid, role)
+        if travel._airborne(pid):                      # taken: in the air (the skill comes at once)
+            print(f'[JUMP] {me}: jumped next to {target}')
+            return True
+        print(f'[JUMP] {me}: the jump to {target} was refused (a wall?) - going round')
+    elif not t_pos:
+        print(f'[JUMP] {me}: {target} is out of sight')
+        return False
+    else:
+        print(f'[JUMP] {me}: {target} is {travel._far(me_pos, t_pos):.0f} cells away - going there')
+
+    def there():
+        now, at = game_actions.my_pos(pid), where()
+        return stale() or at is None or (now and travel._far(now, at) <= NEAR_CELLS[0] + 1)
+    travel.go(pid, me, *t_pos, stop=there)
+    at = where()
+    if stale() or at is None:
+        return False
+    with _inject:
+        if travel._far(game_actions.my_pos(pid) or at, at) <= travel.RUN_BELOW:
+            _run_beside(pid, at)                        # the last bit: run up to a step from it
+        else:
+            game_actions.jump_next_to_id(pid, target_id)
+    print(f'[JUMP] {me}: got round to {target}')
+    return True
+
+
 def _jump_and_hit(press):
     """Ctrl+F: in the game in front, jump next to the player in the name box, then use the
     right-click skill on them RCLICK_TIMES times. A newer Ctrl+F (press) stops this one where it is."""
@@ -469,7 +535,14 @@ def _jump_and_hit(press):
             if me_pos and t_pos:
                 near = max(abs(me_pos[0] - t_pos[0]), abs(me_pos[1] - t_pos[1])) < NEAR_CELLS[0]
         if near:
-            print(f'[JUMP] {me}: {target} is within {NEAR_CELLS[0]} cells - attacking from here, no jump')
+            with _inject:
+                if stale():
+                    return
+                _run_beside(pid, t_pos)                 # the game's own run, a step from it
+            print(f'[JUMP] {me}: {target} is within {NEAR_CELLS[0]} cells - ran to it, no jump')
+        elif PATH_FIND[0]:
+            if not _jump_or_go_round(pid, me, role, target, target_id, stale):
+                return
         else:
             with _inject:
                 if stale():
