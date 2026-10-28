@@ -36,7 +36,7 @@
     "F10_CYCLONE": {
       "type": "bool",
       "default": false,
-      "desc": "While hunting, press F10 (Cyclone) every 10 seconds on each desktop's game. It is pressed during the pause at the end of each visit (VISIT_WAIT), not while the bank or VIP menu is being used, and not while the character is dead."
+      "desc": "While hunting, press F10 (Cyclone) every 2 seconds on each game, steadily (in the background, whatever else the script is doing) - not while the character is dead."
     },
     "ARROWS_MIN": {
       "type": "int",

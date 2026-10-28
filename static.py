@@ -15,7 +15,8 @@ injection, game_memory.py reads):
                 skipped from Telegram with rev / revall); never back to town
   - kills       the killer gets a whisper once we're revived (Kill reply), Telegram is told
   - Telegram    whispers to our characters are forwarded; a Reply there is whispered back
-  - F10         with F10_CYCLONE on, the F10 hotkey is used every F10_EVERY seconds
+  - F10         with F10_CYCLONE on, the F10 hotkey is used every F10_EVERY seconds (a thread
+                of its own: steady, whatever the rest of the visit is doing)
 
 One thread per account. Ctrl+Shift+C stops everything."""
 import json
@@ -57,7 +58,7 @@ F10_CYCLONE = bool(_S['F10_CYCLONE'])   # use the F10 hotkey every F10_EVERY sec
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']          # seconds between repairs of each account's gear
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])   # repair as soon as an account is in the game
 MAIL_TO = (_S['MAIL_TO'] or '').strip() if _S['MAIL_COMPOSE'] else ''   # gets the compose items by mail
-F10_EVERY   = 10
+F10_EVERY   = 2
 F10_SLOT    = 9                         # F10
 MAIL_EVERY  = 600                       # seconds between mails of the compose items to MAIL_TO (the
                                         # first right as an account is in the game)
@@ -445,10 +446,18 @@ class _Account:
         else:
             self.arrows_alerted = 0.0
 
-    def f10(self):
-        if F10_CYCLONE and time.time() - self.last_f10 >= F10_EVERY:
-            self.last_f10 = time.time()
-            game_actions.press_hotkey(self.pid, F10_SLOT)
+    def f10_loop(self):
+        """F10 every F10_EVERY seconds, steady - on its own thread, not held up by the deposits,
+        the bank or the mail; not while the game is gone, the account is off or it's dead."""
+        while True:
+            time.sleep(F10_EVERY)
+            try:
+                if (self.enabled and self.pid and self.name
+                        and game_memory._name_pid(self.pid) == self.name
+                        and not game_actions.i_am_dead(self.pid)):
+                    game_actions.press_hotkey(self.pid, F10_SLOT)
+            except OSError as e:
+                print(f'[F10] {self.name}: {e}')
 
     # -- the loop
     def run(self):
@@ -473,7 +482,6 @@ class _Account:
                     continue
                 self.send_whispers()
                 self.service()
-                self.f10()
                 arrows = game_memory._read_equipped_pid(self.pid)[0]
                 if travel.claimed(self.name):           # auto_hunt.py moves it and casts itself
                     self.say(f'auto hunt - arrows {arrows}')
@@ -535,6 +543,8 @@ def _monster_named(name):
 
 def _start(worker):
     threading.Thread(target=worker.run, daemon=True, name=f'account-{worker.slot}').start()
+    if F10_CYCLONE:
+        threading.Thread(target=worker.f10_loop, daemon=True, name=f'f10-{worker.slot}').start()
 
 
 def _manual_window():
