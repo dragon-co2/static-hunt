@@ -1624,17 +1624,22 @@ def buy_arrows(pid, name):
         print(f'{name}: the {npc} sold no arrows (gold? too far?)')
         return 0
     try:
-        background_hunt._open_bank(pid, game_memory.ARROW_BANK)
-        for pack in packs:
-            game_actions.bank_deposit(pid, pack, game_memory.ARROW_BANK)
-            time.sleep(0.5)
-        background_hunt._wait(lambda: not set(game_memory.bag_items_of(pid, ARROW_TYPE)) & set(packs),
-                              background_hunt.BANK_WAIT)
+        for key in background_hunt.ARROW_TABS:          # the arrows tab - full: the next one
+            left = sorted(set(game_memory.bag_items_of(pid, ARROW_TYPE)) & set(packs))
+            if not left:
+                break
+            if not background_hunt._open_bank(pid, key):
+                continue
+            for pack in left:
+                game_actions.bank_deposit(pid, pack, key)
+                time.sleep(0.5)
+            background_hunt._wait(lambda: not set(game_memory.bag_items_of(pid, ARROW_TYPE)) & set(packs),
+                                  background_hunt.BANK_WAIT)
     finally:
         game_actions.close_bank_windows(pid)
     left = set(game_memory.bag_items_of(pid, ARROW_TYPE)) & set(packs)
     print(f'{name}: bought {len(packs)} arrow pack(s)' + (' (fewer than asked)' if not bought else '')
-          + f' - {len(packs) - len(left)} put in the arrow bank')
+          + f' - {len(packs) - len(left)} put in the bank')
     return len(packs) - len(left)
 
 

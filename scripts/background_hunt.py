@@ -23,10 +23,10 @@ DEPOSIT_EVERY = 10.0            # seconds between looks at the bag and the equip
 ARROWS_MIN   = 100              # default for the settings' ARROWS_MIN: fewer equipped -> a new pack
 BANK_WAIT    = 4.0              # seconds for the server to answer a bank / equip request
 DRAGONBALLS_MIN = 10            # dragonballs before one is used (10 make a dragonball scroll)
-REGULAR_BANKS = [(8, 10), (10011, 10), (10012, 10), (10027, 10), (10028, 10)]   # remote bank tabs
-                                # for the scrolls - not the arrows tab (4101) nor (44)
-ARROW_TABS = [game_memory.ARROW_BANK] + REGULAR_BANKS + [(44, 10)]   # all 7 remote bank tabs: where
-                                # an arrow pack is looked for, in order
+REGULAR_BANKS = [(8, 10), (10011, 10), (10012, 10), (10027, 10), (10028, 10), (44, 10)]   # remote
+                                # bank tabs for the scrolls and dragonballs - all but the arrows tab
+ARROW_TABS = [game_memory.ARROW_BANK] + REGULAR_BANKS   # all 7 remote bank tabs: where an arrow
+                                # pack is looked for / put (when the arrows tab is full), in order
 
 
 def _wait_cast(pid):
