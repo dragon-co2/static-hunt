@@ -42,6 +42,10 @@ def _bag(pid):
         time.sleep(0.2)
 
 
+SEARCH_TRIES = 3            # mail Searches for a receiver before giving up on this round
+_ids = {}                   # receiver name (lower) -> its character id, once found
+
+
 def _receiver(pid, name):
     """The id of the character `name`: read from its game if it's logged in here, else the mail's
     Search (the character found anywhere on the server). None if not found."""
@@ -50,10 +54,16 @@ def _receiver(pid, name):
             found = game_memory.hero_id(other)
             if found:
                 return found
-    game_actions.mail_search(pid, name)
-    found = _wait(lambda: (game_memory.mail_receiver(pid) or (0, ''))[1].lower() == name.lower()
-                  and game_memory.mail_receiver(pid))
-    return found and found[0]
+    if name.lower() in _ids:                            # found before: a character's id never changes
+        return _ids[name.lower()]
+    for _ in range(SEARCH_TRIES):                       # just logged in, the mail isn't ready yet:
+        game_actions.mail_search(pid, name)             # the first Search goes unanswered
+        found = _wait(lambda: (game_memory.mail_receiver(pid) or (0, ''))[1].lower() == name.lower()
+                      and game_memory.mail_receiver(pid))
+        if found:
+            _ids[name.lower()] = found[0]
+            return found[0]
+    return None
 
 
 def _withdraw(pid, name):
