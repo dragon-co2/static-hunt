@@ -12,6 +12,7 @@ ini/MapDestination.dat) - and goes to the nearest one, then on to the nearest mo
 import base64
 import ctypes
 import ctypes.wintypes
+import array
 import heapq
 import json
 import math
@@ -111,12 +112,19 @@ TELEPORTS   = [(21, 1002), (22, 1011), (23, 1020), (24, 1000), (25, 1015)]   # V
 TELEPORT_NAMES = {21: 'Twin City', 22: 'Phoenix Castle', 23: 'Ape City', 24: 'Desert',   # (code, map)
                   25: 'Bird Island'}
 SIDE_MAPS   = {                                     # tour: after a city, these maps too - each
-    1011: [([('portal', (379, 23))], 1013, 'Tiger Cave')],   # reached by its steps in turn:
+    # 1011: [([('portal', (379, 23))], 1013, 'Tiger Cave')],   # (off) reached by its steps in turn:
     1000: [([('vip', 24, (500, 650)),                   # a VIP teleport (code) to near this cell,
              ('npc', 'Conductress', (478, 631), [2], (80, 320)),   # an NPC's options to near a cell,
              ('portal', (77, 319))], 1001, 'Mystic Castle')],      # onto a portal (the map file's)
 }
 ARRIVE_CELLS = 15           # this close to a step's cell counts as there
+AREA_TIME_EACH = {1015}     # zones: on these maps each drawn area gets the map's whole time (the
+                            # others share it out between their areas)
+AREA_PORTALS = {            # zones: the portals of a map (stood on) to where each lands - for the
+    1015: [((759, 510), (534, 693)),   # drawn areas no way leads to on foot (one portal after
+           ((437, 658), (346, 582)),   # another if need be). Those areas are hunted last, the ones
+           ((340, 558), (511, 533))],  # fewer portals away first - the tour teleports on from the
+}                                      # last: no way back needed
 PORTAL_WAIT = 10            # seconds for a portal to take the character to the other map
 
 CLAIM_DIR   = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'auto_hunt')
@@ -135,6 +143,7 @@ _last_cast = {}             # game pid -> when the steady Scatter was last cast
 _casts = {}                 # game pid -> Scatters cast in the air so far (the status lines)
 _died = set()               # game pids that died while hunting a map (the tour moves on)
 _durability = {}            # item type -> its most durability x 100 (_most_durability)
+_piece_cache = {}           # id of a map's walkable bytes -> its cells' pieces (_pieces)
 
 
 # ---------------------------------------------------------------- who casts
@@ -945,22 +954,140 @@ def _clusters(squares):
 
 def patrol(pid, name, seconds, stop=None):
     """Roams the zone drawn on this map for `seconds`: each separate area drawn (_clusters) on its
-    own, in a random order, the time shared out between them (_roam). Dead: waits to be revived
+    own, in a random order (those AREA_PORTALS reach last), the time shared out between them -
+    or, on AREA_TIME_EACH maps, all of it each (_roam). Dead: waits to be revived
     (static.py - in town, since it's auto hunting) and leaves the map (_died). Returns how many
     jumps."""
     the_map = map_id(pid)
     areas = _clusters(zone(the_map))
     random.shuffle(areas)
+    areas = _by_portal_last(pid, name, the_map, areas)
     count = 0
-    for n, squares in enumerate(areas):
+    for n, (squares, piece) in enumerate(areas):
         if (stop and stop()) or map_id(pid) != the_map:
             break
         label = f'area {n + 1} of {len(areas)}' if len(areas) > 1 else 'zone'
-        count += _roam(pid, name, the_map, squares, seconds / len(areas), stop, label)
+        if piece is not None and not _go_to_piece(pid, name, the_map, piece):
+            print(f'{name}: [map {the_map} {label}] the portals did not take it there - skipped')
+            continue
+        each = seconds if the_map in AREA_TIME_EACH else seconds / len(areas)
+        count += _roam(pid, name, the_map, squares, each, stop, label)
         if pid in _died:
             _wait_revived(pid, name, stop)
             break
     return count
+
+
+def _pieces(grid):
+    """{cell: piece} of the map's walkable cells - the pieces no way on foot joins (islands),
+    worked out once a map."""
+    key = id(grid[2])
+    if key not in _piece_cache:
+        width, height, walkable = grid[0], grid[1], _pristine.get(_grid_path(grid), grid[2])
+        piece = array.array('i', [-1]) * (width * height)
+        n = 0
+        for start in range(width * height):
+            if not walkable[start] or piece[start] >= 0:
+                continue
+            piece[start], todo = n, [start]
+            while todo:
+                i = todo.pop()
+                x, y = i % width, i // width
+                for dx, dy in NEIGHBOURS:
+                    nx, ny = x + dx, y + dy
+                    j = ny * width + nx
+                    if 0 <= nx < width and 0 <= ny < height and walkable[j] and piece[j] < 0:
+                        piece[j] = n
+                        todo.append(j)
+            n += 1
+        _piece_cache[key] = piece
+    piece, width, height = _piece_cache[key], grid[0], grid[1]
+
+    def piece_of(cell):                                 # a cell the file marks blocked (where a
+        for r in range(6):                              # portal lands, say): the nearest piece
+            for dx in range(-r, r + 1):
+                for dy in range(-r, r + 1):
+                    x, y = cell[0] + dx, cell[1] + dy
+                    if 0 <= x < width and 0 <= y < height and piece[y * width + x] >= 0:
+                        return piece[y * width + x]
+        return -1
+    return piece_of
+
+
+def _grid_path(grid):
+    return next((path for path, g in _maps.items() if g is grid), None)
+
+
+def _portals_to(piece_of, links, here, there):
+    """The portals (AREA_PORTALS links) one after another from piece `here` to piece `there` -
+    fewest first; [] if on foot, None if no way."""
+    todo, seen = [(here, [])], {here}
+    while todo:
+        at, way = todo.pop(0)
+        if at == there:
+            return way
+        for src, dst in links:
+            if piece_of(src) == at and piece_of(dst) not in seen:
+                seen.add(piece_of(dst))
+                todo.append((piece_of(dst), way + [(src, dst)]))
+    return None
+
+
+def _by_portal_last(pid, name, the_map, areas):
+    """[(squares, piece)] the drawn areas in the order to hunt them: the ones reached on foot from
+    here first, then the ones fewer AREA_PORTALS away; the ones nothing reaches left out."""
+    grid = load_map(map_file(game_root(pid), the_map))
+    piece_of = _pieces(grid)
+    width, _, walkable = grid
+    me = game_actions.my_pos(pid)
+    if not me:
+        return [(squares, None) for squares in areas]
+    links = AREA_PORTALS.get(the_map, [])
+    out = []
+    for squares in areas:
+        pieces = {}                                     # the area's main piece: most of its cells
+        for sx, sy in squares:
+            for dx in range(ZONE_CELLS):
+                for dy in range(ZONE_CELLS):
+                    cell = (sx * ZONE_CELLS + dx, sy * ZONE_CELLS + dy)
+                    if cell[0] < width and walkable[cell[1] * width + cell[0]]:
+                        pieces[piece_of(cell)] = pieces.get(piece_of(cell), 0) + 1
+        if not pieces:
+            continue
+        piece = max(pieces, key=pieces.get)
+        way = _portals_to(piece_of, links, piece_of(me), piece)
+        if way is None:
+            print(f'{name}: [map {the_map}] a drawn area can\'t be reached (no portal known to it) - left out')
+            continue
+        out.append((len(way), squares, piece))
+    out.sort(key=lambda a: a[0])                        # (stable: the random order kept otherwise)
+    return [(squares, piece) for _, squares, piece in out]
+
+
+def _go_to_piece(pid, name, the_map, piece):
+    """Through the portals (AREA_PORTALS) to the map's piece `piece`, if it isn't on it. True if
+    on it."""
+    grid = load_map(map_file(game_root(pid), the_map))
+    piece_of = _pieces(grid)
+    me = game_actions.my_pos(pid)
+    way = _portals_to(piece_of, AREA_PORTALS.get(the_map, []), piece_of(me), piece) if me else None
+    if way is None:
+        return False
+    return all(_through(pid, name, src, dst) for src, dst in way)
+
+
+def _through(pid, name, src, dst):
+    """Onto the portal at `src` (this map), till it lands by `dst`. True if it did."""
+    print(f'{name}: to the portal at {src} - over to {dst}')
+    if go(pid, name, *src, claiming=True) is None:
+        return False
+    if _far(game_actions.my_pos(pid) or src, dst) > ARRIVE_CELLS:
+        game_actions.jump_to(pid, *src)                 # onto the very cell (go stops a cell short)
+        _wait_landed(pid)
+    if _near(pid, dst, PORTAL_WAIT):
+        return True
+    print(f'{name}: the portal at {src} did not take it to {dst}')
+    return False
 
 
 def _wait_revived(pid, name, stop=None):
@@ -990,7 +1117,7 @@ def _roam(pid, name, the_map, squares, seconds, stop, label):
     end, visits, count, told = start + seconds, {part: 0 for part in parts}, [0], [0.0]
     cast = background_hunt.SCATTER in game_actions.skills(pid)
     part_of = lambda cell: (cell[0] // ZONE_CELLS // ZONE_PART, cell[1] // ZONE_CELLS // ZONE_PART)
-    rng, across, shift, backwards, begin = _way(name, the_map, label)   # its own way (same on
+    rng, across, shift, backwards, begin = _way(name, the_map, min(squares))   # its own way (same on
     route = _zigzag(grid, squares, shift, across, rng) if ZONE_ROUTE == 'zigzag' else []   # any PC)
     if backwards:
         route.reverse()
