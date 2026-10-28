@@ -167,6 +167,8 @@ def _load_checked():
         data = {'heal': data}
     _checked.update(data.get('heal', []))
     _buffs.update({name: set(types) for name, types in data.get('buffs', {}).items()})
+    if isinstance(data.get('hotkey'), dict):
+        HOTKEY.update(data['hotkey'])
 
 
 def _save_checked():
@@ -174,7 +176,8 @@ def _save_checked():
         os.makedirs(os.path.dirname(CHECKED_PATH), exist_ok=True)
         with _lock:
             data = {'heal': sorted(_checked),
-                    'buffs': {name: sorted(types) for name, types in _buffs.items() if types}}
+                    'buffs': {name: sorted(types) for name, types in _buffs.items() if types},
+                    'hotkey': HOTKEY}
         with open(CHECKED_PATH, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=1)
     except OSError as e:
@@ -232,6 +235,7 @@ def _heal_loop():
                     continue
                 running.add(name)
                 _note_chat_box(pid)
+                _note_targets(pid)
                 with _lock:
                     _seen[name] = v
                     ticked = name in _checked
@@ -327,8 +331,17 @@ def _window():
 
     # Ctrl+F target: picked in the game (chat name box / Shift+click); shown here
     tk.Frame(root, height=1, bg='#ccc').pack(fill='x', padx=10, pady=(6, 4))
-    target_lbl = tk.Label(root, text='Ctrl+F target: -', font=('Segoe UI', 10, 'bold'), anchor='w')
-    target_lbl.pack(fill='x', padx=10)
+    head = tk.Frame(root)
+    head.pack(fill='x', padx=10)
+    target_lbl = tk.Label(head, text='Target: -', font=('Segoe UI', 10, 'bold'), anchor='w')
+    target_lbl.pack(side='left')
+    key_btn = tk.Button(head, text=f'Shortcut: {HOTKEY["label"]}', width=22)
+
+    def change_key():
+        key_btn.config(text='press the new shortcut... (Esc: keep)')
+        _capture[0] = lambda name: root.after(0, lambda: key_btn.config(text=f'Shortcut: {name}'))
+    key_btn.config(command=change_key)
+    key_btn.pack(side='right')
 
     opts = tk.Frame(root)
     opts.pack(fill='x', padx=10, pady=(2, 6))
@@ -356,19 +369,111 @@ def _window():
                    command=set_path, font=('Segoe UI', 9)).pack(side='left', padx=(12, 0))
     tk.Label(opts, text='cells (run up to it, then attack)', font=('Segoe UI', 9)).pack(side='left', padx=(2, 0))
 
+    # the players list: right-clicked / attacked players added by themselves; Ctrl+F goes for the
+    # locked one, else the most recent one around
+    tk.Frame(root, height=1, bg='#ccc').pack(fill='x', padx=10, pady=(6, 4))
+    top = tk.Frame(root)
+    top.pack(fill='x', padx=10)
+    on_var = tk.BooleanVar(value=_enemies['on'])
+    lock_var = tk.BooleanVar(value=bool(_enemies['lock']))
+
+    def set_on():
+        _enemies['on'] = on_var.get()
+        _attack_seen.clear()
+        _save_enemies()
+        print('[ENEMIES] the list ' + ('on: right-clicked players are added, Ctrl+F goes for them'
+                                      if _enemies['on'] else 'off: Ctrl+F uses the chat name box'))
+    tk.Checkbutton(top, text='players list (right-clicked / attacked players - Ctrl+F goes for them)',
+                   variable=on_var, command=set_on, font=('Segoe UI', 9, 'bold')).pack(side='left')
+    body = tk.Frame(root)
+    body.pack(fill='x', padx=10, pady=(2, 8))
+    box = tk.Listbox(body, height=6, width=28, font=('Segoe UI', 9), exportselection=False)
+    box.pack(side='left')
+    side = tk.Frame(body)
+    side.pack(side='left', padx=8, anchor='n')
+
+    def selected():
+        sel = box.curselection()
+        return box.get(sel[0]).replace(' (locked)', '') if sel else ''
+
+    def set_lock():
+        name = selected() if lock_var.get() else ''
+        if lock_var.get() and not name:
+            lock_var.set(False)
+            print('[ENEMIES] pick a player in the list first, then Lock player')
+            return
+        _enemies['lock'] = name
+        _save_enemies()
+        print(f'[ENEMIES] ' + (f'{name} locked - Ctrl+F goes only for them' if name else 'unlocked'))
+
+    def remove():
+        name = selected()
+        if name in _enemies['players']:
+            _enemies['players'].remove(name)
+            if _enemies['lock'] == name:
+                _enemies['lock'] = ''
+                lock_var.set(False)
+            _save_enemies()
+
+    def clear():
+        from tkinter import messagebox
+        if _enemies['players'] and not messagebox.askyesno(
+                'Clear the list', f'Remove all {len(_enemies["players"])} players from the list?', parent=root):
+            return
+        _enemies['players'], _enemies['lock'] = [], ''
+        lock_var.set(False)
+        _save_enemies()
+    tk.Checkbutton(side, text='Lock player (the one picked)', variable=lock_var, command=set_lock,
+                   font=('Segoe UI', 9)).pack(anchor='w')
+    tk.Button(side, text='Remove', width=10, command=remove).pack(anchor='w', pady=(4, 0))
+    tk.Button(side, text='Clear', width=10, command=clear).pack(anchor='w', pady=(4, 0))
+
+    def picked(_event):
+        """Lock off: a name clicked goes to the top - the Ctrl+F target from now on."""
+        name = selected()
+        if not lock_var.get() and name in _enemies['players'] and _enemies['players'][0] != name:
+            _enemies['players'].remove(name)
+            _enemies['players'].insert(0, name)
+            _save_enemies()
+            print(f'[ENEMIES] {name} picked - the Ctrl+F target')
+    box.bind('<<ListboxSelect>>', picked)
+
+    def refresh_list():
+        names = [n + (' (locked)' if n == _enemies['lock'] else '') for n in _enemies['players']]
+        keep = selected()
+        if list(box.get(0, 'end')) != names:
+            box.delete(0, 'end')
+            for n in names:
+                box.insert('end', n)
+        if lock_var.get():                              # locked: the highlight stays on the locked one
+            show = _enemies['lock']
+        else:                                           # else it follows the target (the newest around)
+            pid = _foreground_game()
+            show = (_list_target(pid, game_actions.players(pid))[0] if pid else None) or                 (_enemies['players'][0] if _enemies['players'] else '')
+        if show in _enemies['players'] and show != keep:
+            box.selection_clear(0, 'end')
+            box.selection_set(_enemies['players'].index(show))
+            box.see(_enemies['players'].index(show))
+        root.after(500, refresh_list)
+
     def update_label():
         name = ''
         pid = _foreground_game()
         if pid:
-            name = _label_name(pid, game_actions.players(pid))
+            around = game_actions.players(pid)
+            name = (_list_target(pid, around)[0] or '') if _enemies['on'] else _label_name(pid, around)
         target_lbl.config(text=f'Target: {name}', fg='black')
         root.after(300, update_label)
+
+    refresh_list()
 
     refresh()
     update_label()
     root.mainloop()
 
 
+HOTKEY = {'mods': ['ctrl'], 'vk': 0x46, 'label': 'Ctrl+F'}   # the shortcut (set in the window)
+_capture = [None]           # while waiting for a new shortcut: called with its label once pressed
 JUMP_VK      = 0x46         # Ctrl+F in the game in front: jump next to the player whose name is in the
 RCLICK_TIMES = 2            # chat's name box (Shift+click them), then use the right-click skill
 RCLICK_EVERY = 0.5          # on them RCLICK_TIMES times, RCLICK_EVERY seconds apart
@@ -389,6 +494,117 @@ def _foreground_game():
 _press = 0                  # Ctrl+F presses so far: a newer press cancels what's left of an older one
 _inject = threading.Lock()  # one action sent into the game at a time
 _chat_box = {}              # pid -> [last id seen, last typed text seen, which changed last: 'id' / 'text']
+
+
+ENEMIES_PATH = os.path.join(override_dir(), 'heal_enemies.json')   # the players list, kept across runs
+ATTACK_TARGET = 0x1024      # hero + this: the id of the role being attacked (a skill like
+                            # TwofoldBlade, or a hit) - seen in the game's memory while attacking
+PLAYER_IDS = 1000000        # role ids from here up are players
+_enemies = {'on': False, 'lock': '', 'players': []}   # the list: most recent first
+_attack_seen = {}           # pid -> the ATTACK_TARGET id last read
+
+
+def _load_enemies():
+    try:
+        with open(ENEMIES_PATH, encoding='utf-8') as f:
+            _enemies.update(json.load(f))
+    except (OSError, ValueError):
+        pass
+
+
+def _save_enemies():
+    try:
+        os.makedirs(os.path.dirname(ENEMIES_PATH), exist_ok=True)
+        with open(ENEMIES_PATH, 'w', encoding='utf-8') as f:
+            json.dump(_enemies, f, indent=1)
+    except OSError as e:
+        print(f'[ENEMIES] could not save {ENEMIES_PATH} ({e})')
+
+
+def _note_targets(pid):
+    """With the list on: a player I attack (ATTACK_TARGET - a skill like TwofoldBlade, or a hit)
+    goes to the top of the list. Called from the heal loop, every round."""
+    if not _enemies['on']:
+        return
+    import ctypes
+    handle = ctypes.windll.kernel32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return
+    try:
+        hero = game_memory._u32(handle, game_memory.HERO_PTR)
+        attacked = game_memory._u32(handle, hero + ATTACK_TARGET)
+    except OSError:
+        return
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+    if attacked != _attack_seen.get(pid) and attacked >= PLAYER_IDS:   # just attacked a player
+        name = _ids_around(pid, game_actions.players(pid)).get(attacked)
+        if name:
+            _add_enemy(name, 'attacked')
+    _attack_seen[pid] = attacked
+
+
+def _add_enemy(name, why):
+    """`name` to the top of the list (once)."""
+    if not _enemies['players'] or _enemies['players'][0] != name:
+        if name in _enemies['players']:
+            _enemies['players'].remove(name)
+        _enemies['players'].insert(0, name)
+        _save_enemies()
+        print(f'[ENEMIES] {name} added to the list ({why})')
+
+
+def _kills_loop():
+    """The games' chat (kill_watch's read-only chat_reader.ps1): with the list on, a player one of
+    ours killed - or one who killed one of ours - goes on the list. Monsters never: only names seen
+    as players around."""
+    import base64
+    import subprocess
+    import kill_watch
+    while True:
+        try:
+            proc = subprocess.Popen(
+                ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', kill_watch.READER],
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+        except OSError as e:
+            print(f'[ENEMIES] could not start the chat reader ({e})')
+            time.sleep(30)
+            continue
+        kill_watch._tie_to_us(proc)
+        for raw in proc.stdout:
+            try:
+                msg = json.loads(raw)
+                text = base64.b64decode(msg.get('text') or '').decode('cp1252', 'replace')
+                me = base64.b64decode(msg.get('character') or '').decode('cp1252', 'replace')
+            except ValueError:
+                continue
+            kill = kill_watch.parse_kill(text)
+            if not kill or not _enemies['on']:
+                continue
+            victim, killer = (me if n.lower() == 'you' else n for n in kill)
+            ours = {(game_memory._name_pid(p) or '').lower() for p in game_memory.game_pids()}
+            players = {n.lower(): n for n in _id_names.values()}
+            for p in game_memory.game_pids():
+                players.update({n.lower(): n for n in game_actions.players(p)})
+            if killer.lower() in ours and victim.lower() in players:
+                _add_enemy(players[victim.lower()], f'killed by {killer}')
+            elif victim.lower() in ours and killer.lower() in players:
+                _add_enemy(players[killer.lower()], f'killed {victim}')
+        proc.wait()
+        time.sleep(5)
+
+
+def _list_target(pid, around):
+    """(name, role) of the Ctrl+F target from the list: the locked player, else the most recent of
+    the list that's around - or (None, why)."""
+    lock = _enemies.get('lock')
+    if lock:
+        return (lock, around[lock]) if lock in around else (None, f'{lock} (locked) is not around')
+    for name in _enemies['players']:
+        if name in around:
+            return name, around[name]
+    return None, 'nobody of the list is around'
 
 
 def _note_chat_box(pid):
@@ -521,7 +737,8 @@ def _jump_and_hit(press):
             print('[JUMP] Ctrl+F outside the game - ignored (the game window must be in front)')
             return
         me = game_memory._name_pid(pid)
-        target, role = _chat_box_target(pid, game_actions.players(pid))
+        around = game_actions.players(pid)
+        target, role = _list_target(pid, around) if _enemies['on'] else _chat_box_target(pid, around)
         if not target:
             print(f'[JUMP] {me}: {role}')
             return
@@ -567,28 +784,57 @@ def _jump_and_hit(press):
 
 
 def _hotkeys():
-    """Ctrl+F -> _jump_and_hit, on a thread of its own so the keyboard stays free. Matched by the
-    physical key (virtual-key code), so it works whatever the keyboard language is (with Arabic,
-    F types a different letter and a character-based hotkey never matches)."""
+    """The shortcut (HOTKEY, Ctrl+F at first) -> _jump_and_hit, on a thread of its own so the
+    keyboard stays free. Matched by the physical key (virtual-key code), so it works whatever the
+    keyboard language is (with Arabic, F types a different letter and a character-based hotkey never
+    matches). While the window waits for a new shortcut (_capture), the next key pressed - with the
+    Ctrl / Alt / Shift held - becomes it (Esc: never mind)."""
     from pynput import keyboard
-    ctrl = {keyboard.Key.ctrl, keyboard.Key.ctrl_l, keyboard.Key.ctrl_r}
-    held = set()
-    f_down = [False]                              # F held: its auto-repeat isn't a new press
+    K = keyboard.Key
+    mods_of = {K.ctrl: 'ctrl', K.ctrl_l: 'ctrl', K.ctrl_r: 'ctrl', K.alt: 'alt', K.alt_l: 'alt',
+               K.alt_r: 'alt', K.alt_gr: 'alt', K.shift: 'shift', K.shift_l: 'shift', K.shift_r: 'shift'}
+    held, down = set(), set()                     # modifiers held; keys down (auto-repeat isn't a press)
+
+    def vk_of(key):
+        vk = getattr(key, 'vk', None)
+        return vk if vk is not None else getattr(getattr(key, 'value', None), 'vk', None)
+
+    def label(mods, key, vk):
+        if 0x30 <= vk <= 0x5A:
+            name = chr(vk)
+        elif 0x70 <= vk <= 0x87:
+            name = f'F{vk - 0x6F}'
+        else:
+            name = getattr(key, 'name', None) or hex(vk)
+        return '+'.join([m.capitalize() for m in ('ctrl', 'alt', 'shift') if m in mods] + [name])
 
     def on_press(key):
         global _press
-        if key in ctrl:
-            held.add(key)
-        elif getattr(key, 'vk', None) == JUMP_VK:
-            if held and not f_down[0]:
-                _press += 1
-                threading.Thread(target=_jump_and_hit, args=(_press,), daemon=True).start()
-            f_down[0] = True
+        if key in mods_of:
+            held.add(mods_of[key])
+            return
+        vk = vk_of(key)
+        if vk is None:
+            return
+        if _capture[0]:                           # the window waits for a new shortcut
+            done, _capture[0] = _capture[0], None
+            if key != K.esc:
+                HOTKEY.update(mods=sorted(held), vk=vk, label=label(held, key, vk))
+                _save_checked()
+                print(f'[JUMP] the shortcut is now {HOTKEY["label"]}')
+            done(HOTKEY['label'])
+            down.add(vk)
+            return
+        if vk == HOTKEY['vk'] and held == set(HOTKEY['mods']) and vk not in down:
+            _press += 1
+            threading.Thread(target=_jump_and_hit, args=(_press,), daemon=True).start()
+        down.add(vk)
 
     def on_release(key):
-        held.discard(key)
-        if getattr(key, 'vk', None) == JUMP_VK:
-            f_down[0] = False
+        if key in mods_of:
+            held.discard(mods_of[key])
+        else:
+            down.discard(vk_of(key))
 
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True
@@ -600,11 +846,13 @@ def main():
     os.makedirs(log_dir, exist_ok=True)
     sys.stdout = sys.stderr = _Tee(sys.__stdout__, os.path.join(log_dir, 'heal.log'))
     _load_checked()
+    _load_enemies()
     print(f'[HEAL] an ointment when HP is more than {HP_MISSING} below the max, a pill when MP is below '
           f'{MP_MIN_PCT}%, pouches bought from the mall - only for the accounts ticked in the window')
     threading.Thread(target=_heal_loop, daemon=True, name='heal').start()
+    threading.Thread(target=_kills_loop, daemon=True, name='kills').start()
     _hotkeys()
-    print(f'[JUMP] Ctrl+F in a game: jump next to the player in the chat name box, then use the '
+    print(f'[JUMP] {HOTKEY["label"]} in a game: jump next to the player in the chat name box, then use the '
           f'right-click skill on them x{RCLICK_TIMES}')
     _window()                      # closing the window stops healing
     print('[HEAL] window closed - stopped')
