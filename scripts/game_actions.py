@@ -44,6 +44,7 @@ MSG_CTOR, MSG_CREATE, MSG_CREATE_BUY, MSG_SEND, MSG_DTOR = (
     0x0069460F, 0x00694675, 0x00694756, 0x00688F96, 0x0069466A)
 MAGIC_ATTACK = 0x006A0850
 HERO_JUMP    = 0x006138FF
+HERO_RUN     = 0x006130C9     # CHero::Run(x, y) - the hero's 'run' command (18): ~5 cells a second
 ROLE_SET     = 0x008E8720         # the game's set of roles around us
 PLAYER_SET   = ROLE_SET + 0x14    # the deque of roles around us
 GET_ROLE     = 0x00691E0B         # ROLE_SET.GetRole(&shared pointer, id, 0) - a role by its id
@@ -554,6 +555,11 @@ def press_hotkey(pid, slot):
          + b'\x8B\x0D' + struct.pack('<I', MAIN_UI)            # mov ecx, [main UI]
          + b'\xB8' + struct.pack('<I', ON_HOTKEY) + b'\xFF\xD0'   # call OnHotkey (pops its arg)
          + b'\x33\xC0\xC9\xC2\x04\x00')                        # xor eax, eax; leave; ret 4
+
+
+def run_to(pid, x, y):
+    """Runs to the map cell (x, y) - CHero::Run, the game's own run (as a click on the ground)."""
+    _hero_call(pid, HERO_RUN, (x, y))
 
 
 def jump_to(pid, x, y):

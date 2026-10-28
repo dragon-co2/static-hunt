@@ -22,6 +22,7 @@ def _hunt(pid, name):
             print(f'{name}: {type(e).__name__}: {e}')
             monk_hunt._status[name] = f'{type(e).__name__} - trying again'
             time.sleep(2)
+    travel._where.pop(name, None)                       # its place no longer kept from the others
     monk_hunt._status[name] = 'stopped'
     print(f'{name}: auto hunt stopped')
 

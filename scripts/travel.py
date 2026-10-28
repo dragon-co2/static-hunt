@@ -49,6 +49,10 @@ SCATTER_EVERY = 0.5         # ...and one this often at most (once landed), aimed
 MIN_JUMP    = 5             # bounce: monsters closer than this aren't jumped to (the game refuses a
                             # jump of a cell or two; the Scatter hits them anyway)
 CMD_IN_AIR  = {20, 25}      # my command during a jump
+CMD_RUN     = 18            # ...while running
+RUN_BELOW   = 6             # a leg shorter than this (round a corner, a narrow way) is run, not
+                            # jumped - as a player would; longer ones are jumped (much faster)
+RUN_SPEED   = 4             # cells a second at least, running (the wait for one to end)
 NEIGHBOURS  = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
 AREA_GROUPS = re.compile(r'(?i)hunt|level ?up|monster')   # Path Finding groups that list hunting areas
 MONSTER_CELLS = 18          # at the area: a monster this close ends the trip
@@ -144,6 +148,8 @@ _casts = {}                 # game pid -> Scatters cast in the air so far (the s
 _died = set()               # game pids that died while hunting a map (the tour moves on)
 _durability = {}            # item type -> its most durability x 100 (_most_durability)
 _piece_cache = {}           # id of a map's walkable bytes -> its cells' pieces (_pieces)
+_where = {}                 # character -> (map, area) it's hunting now - the characters of this
+                            # auto_hunt.py keep apart: a city / an area another holds is left for later
 
 
 # ---------------------------------------------------------------- who casts
@@ -361,6 +367,22 @@ def _wait_landed(pid):
         time.sleep(0.02)
 
 
+def _run(pid, cell):
+    """Runs to `cell` (game_actions.run_to); waits till it's there or has stopped. True if there."""
+    me = game_actions.my_pos(pid)
+    game_actions.run_to(pid, *cell)
+    end = time.time() + 0.5 + _far(me or cell, cell) / RUN_SPEED
+    while time.time() < end:
+        time.sleep(0.05)
+        now = game_actions.my_pos(pid)
+        if now and _far(now, cell) <= 1:
+            return True
+        if time.time() > end - _far(me or cell, cell) / RUN_SPEED + 0.3 and \
+                game_actions.my_command(pid) != CMD_RUN and now == me:
+            return False                                # never set off
+    return _far(game_actions.my_pos(pid) or (0, 0), cell) <= 1
+
+
 def _airborne(pid):
     """Waits (a moment at most) for the jump just sent to take off. True once in the air."""
     end = time.time() + 0.3
@@ -462,6 +484,13 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
             if not stops:                               # already on the walkable cell nearest it
                 return True
         target = stops.pop(0)
+        if _far(me, target) < RUN_BELOW and not crowded:   # a short leg: run it
+            if _run(pid, target):
+                if on_land:
+                    on_land(target)
+                continue
+            stops = []                                  # didn't get there: the way again
+            continue
         game_actions.jump_to(pid, *target)
         if crowded and _airborne(pid):                  # a crowd here: Scatters in the air, the
             end = time.time() + JUMP_WAIT               # way it jumps - their animation no stop
@@ -961,6 +990,8 @@ def patrol(pid, name, seconds, stop=None):
     the_map = map_id(pid)
     areas = _clusters(zone(the_map))
     random.shuffle(areas)
+    taken = {area for other, (m, area) in list(_where.items()) if other != name and m == the_map}
+    areas.sort(key=lambda squares: min(squares) in taken)   # areas another holds: last
     areas = _by_portal_last(pid, name, the_map, areas)
     count = 0
     for n, (squares, piece) in enumerate(areas):
@@ -971,6 +1002,7 @@ def patrol(pid, name, seconds, stop=None):
             print(f'{name}: [map {the_map} {label}] the portals did not take it there - skipped')
             continue
         each = seconds if the_map in AREA_TIME_EACH else seconds / len(areas)
+        _where[name] = (the_map, min(squares))
         count += _roam(pid, name, the_map, squares, each, stop, label)
         if pid in _died:
             _wait_revived(pid, name, stop)
@@ -1211,8 +1243,9 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
                 except (OSError, TimeoutError, LookupError) as e:
                     print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
             done, left = set(), [c for c, _ in TELEPORTS]
-        code = random.choice(left)
-        if maps[code] == map_id(pid):                   # already there (Twin City after the Market)
+        taken = {m for other, (m, _) in list(_where.items()) if other != name}
+        code = random.choice([c for c in left if maps[c] not in taken] or left)   # a city none
+        if maps[code] == map_id(pid):                   # of the others is in, if any; already there:
             continue
         print(f'{name}: teleport to {TELEPORT_NAMES[code]} ({len(left) - 1} more cities this round)')
         teleport(pid, name, code)
