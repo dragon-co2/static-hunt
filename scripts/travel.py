@@ -1358,13 +1358,22 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
     (patrol, TOUR_SECONDS) - else every hunting area of it in turn, nearest first, `seconds` of
     jumping among each one's monsters (less if it runs out of them) - then a teleport to a city
     not hunted yet this round, at random; after a city with SIDE_MAPS, those maps too (through
-    their portals) before the next city. Every city done: the Market trip from Twin City
-    (market_run), and a new round."""
+    their portals) before the next city; every city done, a new round. Each time in Twin City,
+    before its hunt: the Market trip (market_run: arrows bought, worn items repaired, dragonballs
+    and scrolls sold)."""
     watch_drops()
     maps = dict(TELEPORTS)
     done = set()                                        # the cities hunted this round
     while not (stop and stop()):
         city = map_id(pid)
+        if city == TWIN_CITY:                           # each time here: the Market trip first
+            try:
+                market_run(pid, name)
+            except (OSError, TimeoutError, LookupError) as e:
+                print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
+            if stop and stop():
+                return
+            city = map_id(pid)
         _hunt_map(pid, name, seconds, stop)
         for steps, side, title in SIDE_MAPS.get(city, []):
             if stop and stop() or pid in _died:
@@ -1379,19 +1388,12 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
             _wait_revived(pid, name, stop)
             done.add(map_id(pid))
         left = [c for c, m in TELEPORTS if m not in done]
-        if not left:                                    # every city done: sell the dragonballs
-            print(f'{name}: every city hunted - to the Market from Twin City')
-            if map_id(pid) != TWIN_CITY:                # in the Market (from Twin City), a new
-                teleport(pid, name, TELEPORTS[0][0])    # round after
-            if map_id(pid) == TWIN_CITY:
-                try:
-                    market_run(pid, name)
-                except (OSError, TimeoutError, LookupError) as e:
-                    print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
-            done, left = set(), [c for c, _ in TELEPORTS]
+        if not left:                                    # every city done: a new round
+            print(f'{name}: every city hunted - a new round')
+            done, left = set(), [c for c, _ in TELEPORTS if maps[c] not in (city, map_id(pid))]
         taken = {m for other, (m, _) in list(_where.items()) if other != name}
         code = random.choice([c for c in left if maps[c] not in taken] or left)   # a city none
-        if maps[code] == map_id(pid):                   # of the others is in, if any; already there:
+        if maps[code] == map_id(pid):                   # of the others is in, if any; already there
             continue
         print(f'{name}: teleport to {TELEPORT_NAMES[code]} ({len(left) - 1} more cities this round)')
         teleport(pid, name, code)
@@ -1626,7 +1628,7 @@ def market_run(pid, name):
     """From Twin City: ARROWS_TO_BUY arrow packs bought at the Blacksmith into the bank
     (buy_arrows), the Conductress to the Market, every dragonball and dragonball scroll (bag and bank)
     sold at Exchange~DB, Mark.Controller back to Twin City."""
-    print(f'{name}: round of the cities done - to the Market to sell the dragonballs')
+    print(f'{name}: in Twin City - the Blacksmith, then the Market to sell the dragonballs')
     done = threading.Event()                            # its claim kept fresh all the trip long:
     threading.Thread(target=_keep_claim, args=(name, done), daemon=True).start()   # no static Scatter
     try:
