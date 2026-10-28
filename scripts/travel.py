@@ -126,6 +126,9 @@ SIDE_MAPS   = {                                     # tour: after a city, these 
              ('portal', (77, 319))], 1001, 'Mystic Castle')],      # onto a portal (the map file's)
 }
 ARRIVE_CELLS = 15           # this close to a step's cell counts as there
+GAP_JUMP    = 14            # zones: two pieces of a map no way on foot joins (a river between) this
+GAP_PIECE   = 500           # close at their nearest are crossed with one jump (pieces of this many
+                            # cells or more) - found by itself, like a portal (AREA_PORTALS)
 AREA_TIME_EACH = {1015}     # zones: on these maps each drawn area gets the map's whole time (the
                             # others share it out between their areas)
 AREA_PORTALS = {            # zones: the portals of a map (stood on) to where each lands - for the
@@ -152,6 +155,7 @@ _casts = {}                 # game pid -> Scatters cast in the air so far (the s
 _died = set()               # game pids that died while hunting a map (the tour moves on)
 _durability = {}            # item type -> its most durability x 100 (_most_durability)
 _piece_cache = {}           # id of a map's walkable bytes -> its cells' pieces (_pieces)
+_gap_cache = {}             # id of a map's walkable bytes -> its gaps a jump crosses (_gaps)
 _seen = {}                  # game pid -> the monsters read at its last landing (go)
 _chased = {}                # game pid -> when its last chase of a crowd ended (CHASE_REST)
 _where = {}                 # character -> (map, area) it's hunting now - the characters of this
@@ -235,9 +239,45 @@ def load_map(path):
             masks = struct.unpack_from(f'<{width * 3}H', data, at)[0::3]
             walkable[y * width:(y + 1) * width] = bytes(1 if m == 0 else 0 for m in masks)
             at += width * 6 + 4
+        _bridges(path, data, at, width, height, walkable)
         _maps[path] = (width, height, walkable)
         _pristine[path] = bytes(walkable)
     return _maps[path]
+
+
+SCENE_OBJECT = {1: 268, 4: 416, 10: 72, 15: 276, 19: 72}   # DMap scene object type -> its size
+
+
+def _bridges(path, data, at, width, height, walkable):
+    """The walkable cells of the map's terrain scenes (bridges: a .scene file of parts, each a grid
+    of (mask, terrain, altitude) ints; mask 0 = walkable) made walkable - the DMap's own cells mark
+    a bridge as the water under it. After the cells: the portals, then the scene objects."""
+    try:
+        at += 4 + 12 * struct.unpack_from('<I', data, at)[0]
+        count = struct.unpack_from('<I', data, at)[0]
+        at += 4
+        root = os.path.dirname(os.path.dirname(os.path.dirname(path)))
+        for _ in range(count):
+            kind = struct.unpack_from('<I', data, at)[0]
+            if kind not in SCENE_OBJECT:
+                return                                  # a type not known: the rest can't be read
+            if kind == 1:
+                name = data[at + 4: at + 264].split(b'\0')[0].decode('latin1')
+                sx, sy = struct.unpack_from('<2i', data, at + 264)
+                scene = open(os.path.join(root, name.replace('\\', os.sep)), 'rb').read()
+                off = 4
+                for _ in range(struct.unpack_from('<I', scene, 0)[0]):
+                    cw, ch, _, px, py = struct.unpack_from('<5i', scene, off + 332)
+                    off += 356
+                    for row in range(ch):
+                        for col in range(cw):
+                            x, y = sx + px - cw + 1 + col, sy + py - ch + 1 + row
+                            if struct.unpack_from('<i', scene, off)[0] == 0 and 0 <= x < width and 0 <= y < height:
+                                walkable[y * width + x] = 1
+                            off += 12
+            at += 4 + SCENE_OBJECT[kind]
+    except (OSError, struct.error) as e:
+        print(f'{os.path.basename(path)}: its bridges could not be read ({e})')
 
 
 def _unblock(grid):
@@ -1057,6 +1097,44 @@ def _grid_path(grid):
     return next((path for path, g in _maps.items() if g is grid), None)
 
 
+def _gaps(grid):
+    """[(from cell, to cell)] the narrowest crossing of each pair of GAP_PIECE+ pieces of the map
+    within GAP_JUMP cells of each other (both ways) - worked out once a map."""
+    key = id(grid[2])
+    if key in _gap_cache:
+        return _gap_cache[key]
+    _pieces(grid)
+    width, height = grid[0], grid[1]
+    walkable = _pristine.get(_grid_path(grid), grid[2])
+    piece = _piece_cache[key]
+    sizes = {}
+    for p in piece:
+        if p >= 0:
+            sizes[p] = sizes.get(p, 0) + 1
+    big = {p for p, n in sizes.items() if n >= GAP_PIECE}
+    size = GAP_JUMP + 1
+    buckets = {}
+    for i in range(width * height):                     # the edge cells of the big pieces
+        p = piece[i]
+        if p not in big:
+            continue
+        x, y = i % width, i // width
+        if any(not (0 <= x + dx < width and 0 <= y + dy < height) or not walkable[(y + dy) * width + x + dx]
+               for dx, dy in NEIGHBOURS):
+            buckets.setdefault((x // size, y // size), []).append((x, y, p))
+    best = {}
+    for (bx, by), cells in buckets.items():
+        others = [c for dx in (-1, 0, 1) for dy in (-1, 0, 1) for c in buckets.get((bx + dx, by + dy), ())]
+        for x, y, p in cells:
+            for ox, oy, q in others:
+                if q != p:
+                    d = math.hypot(x - ox, y - oy)
+                    if d <= GAP_JUMP and d < best.get((p, q), (99,))[0]:
+                        best[(p, q)] = (d, (x, y), (ox, oy))
+    _gap_cache[key] = [(a, b) for _, a, b in best.values()]
+    return _gap_cache[key]
+
+
 def _portals_to(piece_of, links, here, there):
     """The portals (AREA_PORTALS links) one after another from piece `here` to piece `there` -
     fewest first; [] if on foot, None if no way."""
@@ -1081,7 +1159,7 @@ def _by_portal_last(pid, name, the_map, areas):
     me = game_actions.my_pos(pid)
     if not me:
         return [(squares, None) for squares in areas]
-    links = AREA_PORTALS.get(the_map, [])
+    links = AREA_PORTALS.get(the_map, []) + _gaps(grid)
     out = []
     for squares in areas:
         pieces = {}                                     # the area's main piece: most of its cells
@@ -1109,14 +1187,26 @@ def _go_to_piece(pid, name, the_map, piece):
     grid = load_map(map_file(game_root(pid), the_map))
     piece_of = _pieces(grid)
     me = game_actions.my_pos(pid)
-    way = _portals_to(piece_of, AREA_PORTALS.get(the_map, []), piece_of(me), piece) if me else None
+    way = _portals_to(piece_of, AREA_PORTALS.get(the_map, []) + _gaps(grid), piece_of(me), piece) if me else None
     if way is None:
         return False
     return all(_through(pid, name, src, dst) for src, dst in way)
 
 
 def _through(pid, name, src, dst):
-    """Onto the portal at `src` (this map), till it lands by `dst`. True if it did."""
+    """Onto the portal at `src` (this map), till it lands by `dst` - or, a gap (_gaps: `dst` within
+    a jump), from `src` one jump over it to `dst`. True if it got there."""
+    if _far(src, dst) <= JUMP_CELLS:                    # a gap: one jump over it
+        print(f'{name}: over the gap from {src} to {dst}')
+        if go(pid, name, *src, claiming=True) is None:
+            return False
+        game_actions.jump_to(pid, *dst)
+        _wait_landed(pid)
+        time.sleep(REFUSED_WAIT)
+        if _far(game_actions.my_pos(pid) or src, dst) <= ARRIVED:
+            return True
+        print(f'{name}: the jump over the gap to {dst} was refused')
+        return False
     print(f'{name}: to the portal at {src} - over to {dst}')
     if go(pid, name, *src, claiming=True) is None:
         return False
