@@ -86,6 +86,10 @@ CROWD_MANY  = 1             # zones: more monsters than this...
 CROWD_REACH = 10            # ...this close: a Scatter every
 ZONE_SCATTER_EVERY = 0.3    # ZONE_SCATTER_EVERY seconds - fewer: no Scatter, the jumps go on
                             # without a stop (the game takes no jump during a Scatter's animation)
+CHASE_MANY  = 12            # zones: this many monsters or more seen within CHASE_REACH after a
+CHASE_REACH = 18            # jump: off the zigzag after them (the thickest of them, one jump at a
+CHASE_SECONDS = 40          # time) - back on it once fewer; this long at most a time, and then
+CHASE_REST  = 6             # this long on the zigzag before the next one
 ZONE_ROUTE  = 'zigzag'      # zones: 'zigzag' - up and down lanes across it, left to right then
                             # back; 'random' - random spots, the least visited parts first
 LANE_SQUARES = 2            # zigzag: each lane this many squares wide (20 cells)...
@@ -148,6 +152,8 @@ _casts = {}                 # game pid -> Scatters cast in the air so far (the s
 _died = set()               # game pids that died while hunting a map (the tour moves on)
 _durability = {}            # item type -> its most durability x 100 (_most_durability)
 _piece_cache = {}           # id of a map's walkable bytes -> its cells' pieces (_pieces)
+_seen = {}                  # game pid -> the monsters read at its last landing (go)
+_chased = {}                # game pid -> when its last chase of a crowd ended (CHASE_REST)
 _where = {}                 # character -> (map, area) it's hunting now - the characters of this
                             # auto_hunt.py keep apart: a city / an area another holds is left for later
 
@@ -517,6 +523,7 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
             print(f'{name}: the jump to {target} was refused - blocked it, trying {reach} cells')
         else:
             around = _monster_cells(pid, ()) if (crowd_slow or cast) else []   # read once a landing
+            _seen[pid] = around
             if crowd_slow:                              # a big crowd: shorter jumps, more casts in it
                 near = sum(1 for m in around if m[0] <= CROWD_REACH)
                 full = SHORT_JUMP if near >= CROWD_FEW else JUMP_CELLS
@@ -1181,12 +1188,18 @@ def _roam(pid, name, the_map, squares, seconds, stop, label):
             part = random.choice([p for p, v in visits.items() if v == least])
             goal = random.choice(parts[part])
             visits[part] += 1                           # chosen: not the next one too
+        _seen.pop(pid, None)
         went = go(pid, name, *goal, claiming=True, on_land=landed, loot_reach=LOOT_CELLS,
                   cast_need=CROWD_MANY + 1, cast_reach=CROWD_REACH, cast_every=ZONE_SCATTER_EVERY,
                   crowd_slow=True,
-                  stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map)
+                  stop=lambda: time.time() >= end or (stop and stop()) or map_id(pid) != the_map
+                  or (time.time() >= _chased.get(pid, 0) + CHASE_REST and _crowd(pid) is not None))
         if map_id(pid) != the_map:
             break
+        if time.time() >= _chased.get(pid, 0) + CHASE_REST and _crowd(pid) is not None                 and time.time() < end and not (stop and stop()):
+            _chase(pid, name, the_map, end, stop, landed)   # a big crowd: after it a while, then
+            if route:                                   # on with the zigzag - the same stop again
+                at -= 1
         if game_actions.i_am_dead(pid):
             _died.add(pid)
             break
@@ -1205,6 +1218,49 @@ def _roam(pid, name, the_map, squares, seconds, stop, label):
         elif went is False:                             # jumps refused (stunned, in town...)
             time.sleep(1)
     return count[0]
+
+
+def _crowd(pid):
+    """The monster in the thick of a big crowd (CHASE_MANY+ monsters within CHASE_REACH at the last
+    landing): the one with the most others near it, MIN_JUMP cells away or more - or None."""
+    near = [m for m in _seen.get(pid, []) if m[0] <= CHASE_REACH]
+    if len(near) < CHASE_MANY:
+        return None
+    far = [m for m in near if m[0] >= MIN_JUMP] or near
+    return max(far, key=lambda m: sum(1 for o in near if _far(o[3], m[3]) <= SCATTER_REACH))
+
+
+def _chase(pid, name, the_map, end, stop, landed):
+    """Off the zigzag after a big crowd: jump after jump next to the monster in its thick (_crowd),
+    Scatters in the air every ZONE_SCATTER_EVERY on the way - till fewer than CHASE_MANY are around
+    (killed, or left behind), CHASE_SECONDS pass or the area's time is up."""
+    start, jumps, casts = time.time(), 0, _casts.get(pid, 0)
+    print(f'{name}: [map {the_map}] {sum(1 for m in _seen.get(pid, []) if m[0] <= CHASE_REACH)} '
+          f'monsters around - off the zigzag after them')
+    while time.time() < min(end, start + CHASE_SECONDS) and not (stop and stop()) and map_id(pid) == the_map:
+        target = _crowd(pid)
+        me = game_actions.my_pos(pid)
+        if target is None or not me or game_actions.i_am_dead(pid):
+            break
+        claim(name)
+        game_actions.jump_next_to_id(pid, target[2])
+        if _airborne(pid):
+            end_air = time.time() + JUMP_WAIT
+            while time.time() < end_air and game_actions.my_command(pid) in CMD_IN_AIR:
+                _cast_ahead(pid, me, target[3], ZONE_SCATTER_EVERY, _seen.get(pid, []))
+                time.sleep(0.02)
+        _wait_landed(pid)
+        now = game_actions.my_pos(pid)
+        if now and now != me:
+            jumps += 1
+            landed(now)
+        else:
+            time.sleep(0.2)
+        _seen[pid] = _monster_cells(pid, ())
+        loot(pid, name, {}, LOOT_CELLS)
+    _chased[pid] = time.time()
+    print(f'{name}: [map {the_map}] back on the zigzag after {time.time() - start:.0f}s - {jumps} jumps, '
+          f'{_casts.get(pid, 0) - casts} Scatters among the crowd')
 
 
 def tour(pid, name, seconds=AREA_SECONDS, stop=None):
