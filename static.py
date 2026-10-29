@@ -508,8 +508,11 @@ class _Account:
                 if not self.alive_or_revived():
                     time.sleep(2)
                     continue
-                if self.settled():
-                    self.send_whispers()
+                if not self.settled():          # just logged in: no Scatter / whispers / service yet
+                    self.say(f'logged in - hunting in {_fmt(self.settle_until - time.time())}')
+                    time.sleep(1)
+                    continue
+                self.send_whispers()
                 self.service()
                 arrows = game_memory._read_equipped_pid(self.pid)[0]
                 if travel.claimed(self.name):           # auto_hunt.py moves it and casts itself
