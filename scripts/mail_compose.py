@@ -121,8 +121,9 @@ def withdraw_all(pid, name):
     return taken
 
 
-def transfer(pid, name, to, once=False):
-    """Mails the compose warehouse's items from `name` to the character `to`. Returns how many went."""
+def transfer(pid, name, to, once=False, cps_keep=None):
+    """Mails the compose warehouse's items from `name` to the character `to` - with `cps_keep`, the
+    first mail carries its CPs too, all but that many. Returns how many items went."""
     to_id = _receiver(pid, to)
     if not to_id:
         here = [game_memory._name_pid(p) for p in game_memory.game_pids()]
@@ -134,12 +135,15 @@ def transfer(pid, name, to, once=False):
         if not ids:
             print(f'{name}: nothing (more) came out of the compose warehouse')
             break
-        game_actions.mail_send(pid, to_id, ids)
+        have = _cps(pid) if cps_keep is not None else None
+        cps = have - cps_keep if have and have > cps_keep else 0
+        game_actions.mail_send(pid, to_id, ids, cps=cps)
         if _wait(lambda: not _bag(pid) & set(ids)) is None:
             print(f'{name}: the mail to {to} was not taken - the items are still in the bag')
             break
         sent += len(ids)
-        print(f'{name}: mailed {len(ids)} item(s) to {to}')
+        print(f'{name}: mailed {len(ids)} item(s) to {to}' + (f' with {cps} CPs - {cps_keep} kept' if cps else ''))
+        cps_keep = None                                 # the CPs went with the first mail
         if once:
             break
     return sent

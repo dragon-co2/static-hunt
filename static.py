@@ -53,12 +53,12 @@ LOG_MAX_MB  = 5   # static.log rotates once it reaches this size...
 LOG_BACKUPS = 3   # ...keeping this many old files
 
 _S = get_settings('static', {'F10_CYCLONE': False, 'REPAIR_INTERVAL': 8000, 'FIRST_RUN_REPAIR': False,
-                             'MAIL_COMPOSE': False, 'MAIL_TO': '', 'MAIL_CPS': False, 'CPS_KEEP': 5000})
+                             'MAIL_COMPOSE': False, 'MAIL_TO': '', 'MAIL_CPS': True, 'CPS_KEEP': 5000})
 F10_CYCLONE = bool(_S['F10_CYCLONE'])   # use the F10 hotkey every F10_EVERY seconds while hunting
 REPAIR_INTERVAL  = _S['REPAIR_INTERVAL']          # seconds between repairs of each account's gear
 FIRST_RUN_REPAIR = bool(_S['FIRST_RUN_REPAIR'])   # repair as soon as an account is in the game
 MAIL_TO = (_S['MAIL_TO'] or '').strip() if _S['MAIL_COMPOSE'] else ''   # gets the compose items by mail
-MAIL_CPS = bool(_S['MAIL_CPS'])          # ...and the CPs, all but CPS_KEEP
+MAIL_CPS = bool(_S['MAIL_CPS'])          # ...and the CPs, all but CPS_KEEP, with the items
 CPS_KEEP = int(_S['CPS_KEEP'])
 F10_EVERY   = 2
 F10_SLOT    = 9                         # F10
@@ -490,9 +490,8 @@ class _Account:
                 mail_compose.receive(self.pid, self.name)      # Claim All, Deposit, mark read
         elif MAIL_TO and time.time() - self.last_mail >= MAIL_EVERY:
             self.last_mail = time.time()
-            if mail_compose.transfer(self.pid, self.name, MAIL_TO):
-                _mail_sent.set()
-            if MAIL_CPS and mail_compose.send_cps(self.pid, self.name, MAIL_TO, CPS_KEEP):   # its CPs
+            if mail_compose.transfer(self.pid, self.name, MAIL_TO,   # its CPs in the first mail
+                                     cps_keep=CPS_KEEP if MAIL_CPS else None):
                 _mail_sent.set()
         armed = background_hunt.ensure_arrows(self.pid, self.name)   # None: no pack in any tab
         if not armed:

@@ -61,9 +61,9 @@
     },
     "MAIL_CPS": {
       "type": "bool",
-      "default": false,
+      "default": true,
       "label": "Mail the CPs too",
-      "desc": "With the compose items, each account also mails its CPs to the receiving character - all but the amount below. Off by default: every account static.py runs mails them (check that's what you want)."
+      "desc": "Each time an account mails its compose items to the receiving character, the first mail also carries its CPs - all but the amount below. Every account static.py runs does it (the receiving character itself never)."
     },
     "CPS_KEEP": {
       "type": "int",
