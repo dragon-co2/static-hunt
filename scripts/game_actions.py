@@ -75,6 +75,7 @@ MAP_MSG_CTOR, MAP_MSG_CREATE, MAP_MSG_SEND, MAP_MSG_DTOR = (   # CMsgMapItem (11
     0x006E7174, 0x006E71DA, 0x006E73A6, 0x006E71CF)            # Create(id, x, y, action) - 3 = pick up
 HERO_TALK    = 0x0061419D     # CHero::Talk(to, text, 0, color, channel, style) - the chat box (MsgTalk 1004)
 CHAT_WHISPER = 2001           # the whisper channel
+CHAT_TALK    = 2000           # the Talk channel (to everyone around)
 BANK_OPEN    = 0x0068D811     # warehouse manager.Open(kind, id): load a warehouse (MsgPackage 0)
 BANK_WITHDRAW = 0x0068DA98    # warehouse manager.Withdraw(kind, id, item id) (MsgPackage 2)
 CLOSE_BUTTONS = [(1622, 1536),   # the warehouse window: its X (1622), its first tab (1536)

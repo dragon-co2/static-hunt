@@ -3,8 +3,9 @@ with a short line ("what?", "hi?"...) - the 'auto_reply' RULES setting, one rule
     hi, hey, hello => what? | hi? | ?
 The words left of => start a message (in any case, with any punctuation, letters drawn out -
 "HEYYY!!" is "hey"); one of the lines right of it, picked at random, is whispered back after a
-few seconds (as someone reading it would). Each player gets one auto reply per COOLDOWN minutes,
-so a talk that goes on is left to the Telegram replies. Only whispers count (not World / Team...).
+few seconds (as someone reading it would) - a whisper with a whisper, a Talk line (to everyone
+around) in the Talk. Each player gets one auto reply per COOLDOWN minutes, so a talk that goes on is
+left to the Telegram replies. Only whispers and Talk count (not World / Team...).
 (When to send is decided by static.py.)"""
 import random
 import re
@@ -49,7 +50,7 @@ def _rules():
 def reply_for(player, text, channel='Whisper'):
     """The line to whisper `player` for `text` - or None (no rule starts it, not a whisper, or
     they got one less than COOLDOWN minutes ago). Counts as sent."""
-    if not enabled() or channel.lower() != 'whisper':
+    if not enabled() or channel.lower() not in ('whisper', 'talk'):
         return None
     now = time.time()
     if now - _last.get(player.lower(), 0) < float(_settings()['COOLDOWN']) * 60:

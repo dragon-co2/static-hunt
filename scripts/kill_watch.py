@@ -68,7 +68,7 @@ on_drop = None       # optional listener: on_drop(character, text) - each "You k
                      # and it dropped ..." line of that character's game, once
 on_whisper = None    # optional listener: on_whisper(sender, character, desktop, text, channel) —
                      # a player wrote to one of our characters (Whisper, or Talk / Team... to them)
-_WHISPER = re.compile(r'^\[(?P<channel>[A-Za-z]+)\](?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+): ?(?P<text>.*?)'
+_WHISPER = re.compile(r'^(?:\[(?P<channel>[A-Za-z]+)\])?(?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+) ?: ?(?P<text>.*?)'
                       r'\s*(?:\[\d{4}-\d{1,2}-\d{1,2}, \d{1,2}:\d{1,2}\])?\s*$')
 monsters = []        # killer names that are monsters (set by static.py; * = any characters)
 monster_lookup = None   # optional: monster_lookup(name) -> True (a monster) / False (a player) /
@@ -158,7 +158,7 @@ def _on_text(text, character=''):
         return
     w = _WHISPER.match(text.strip())
     if w:
-        _on_whisper_line(w, stamp)
+        _on_whisper_line(w, stamp, character)
         return
     if on_drop and character and 'killed a monster and it dropped' in text.lower():
         try:
@@ -196,12 +196,15 @@ def _on_text(text, character=''):
             print(f'[KILL] kill listener failed ({type(e).__name__}: {e})')
 
 
-def _on_whisper_line(w, stamp):
+def _on_whisper_line(w, stamp, character=''):
     """A "<sender> speaks to <target>: <text>" line on any channel: tells on_whisper when someone
-    else wrote to one of our characters. Lines to "All" never match a character."""
+    else wrote to one of our characters - or, a Talk line to "All", said around `character` (whose
+    game showed it)."""
     sender, target, said = w.group('sender'), w.group('target'), w.group('text').strip()
-    channel = w.group('channel')
+    channel = w.group('channel') or 'Talk'        # a line with no [channel] tag: the Talk
     ours = _names.get(target.lower())
+    if not ours and target.lower() == 'all' and (w.group('channel') or '').lower() == 'talk' and character:
+        ours = _names.get(character.lower())     # said near one of ours, to everyone around
     if not ours or sender.lower() in _names or not said:
         return                                   # not to us, or our own message going out
     if stamp and _newest and (_newest - stamp).total_seconds() > STALE_AFTER:

@@ -175,6 +175,35 @@ def claim(name):
         f.write(str(os.getpid()))
 
 
+def _pause_file(name):
+    return os.path.join(CLAIM_DIR, f'{name.lower()}.pause')
+
+
+def pause(name, seconds):
+    """Holds `name`'s hunt (no jump, no cast) for `seconds` - static.py, to answer someone as a
+    player would; 0 lets it go on at once."""
+    os.makedirs(CLAIM_DIR, exist_ok=True)
+    with open(_pause_file(name), 'w') as f:
+        f.write(str(time.time() + seconds))
+
+
+def paused(name):
+    """True while static.py holds `name`'s hunt (pause)."""
+    try:
+        with open(_pause_file(name)) as f:
+            return float(f.read() or 0) > time.time()
+    except (OSError, ValueError):
+        return False
+
+
+def _hold(name):
+    """Waits (its claim kept fresh) while static.py holds this hunt."""
+    while paused(name):
+        _claimed.pop(name, None)
+        claim(name)
+        time.sleep(0.2)
+
+
 def _trip_file(name):
     return os.path.join(CLAIM_DIR, f'{name.lower()}.market')
 
@@ -525,6 +554,7 @@ def go(pid, name, x, y, stop=None, claiming=False, on_land=None, cast_need=None,
     for _ in range(200):
         if claiming:
             claim(name)
+            _hold(name)                                 # static.py answering someone: a moment
         me = game_actions.my_pos(pid)
         if not me or game_actions.i_am_dead(pid):
             return False
@@ -1347,6 +1377,7 @@ def _chase(pid, name, the_map, end, stop, landed):
         if target is None or not me or game_actions.i_am_dead(pid):
             break
         claim(name)
+        _hold(name)
         game_actions.jump_next_to_id(pid, target[2])
         if _airborne(pid):
             end_air = time.time() + JUMP_WAIT

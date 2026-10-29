@@ -78,13 +78,14 @@ LOGIN_SETTLE    = 45     # seconds after a game is found before anything is sent
 LAUNCH_COOLDOWN = 10     # seconds before a failed login is tried again
 ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" alert again
 REPLY_TRIES     = 3      # failed whispers to one player before giving up
+AUTO_REPLY_PAUSE = 8     # seconds the auto hunt holds still at most while an auto reply goes out
 NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character
 
 _logging_in = set()               # slots being logged in right now (one at a time - _login_loop)
 _reply_lock = threading.Lock()
 _reply_due  = {}    # slot -> [killer, ...] to whisper once revived
 _custom_due = {}    # slot -> [(player, text, telegram msg id)] typed in Telegram
-_auto_due   = {}    # slot -> [(player, text, when)] auto replies (auto_reply) - sent from `when` on
+_auto_due   = {}    # slot -> [(player, text, when, channel)] auto replies (auto_reply) - sent from `when` on
 _rev_now    = set() # slots told from Telegram to revive without the wait
 _status     = {}    # slot -> one line for the on-screen panel
 _accts      = []
@@ -216,13 +217,13 @@ def _on_kill(character, slot, killer, streak):
 
 def _on_whisper(sender, character, slot, text, channel='Whisper'):
     via = '' if channel.lower() == 'whisper' else f' [{channel}]'
-    notify.send(f'\U0001F4E8 {sender} → {character} (account {slot}){via}: {text}',
+    notify.send(f'\U0001F4E8 {sender} → {character} (account {slot}){via}: {text}',   # Talk too
                 ref={'desktop': slot, 'player': sender, 'character': character})
     reply = auto_reply.reply_for(sender, text, channel)
     if reply:
         with _reply_lock:
-            _auto_due.setdefault(slot, []).append((sender, reply, auto_reply.when()))
-        print(f'[AUTO REPLY] {character} will whisper {sender}: {reply}')
+            _auto_due.setdefault(slot, []).append((sender, reply, auto_reply.when(), channel))
+        print(f'[AUTO REPLY] {character} will answer {sender}{via}: {reply}')
 
 
 def _on_tg_reply(ref, text, msg_id):
@@ -414,15 +415,44 @@ class _Account:
                     if item in _custom_due.get(self.slot, []):
                         _custom_due[self.slot].remove(item)
         for item in auto:
-            player, text, _ = item
-            ok = kill_reply.send_with(whisper, player, message=text)
+            player, text, _, channel = item
+            hunting = travel.claimed(self.name)
+            if hunting:                                 # the auto hunt holds still a moment,
+                travel.pause(self.name, AUTO_REPLY_PAUSE)   # turns to them, answers, goes on
+                time.sleep(1.2)                         # (the jump in the air lands)
+                self._face(player)
+                time.sleep(0.6)
+            if channel.lower() == 'talk':                   # answered where they said it: the Talk
+                ok = kill_reply.send_with(lambda to, t: game_actions.whisper(   # to them, in the Talk
+                    self.pid, to, t, game_actions.CHAT_TALK), player, message=text)
+            else:
+                ok = kill_reply.send_with(whisper, player, message=text)
             if ok:
-                notify.send(f'\U0001F916 {self.name} auto-replied to {player}: "{text}"',
+                via = ' (Talk)' if channel.lower() == 'talk' else ''
+                notify.send(f'\U0001F916 {self.name} auto-replied to {player}{via}: "{text}"',
                             ref={'desktop': self.slot, 'player': player, 'character': self.name})
+            if hunting:
+                time.sleep(1.5)
+                travel.pause(self.name, 0)
             if self._tried(('auto', player.lower(), text), bool(ok)):
                 with _reply_lock:
                     if item in _auto_due.get(self.slot, []):
                         _auto_due[self.slot].remove(item)
+
+    def _face(self, player):
+        """Turns to `player` (if around): a step their way - as a player who's been spoken to."""
+        try:
+            role = game_actions.players(self.pid).get(player)
+            if role is None:
+                return
+            them = game_actions.positions(self.pid, [game_actions.role_id(self.pid, role)])
+            me = game_actions.my_pos(self.pid)
+            at = next(iter(them.values()), None)
+            if me and at:
+                sign = lambda v: (v > 0) - (v < 0)
+                game_actions.run_to(self.pid, me[0] + sign(at[0] - me[0]), me[1] + sign(at[1] - me[1]))
+        except OSError as e:
+            print(f'[AUTO REPLY] {self.name}: could not turn to {player} ({e})')
 
     def _tried(self, key, done):
         """Counts a failed send; True when the item is finished (sent, or given up)."""
