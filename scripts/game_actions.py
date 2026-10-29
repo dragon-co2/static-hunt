@@ -85,8 +85,12 @@ BANK_QUERY   = 0x0068D957     # warehouse manager.Query(kind, id, page): its ite
 HERO_REVIVE  = 0x006186C3     # CHero::Revive(mode) - the death window: 0 = revive, 1 = revive here
 STATUS_DEAD  = 0x400          # hero status bit 10: dead
 MAP_FLAGS, MAP_REVIVE_HERE = 0xE8, 0x2000   # [game map] + this: flags; 0x2000 = Revive Here allowed
-CO_COMPOSE_DEPOSIT = 0x8BE70  # Co.dll + this: the VIP Compose Warehouse 'Deposit' button's function
-CO_SEND      = 0x8B940        # Co.dll + this: its message send (ecx = type, edx = data, push length)
+CO_SEND_SIG  = bytes.fromhex('8955f0668bd9833d')   # Co.dll's message send (ecx = type, edx = data,
+CO_SEND_AT   = 0x28           # push length) is found by these bytes this far into it - not by a fixed
+                              # address: the server's updates of Co.dll move it (a stale address called
+                              # crashes the game)
+COMPOSE_DEPOSIT = 2           # message 8043 {2}: the VIP Compose Warehouse's Deposit
+_co_send_at = {}              # (game pid, Co.dll base) -> its send's address, once found
 CO_MSG_REMOTE_WH = 0x1F45     # its message 8005: a VIP command (vip_command)
 VIP_REPAIR_ALL = 30           # 8005 {30}: Repair All
 CO_MSG_COMPOSE = 0x1F6B       # its message 8043: the VIP compose warehouse - {1} list, {3, type, plus, amount} withdraw
@@ -611,16 +615,46 @@ def vip_command(pid, code):
     _co_send(pid, CO_MSG_REMOTE_WH, struct.pack('<HI', code, 0))
 
 
-def _co_send(pid, message, data):
-    """Sends Co.dll's (the server's add-on) message `message` with `data` - through its own send."""
+def _co_send_address(pid):
+    """Where Co.dll's message send is in this game - its bytes (CO_SEND_SIG) looked for in the loaded
+    Co.dll, once a game. OSError if Co.dll isn't loaded or the bytes aren't there (a Co.dll too
+    different: nothing is called, rather than a crash)."""
     base = game_memory._module_base(pid, 'Co.dll')
     if not base:
         raise OSError('Co.dll is not loaded in the game')
+    if (pid, base) not in _co_send_at:
+        handle = _k32.OpenProcess(_ACCESS, False, pid)
+        try:
+            pe = game_memory._read(handle, base + game_memory._u32(handle, base + 0x3C), 0x58)
+            size = struct.unpack_from('<I', pe, 0x50)[0]           # SizeOfImage
+            image = b''.join(game_memory._read(handle, base + off, min(0x10000, size - off))
+                             for off in range(0x1000, size, 0x10000)
+                             if _readable(handle, base + off))
+        finally:
+            _k32.CloseHandle(handle)
+        at = image.find(CO_SEND_SIG)
+        if at < 0 or image.find(CO_SEND_SIG, at + 1) >= 0:
+            raise OSError("Co.dll's message send not found (Co.dll updated?) - nothing sent")
+        _co_send_at[(pid, base)] = base + 0x1000 + at - CO_SEND_AT
+    return _co_send_at[(pid, base)]
+
+
+def _readable(handle, address):
+    try:
+        game_memory._read(handle, address, 4)
+        return True
+    except OSError:
+        return False
+
+
+def _co_send(pid, message, data):
+    """Sends Co.dll's (the server's add-on) message `message` with `data` - through its own send."""
+    send = _co_send_address(pid)
     _run(pid, lambda at: b'\x55\x8B\xEC'                       # push ebp; mov ebp, esp
          + b'\x68' + struct.pack('<I', len(data))              # push the length
          + b'\xBA' + struct.pack('<I', at)                     # mov edx, the data
          + b'\xB9' + struct.pack('<I', message)                # mov ecx, the message
-         + b'\xB8' + struct.pack('<I', base + CO_SEND) + b'\xFF\xD0'   # call Co.dll's send
+         + b'\xB8' + struct.pack('<I', send) + b'\xFF\xD0'   # call Co.dll's send
          + b'\x83\xC4\x04'                                     # add esp, 4 (the caller pops it)
          + b'\x33\xC0\xC9\xC2\x04\x00', data=data)
 
@@ -806,14 +840,8 @@ def revive(pid, here=False):
 
 def compose_deposit(pid):
     """VIP > Compose > Compose Warehouse > Deposit: puts the compose materials (the + items) from the
-    bag into the compose warehouse - the button's own function in Co.dll (the server's add-on), which
-    sends its message 8043."""
-    base = game_memory._module_base(pid, 'Co.dll')
-    if not base:
-        raise OSError('Co.dll is not loaded in the game')
-    _run(pid, b'\x55\x8B\xEC'                                  # push ebp; mov ebp, esp
-         + b'\xB8' + struct.pack('<I', base + CO_COMPOSE_DEPOSIT) + b'\xFF\xD0'   # call it
-         + b'\x33\xC0\xC9\xC2\x04\x00')                        # xor eax, eax; leave; ret 4
+    bag into the compose warehouse - what the button sends: Co.dll's message 8043 {2}."""
+    _co_send(pid, CO_MSG_COMPOSE, struct.pack('<3I', COMPOSE_DEPOSIT, 0, 0))
 
 
 def go_pick_up(pid, item_id, x, y):

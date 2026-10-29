@@ -73,6 +73,8 @@ MAX_REVIVE_WAIT = _R['MAX_REVIVE_WAIT']  # ...up to this
 PLAYER_IDS = 1000000                     # role ids from here up are players, below are monsters / NPCs
 
 SERVICE_EVERY   = 10     # seconds between looks at the bag (+ items) and the equipped arrows
+LOGIN_SETTLE    = 45     # seconds after a game is found before anything is sent into it (deposits,
+                         # mail, F10...): the add-ons (compose, mail) right after a login crash the game
 LAUNCH_COOLDOWN = 10     # seconds before a failed login is tried again
 ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" alert again
 REPLY_TRIES     = 3      # failed whispers to one player before giving up
@@ -307,6 +309,8 @@ class _Account:
         return self._got(pid)
 
     def _got(self, pid):
+        if pid != self.pid:                             # a new game: let it settle before using it
+            self.settle_until = time.time() + LOGIN_SETTLE
         self.pid = pid
         name = game_memory._name_pid(pid)
         if name and name != self.name:
@@ -432,8 +436,12 @@ class _Account:
         return False
 
     # -- the bag, arrows, F10
+    def settled(self):
+        """False for LOGIN_SETTLE seconds after its game was found (just logged in)."""
+        return time.time() >= getattr(self, 'settle_until', 0)
+
     def service(self):
-        if time.time() - self.last_service < SERVICE_EVERY:
+        if time.time() - self.last_service < SERVICE_EVERY or not self.settled():
             return
         if travel.in_market_trip(self.name):            # auto hunt's Market trip: its dragonballs
             return                                      # are for sale, not for scrolls and the bank
@@ -472,7 +480,7 @@ class _Account:
         while True:
             time.sleep(F10_EVERY)
             try:
-                if (self.enabled and self.pid and self.name
+                if (self.enabled and self.pid and self.name and self.settled()
                         and game_memory._name_pid(self.pid) == self.name
                         and not game_actions.i_am_dead(self.pid)):
                     game_actions.press_hotkey(self.pid, F10_SLOT)
@@ -500,7 +508,8 @@ class _Account:
                 if not self.alive_or_revived():
                     time.sleep(2)
                     continue
-                self.send_whispers()
+                if self.settled():
+                    self.send_whispers()
                 self.service()
                 arrows = game_memory._read_equipped_pid(self.pid)[0]
                 if travel.claimed(self.name):           # auto_hunt.py moves it and casts itself
