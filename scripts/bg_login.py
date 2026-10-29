@@ -35,6 +35,8 @@ SERVER         = 0                 # Server= (every account saved by the overlay
 FOLDER         = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'DragonConquer')
 WAIT_IN_GAME   = 120               # seconds for the new client to be in the game
 LOGIN_TRIES    = 3                 # login_retry: attempts per account
+LOGIN_ERROR    = os.path.join('CLAuto', 'LoginError.txt')   # next to the launcher: why the server
+                                                            # refused a sign-in (e.g. a 5th account)
 
 
 class _BLOB(ctypes.Structure):
@@ -163,6 +165,20 @@ def login_retry(account, tries=LOGIN_TRIES):
     return None
 
 
+def _login_error(since):
+    """' - <the game's reason>' if the client wrote CLAuto\\LoginError.txt after `since`, else ''."""
+    launcher = accounts.game_path()
+    path = os.path.join(os.path.dirname(launcher), LOGIN_ERROR) if launcher else ''
+    try:
+        if path and os.path.getmtime(path) >= since - 1:
+            with open(path, encoding='utf-8', errors='replace') as f:
+                reason = f.read().strip()
+            return f' - the game says: {reason}' if reason else ''
+    except OSError:
+        pass
+    return ' (crashed while loading?)'
+
+
 def login(account, start=True):
     """Gets a client to sign `account` in on its own: writes its auto-login file, starts the
     launcher (start=True; it checks for updates, then PLAY opens the game) and waits for a new
@@ -180,14 +196,24 @@ def login(account, start=True):
         if not press_play(proc.pid):
             os.remove(path)
             return None
-    end = time.time() + WAIT_IN_GAME
+    started = time.time()
+    end = started + WAIT_IN_GAME
+    seen = set()                          # the new clients (and their crash handlers) seen so far
     try:
         while time.time() < end:
-            for pid in set(game_memory.game_pids()) - before:
+            new = set(game_memory.game_pids()) - before
+            for pid in new:
                 name = game_memory._name_pid(pid)
                 if name:
                     print(f'[BG LOGIN] {account.username}: in the game as {name} (pid {pid})')
                     return pid
+            seen |= new
+            if seen and not new:          # its client opened and is gone: crashed or refused -
+                time.sleep(1)             # no point waiting the rest of WAIT_IN_GAME
+                if not set(game_memory.game_pids()) - before:
+                    print(f'[BG LOGIN] {account.username}: its game closed after '
+                          f'{time.time() - started:.0f}s' + _login_error(started))
+                    return None
             time.sleep(1)
         print(f'[BG LOGIN] {account.username}: not in the game after {WAIT_IN_GAME}s'
               + (' - the client never took the auto-login file' if os.path.exists(path) else ''))
