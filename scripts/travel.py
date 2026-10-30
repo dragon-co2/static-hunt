@@ -205,9 +205,13 @@ def paused(name):
         return False
 
 
+HELD = set()                # characters stopped from the auto hunt's window (Stop / Resume)
+
+
 def _hold(name):
-    """Waits (its claim kept fresh) while static.py holds this hunt."""
-    while paused(name):
+    """Waits (its claim kept fresh) while static.py holds this hunt - or it's stopped from the
+    auto hunt's window (HELD): no jump, no Scatter, its place kept, till Resume."""
+    while paused(name) or name in HELD:
         _claimed.pop(name, None)
         claim(name)
         time.sleep(0.2)

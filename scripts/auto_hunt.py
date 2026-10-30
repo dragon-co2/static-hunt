@@ -29,7 +29,8 @@ def _hunt(pid, name):
 
 def main():
     print('Auto hunt: tick the accounts to hunt with in the window - closing it stops them all')
-    monk_hunt._window(_hunt, 'Auto hunt', 'Ticked accounts tour the hunting areas and cities')
+    monk_hunt._window(_hunt, 'Auto hunt', 'Ticked accounts tour the hunting areas and cities',
+                      held=travel.HELD)          # Stop / Resume a row
     print('window closed - stopped')
 
 

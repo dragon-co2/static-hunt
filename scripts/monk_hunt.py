@@ -216,9 +216,11 @@ def ticked(name):
         return name in _checked
 
 
-def _window(hunt=None, title='Monk hunt', heading='Ticked accounts hunt the monsters around them'):
+def _window(hunt=None, title='Monk hunt', heading='Ticked accounts hunt the monsters around them',
+            held=None):
     """The checklist: one row per logged-in account - tick it to run `hunt`(pid, name) with it (on
-    a thread of its own, until it's unticked: ticked(name); it shows its doing in _status[name])."""
+    a thread of its own, until it's unticked: ticked(name); it shows its doing in _status[name]).
+    With `held` (a set of names): a Stop / Resume button a row - in it while stopped."""
     import tkinter as tk
 
     hunt = hunt or _hunt
@@ -246,6 +248,17 @@ def _window(hunt=None, title='Monk hunt', heading='Ticked accounts hunt the mons
             _hunting[name] = threading.Thread(target=hunt, args=(accounts[name], name), daemon=True)
             _hunting[name].start()
 
+    def hold(name, button):
+        """Stop / Resume: the character holds still (its place kept) - or goes on."""
+        if name in held:
+            held.discard(name)
+            button.config(text='Stop')
+            print(f'{name}: resumed')
+        else:
+            held.add(name)
+            button.config(text='Resume')
+            print(f'{name}: stopped - Resume to go on')
+
     def tick_all(on):
         for name, (var, _) in boxes.items():
             if var.get() != on:
@@ -262,6 +275,10 @@ def _window(hunt=None, title='Monk hunt', heading='Ticked accounts hunt the mons
                 row.pack(fill='x', pady=1)
                 tk.Checkbutton(row, text=name, variable=var, width=16, anchor='w',
                                font=('Segoe UI', 10), command=lambda n=name, v=var: toggle(n, v)).pack(side='left')
+                if held is not None:
+                    button = tk.Button(row, text='Stop', width=7)
+                    button.config(command=lambda n=name, b=button: hold(n, b))
+                    button.pack(side='left', padx=(0, 6))
                 info = tk.Label(row, font=('Consolas', 9), anchor='w', width=46)
                 info.pack(side='left')
                 boxes[name] = (var, info)
@@ -271,7 +288,9 @@ def _window(hunt=None, title='Monk hunt', heading='Ticked accounts hunt the mons
                 continue
             start(name)                              # e.g. a ticked account that logged in again
             thread = _hunting.get(name)
-            if thread and thread.is_alive():
+            if thread and thread.is_alive() and held is not None and name in held:
+                info.config(text='stopped - Resume to go on', fg='orange red')
+            elif thread and thread.is_alive():
                 info.config(text=_status.get(name, 'hunting'), fg='green')
             else:
                 info.config(text=_status.get(name, 'not hunting'), fg='black')
