@@ -217,16 +217,34 @@ def _on_kill(character, slot, killer, streak):
 
 def _on_whisper(sender, character, slot, text, channel='Whisper'):
     via = '' if channel.lower() == 'whisper' else f' [{channel}]'
-    notify.send(f'\U0001F4E8 {sender} → {character} (account {slot}){via}: {text}',   # Talk too
+    staff = auto_reply.is_staff(sender)                 # the game's staff: you answer, never the bot
+    notify.send(('\U0001F6A8 STAFF ' if staff else '\U0001F4E8 ')
+                + f'{sender} → {character} (account {slot}){via}: {text}',   # Talk too
                 ref={'desktop': slot, 'player': sender, 'character': character})
-    reply = auto_reply.reply_for(sender, text, channel)
+    auto_reply.note(character, sender, 'them', text)
+    if staff:
+        print(f'[AUTO REPLY] {sender} is staff - no auto reply, told on Telegram')
+        return
+    threading.Thread(target=_auto_answer, args=(sender, character, slot, channel, via),
+                     daemon=True).start()               # the AI takes a second or two
+
+
+def _auto_answer(sender, character, slot, channel, via):
+    reply = auto_reply.reply_for(sender, _last_said(character, sender), channel, character)
     if reply:
         with _reply_lock:
             _auto_due.setdefault(slot, []).append((sender, reply, auto_reply.when(), channel))
         print(f'[AUTO REPLY] {character} will answer {sender}{via}: {reply}')
 
 
+def _last_said(character, player):
+    with auto_reply._lock:
+        talk = auto_reply._history.get((character.lower(), player.lower()), ())
+        return next((said for who, said in reversed(talk) if who == 'them'), '')
+
+
 def _on_tg_reply(ref, text, msg_id):
+    auto_reply.note(ref['character'], ref['player'], 'me', text)   # the AI knows what you said
     with _reply_lock:
         _custom_due.setdefault(ref['desktop'], []).append((ref['player'], text, msg_id))
     print(f'[TELEGRAM] queued for account {ref["desktop"]}: whisper {ref["player"]}: {text}')
@@ -426,6 +444,7 @@ class _Account:
             else:
                 ok = kill_reply.send_with(whisper, player, message=text)
             if ok:
+                auto_reply.note(self.name, player, 'me', text)
                 via = ' (Talk)' if channel.lower() == 'talk' else ''
                 notify.send(f'\U0001F916 {self.name} auto-replied to {player}{via}: "{text}"',
                             ref={'desktop': self.slot, 'player': player, 'character': self.name})

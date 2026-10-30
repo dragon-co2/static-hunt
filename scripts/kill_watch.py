@@ -68,7 +68,7 @@ on_drop = None       # optional listener: on_drop(character, text) - each "You k
                      # and it dropped ..." line of that character's game, once
 on_whisper = None    # optional listener: on_whisper(sender, character, desktop, text, channel) —
                      # a player wrote to one of our characters (Whisper, or Talk / Team... to them)
-_WHISPER = re.compile(r'^(?:\[(?P<channel>[A-Za-z]+)\])?(?P<sender>[^\s\[\]]+) speaks to (?P<target>[^\s:]+) ?: ?(?P<text>.*?)'
+_WHISPER = re.compile(r'^(?:\[(?P<channel>[A-Za-z]+)\])?(?P<sender>\S+?) speaks to (?P<target>[^\s:]+) ?: ?(?P<text>.*?)'
                       r'\s*(?:\[\d{4}-\d{1,2}-\d{1,2}, \d{1,2}:\d{1,2}\])?\s*$')
 monsters = []        # killer names that are monsters (set by static.py; * = any characters)
 monster_lookup = None   # optional: monster_lookup(name) -> True (a monster) / False (a player) /
@@ -202,6 +202,8 @@ def _on_whisper_line(w, stamp, character=''):
     game showed it)."""
     sender, target, said = w.group('sender'), w.group('target'), w.group('text').strip()
     channel = w.group('channel') or 'Talk'        # a line with no [channel] tag: the Talk
+    if channel.upper() in ('GM', 'PM', 'PH'):        # not a channel: a staff tag of the name
+        sender, channel = f'[{channel}]{sender}', 'Talk'
     ours = _names.get(target.lower())
     if not ours and target.lower() == 'all' and (w.group('channel') or '').lower() == 'talk' and character:
         ours = _names.get(character.lower())     # said near one of ours, to everyone around

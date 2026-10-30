@@ -238,6 +238,48 @@
       "default": false,
       "desc": "When a player whispers one of your accounts to start talking (hi, hey, yo...), whisper back a short line after a few seconds, like a person would. Only whispers (not World / Team / Guild). Each player gets one auto reply per Once per player; a talk that goes on is yours to answer from Telegram. Whispers are read from the game's chat (read-only)."
     },
+    "AI": {
+      "type": "bool",
+      "default": true,
+      "label": "Answer with AI",
+      "desc": "Claude writes each reply from the talk so far with that player - short, like a player would type. Whatever only you should answer (a trade, a party, a guild, \"are you a bot?\", anything it isn't sure of) it leaves to you on Telegram. Staff ([GM], [PM], [PH]) never get an auto reply - they come to Telegram marked STAFF. Off, or with no API key: the rules below."
+    },
+    "AI_MODEL": {
+      "type": "choice",
+      "default": "Haiku 5.5",
+      "options": [
+        "Haiku 5.5",
+        "Sonnet 5.5",
+        "Opus 5.5"
+      ],
+      "label": "AI model",
+      "desc": "Haiku 5.5: fast and very cheap (about $0.00004 a reply) - enough for short chat. Sonnet 5.5 (about $0.0008) and Opus 5.5 (about $0.0016) write more carefully."
+    },
+    "API_KEY": {
+      "type": "password",
+      "default": "",
+      "label": "API key",
+      "desc": "Your Anthropic API key (console.anthropic.com > Settings > API Keys; billing needs credit). Saved encrypted for this Windows user only - never shown again; paste a new one to change it."
+    },
+    "AI_LIMIT": {
+      "type": "int",
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "default": 3,
+      "label": "AI replies a player",
+      "desc": "At most this many AI replies to one player within the minutes below - then the talk is left to you on Telegram."
+    },
+    "AI_WINDOW": {
+      "type": "int",
+      "min": 1,
+      "max": 120,
+      "step": 1,
+      "unit": "min",
+      "default": 10,
+      "label": "...within",
+      "desc": "The minutes the limit above counts."
+    },
     "COOLDOWN": {
       "type": "int",
       "min": 1,

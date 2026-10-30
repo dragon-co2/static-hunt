@@ -6,17 +6,60 @@ The words left of => start a message (in any case, with any punctuation, letters
 few seconds (as someone reading it would) - a whisper with a whisper, a Talk line (to everyone
 around) in the Talk. Each player gets one auto reply per COOLDOWN minutes, so a talk that goes on is
 left to the Telegram replies. Only whispers and Talk count (not World / Team...).
+With AI on (and an API key set), the reply is written by Claude instead - from the talk so far
+with that player (_history), at most AI_LIMIT replies a player per AI_WINDOW minutes; whatever it
+can't answer as a player would (a deal, a party, "are you a bot?") it leaves to you (Telegram).
+Staff ([GM], [PM], [PH]) never get an auto reply.
 (When to send is decided by static.py.)"""
+import collections
 import random
 import re
+import threading
 import time
 
+import secret
 from dragon_settings import get_settings
 
-_DEFAULTS = {'ENABLED': False, 'COOLDOWN': 30, 'RULES': ''}
+_DEFAULTS = {'ENABLED': False, 'COOLDOWN': 30, 'RULES': '', 'AI': True, 'AI_MODEL': 'Haiku 5.5',
+             'API_KEY': '', 'AI_LIMIT': 3, 'AI_WINDOW': 10}
 DELAY = (2.0, 5.0)              # seconds before the reply, at random between these
+MODELS = {'Haiku 5.5': 'claude-haiku-5-5', 'Sonnet 5.5': 'claude-sonnet-5-5', 'Opus 5.5': 'claude-opus-5-5'}
+HISTORY = 12                    # lines of the talk with a player kept for the AI
+STAFF = re.compile(r'\[(?:GM|PM|PH)\]', re.I)   # in a name: the game's staff - never auto-replied to
+SKIP = 'SKIP'                   # what the AI writes for a message it leaves to the player
 
-_last = {}                      # player (lower) -> when they last got an auto reply
+_last = {}                      # player (lower) -> when they last got an auto reply (rules)
+_ai_sent = {}                   # player (lower) -> [times of the AI replies to them]
+_history = {}                   # (character, player) lower -> deque of (who, text)
+_lock = threading.Lock()
+_client = [None, None]          # [the decrypted key it was made with, anthropic client]
+
+SYSTEM = """You write chat replies for the player of the Conquer Online character {name}, who is busy \
+hunting monsters and glances at the chat now and then. Someone wrote to them in the game ({channel}).
+
+Write the one line the player would type back: casual and short (usually 1-6 words), lowercase, \
+simple English, no emojis, no quotes, small typos are fine. If they wrote in another language that uses \
+latin letters, answer in it; otherwise answer in English. Only letters, numbers and plain punctuation - it \
+is typed on a US keyboard.
+
+Write exactly {skip} instead - the real player will answer it - when the message asks whether they are a \
+bot, an AI, automated or AFK; asks for anything only the player can decide (a trade, selling or buying, \
+gold, items, a party, a guild, a meeting, PK, account details); is rude enough that ignoring is better; or \
+whenever you are not sure. Never promise or agree to anything.
+
+Output only the line (or {skip})."""
+
+
+def is_staff(name):
+    """True if `name` carries a staff tag ([GM], [PM], [PH])."""
+    return bool(STAFF.search(name or ''))
+
+
+def note(character, player, who, text):
+    """Adds a line to the talk between `character` and `player` (who: 'them' / 'me')."""
+    with _lock:
+        _history.setdefault((character.lower(), player.lower()),
+                            collections.deque(maxlen=HISTORY)).append((who, text))
 
 
 def _settings():
@@ -47,11 +90,73 @@ def _rules():
     return out
 
 
-def reply_for(player, text, channel='Whisper'):
-    """The line to whisper `player` for `text` - or None (no rule starts it, not a whisper, or
-    they got one less than COOLDOWN minutes ago). Counts as sent."""
-    if not enabled() or channel.lower() not in ('whisper', 'talk'):
+def reply_for(player, text, channel='Whisper', character=''):
+    """The line to answer `player` with for `text` - written by the AI when it's on (None: it left
+    it to the player, or AI_LIMIT replies in AI_WINDOW already), else by the rules (None: no rule
+    starts it, or they got one less than COOLDOWN minutes ago) - or None for staff and for
+    channels other than Whisper / Talk. Counts as sent. The AI takes a second or two: call it off
+    the chat reader's thread."""
+    if not enabled() or channel.lower() not in ('whisper', 'talk') or is_staff(player):
         return None
+    s = _settings()
+    if s['AI'] and _key():
+        now = time.time()
+        sent = [t for t in _ai_sent.get(player.lower(), []) if now - t < float(s['AI_WINDOW']) * 60]
+        _ai_sent[player.lower()] = sent
+        if len(sent) >= int(s['AI_LIMIT']):
+            print(f'[AUTO REPLY] {player}: {len(sent)} AI replies in {s["AI_WINDOW"]} min already - left to you')
+            return None
+        line = _ai(character, player, channel)
+        if line:
+            sent.append(now)
+            return line
+        if line is not None:                            # '' - it chose to leave it to the player
+            return None                                 # (None: the AI failed - the rules below)
+    return _by_rules(player, text)
+
+
+def _key():
+    stored = _settings()['API_KEY']
+    return secret.unprotect(stored) if stored else ''
+
+
+def _ai(character, player, channel):
+    """The AI's line for the talk so far with `player` - '' if it left it to the player, None if
+    it could not be asked (no key, no network, the API refused)."""
+    import anthropic
+    key = _key()
+    if _client[0] != key:
+        _client[0], _client[1] = key, anthropic.Anthropic(api_key=key, max_retries=1, timeout=15.0)
+    with _lock:
+        talk = list(_history.get((character.lower(), player.lower()), ()))
+    lines = '\n'.join(f'{player if who == "them" else character}: {said}' for who, said in talk)
+    try:
+        response = _client[1].messages.create(
+            model=MODELS.get(_settings()['AI_MODEL'], MODELS['Haiku 5.5']),
+            max_tokens=1024,
+            output_config={'effort': 'low'},
+            system=SYSTEM.format(name=character or 'the player', channel=channel, skip=SKIP),
+            messages=[{'role': 'user', 'content': f'The chat so far (newest last):\n{lines}\n\n'
+                                                  f'Your reply to {player}:'}],
+        )
+    except anthropic.AuthenticationError:
+        print('[AUTO REPLY] the API key was refused - set a new one in the settings (Auto reply)')
+        return None
+    except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
+        print(f'[AUTO REPLY] the AI could not be asked ({type(e).__name__}) - the rules answer instead')
+        return None
+    if response.stop_reason == 'refusal':
+        return ''
+    text = ' '.join(b.text for b in response.content if b.type == 'text').strip().strip('"\'')
+    text = text.splitlines()[0].strip() if text else ''
+    if not text or text.upper().startswith(SKIP):
+        print(f'[AUTO REPLY] the AI left {player} to you')
+        return ''
+    return text[:120]
+
+
+def _by_rules(player, text):
+    """The RULES' line for `text` - or None."""
     now = time.time()
     if now - _last.get(player.lower(), 0) < float(_settings()['COOLDOWN']) * 60:
         return None
