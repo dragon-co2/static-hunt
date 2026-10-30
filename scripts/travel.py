@@ -32,6 +32,8 @@ import game_actions
 import game_memory
 
 MAP_ID     = 0xE0          # [game map] + this: the map's id (1002 Twin City, 1011 Phoenix Castle...)
+PATH_GREED  = 1             # find_path: the distance left counts this many times (1 = the
+                            # shortest way; more is faster on open ground but slower in mazes)
 JUMP_CELLS  = 15            # longest jump, straight-line (the game refuses more than 16)
 ARRIVED     = 2             # this close to the goal counts as there
 JUMP_WAIT   = 2.5           # longest wait for one jump to land
@@ -114,6 +116,7 @@ ITEMTYPE_DURA = 21          # itemtype.txt: the column of an item's most durabil
 NPC_CELLS   = 6            # this close to an NPC's spot before clicking it
 NPC_STEP    = 0.5           # seconds between the clicks of a dialog (the server's answer)
 NPC_WAIT    = 3.0           # seconds for an exchanged dragonball to leave the bag
+MARKET_EVERY = 30 * 60      # seconds at least between two Market trips of a character
 MARKET_BATCH = 20           # dragonballs taken out of the bank at a time to sell
 TELEPORT_WAIT = 10         # seconds for a teleport to land on the new map
 TELEPORTS   = [(21, 1002), (22, 1011), (23, 1020), (24, 1000), (25, 1015)]   # VIP Remote Travel:
@@ -140,6 +143,8 @@ PORTAL_WAIT = 10            # seconds for a portal to take the character to the 
 
 CLAIM_DIR   = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'auto_hunt')
 CLAIM_EVERY = 2.0           # seconds between touches of a character's claim file while it tours
+LOGIN_SETTLE = 45           # tour: seconds after a game's map shows before anything is sent into
+                            # it (just logged in, the game and its add-ons still loading: crashes)
 CLAIM_FRESH = 10.0          # static.py leaves the casting to the tour while the file is this fresh
 
 _maps = {}                  # DMap path -> (width, height, walkable bytearray)
@@ -157,6 +162,7 @@ _durability = {}            # item type -> its most durability x 100 (_most_dura
 _piece_cache = {}           # id of a map's walkable bytes -> its cells' pieces (_pieces)
 _gap_cache = {}             # id of a map's walkable bytes -> its gaps a jump crosses (_gaps)
 _seen = {}                  # game pid -> the monsters read at its last landing (go)
+_settled = set()            # game pids past their LOGIN_SETTLE (_settle)
 _chased = {}                # game pid -> when its last chase of a crowd ended (CHASE_REST)
 _where = {}                 # character -> (map, area) it's hunting now - the characters of this
                             # auto_hunt.py keep apart: a city / an area another holds is left for later
@@ -385,32 +391,52 @@ def _clear(walkable, width, a, b):
 
 def find_path(the_map, start, goal):
     """[cells] from start to goal through walkable cells (A*, 8 directions), or [] if there's no
-    way. A goal that isn't walkable is replaced by the nearest walkable cell."""
+    way - told at once when start and goal are on pieces no way joins (_pieces),
+    instead of after searching the whole map. A goal that isn't walkable is replaced by the
+    nearest walkable cell."""
     width, height, walkable = the_map
     if not walkable[goal[1] * width + goal[0]]:
         goal = _nearest_walkable(the_map, goal)
-    came = {start: None}
-    cost = {start: 0}
-    todo = [(0, start)]
+    if goal is None:
+        return []
+    piece_of = _pieces(the_map)
+    if piece_of(start) != piece_of(goal) and piece_of(start) >= 0 and piece_of(goal) >= 0:
+        return []                                       # an island away: no search at all
+    # cells as numbers (y * width + x) in flat arrays - much faster in Python than (x, y) dicts
+    n = width * height
+    cost = array.array('i', [-1]) * n                   # -1: not reached yet
+    came = array.array('i', [-1]) * n
+    gx, gy = goal
+    first, last = start[1] * width + start[0], gy * width + gx
+    cost[first] = 0
+    todo = [(0, first)]
+    steps = [(dx, dy, dy * width + dx, 14 if dx and dy else 10) for dx, dy in NEIGHBOURS]
+    greed = 10 * PATH_GREED
+    pop, push = heapq.heappop, heapq.heappush
     while todo:
-        _, cell = heapq.heappop(todo)
-        if cell == goal:
+        f, cell = pop(todo)
+        if cell == last:
             path = []
-            while cell:
-                path.append(cell)
-                cell = came[cell]
+            while cell != -1:
+                path.append((cell % width, cell // width))
+                cell = came[cell] if cell != first else -1
             return path[::-1]
-        x, y = cell
-        for dx, dy in NEIGHBOURS:
+        here = cost[cell]
+        x, y = cell % width, cell // width
+        for dx, dy, d, c in steps:
             nx, ny = x + dx, y + dy
-            if not (0 <= nx < width and 0 <= ny < height) or not walkable[ny * width + nx]:
+            if nx < 0 or ny < 0 or nx >= width or ny >= height:
                 continue
-            step = cost[cell] + (14 if dx and dy else 10)
-            if step < cost.get((nx, ny), 1 << 30):
-                cost[(nx, ny)] = step
-                came[(nx, ny)] = cell
-                h = 10 * max(abs(goal[0] - nx), abs(goal[1] - ny))
-                heapq.heappush(todo, (step + h, (nx, ny)))
+            nxt = cell + d
+            if not walkable[nxt]:
+                continue
+            step = here + c
+            old = cost[nxt]
+            if old < 0 or step < old:
+                cost[nxt] = step
+                came[nxt] = cell
+                hx, hy = abs(gx - nx), abs(gy - ny)
+                push(todo, (step + greed * (hx if hx > hy else hy), nxt))
     return []
 
 
@@ -759,7 +785,8 @@ def loot(pid, name, skip, reach=LOOT_CELLS):
     item_id, kind, plus, x, y = items[0]
     gone = lambda: not any(i[0] == item_id for i in game_memory.ground_items(pid))
     if _far(me, (x, y)) > JUMP_CELLS:
-        print(f'{name}: a +{plus} item lies {_far(me, (x, y)):.0f} cells away - going for it')
+        what = 'a dragonball' if kind == game_memory.DRAGONBALL else f'a +{plus} item'
+        print(f'{name}: {what} lies {_far(me, (x, y)):.0f} cells away - going for it')
         go(pid, name, x, y, stop=lambda: gone() or _far(game_actions.my_pos(pid) or me, (x, y)) <= JUMP_CELLS)
     if monk_hunt.collect(pid, item_id, x, y):
         _dropped(pid, kind, plus)
@@ -1079,20 +1106,26 @@ def patrol(pid, name, seconds, stop=None):
     (static.py - in town, since it's auto hunting) and leaves the map (_died). Returns how many
     jumps."""
     the_map = map_id(pid)
-    areas = _clusters(zone(the_map))
-    random.shuffle(areas)
-    taken = {area for other, (m, area) in list(_where.items()) if other != name and m == the_map}
-    areas.sort(key=lambda squares: min(squares) in taken)   # areas another holds: last
-    areas = _by_portal_last(pid, name, the_map, areas)
-    count = 0
-    for n, (squares, piece) in enumerate(areas):
-        if (stop and stop()) or map_id(pid) != the_map:
+    left = _clusters(zone(the_map))
+    random.shuffle(left)
+    total = len(_by_portal_last(pid, name, the_map, left))   # the ones it can reach (told once)
+    count, n = 0, 0
+    while left:                                         # the next area, picked as each one is done:
+        if (stop and stop()) or map_id(pid) != the_map: # one no other character is in now, if any
             break
-        label = f'area {n + 1} of {len(areas)}' if len(areas) > 1 else 'zone'
+        taken = {area for other, (m, area) in list(_where.items()) if other != name and m == the_map}
+        left.sort(key=lambda squares: min(squares) in taken)
+        order = _by_portal_last(pid, name, the_map, left, quiet=True)
+        if not order:
+            break
+        squares, piece = order[0]
+        left = [a for a in left if a is not squares]
+        n += 1
+        label = f'area {n} of {total}' if total > 1 else 'zone'
         if piece is not None and not _go_to_piece(pid, name, the_map, piece):
             print(f'{name}: [map {the_map} {label}] the portals did not take it there - skipped')
             continue
-        each = seconds if the_map in AREA_TIME_EACH else seconds / len(areas)
+        each = seconds if the_map in AREA_TIME_EACH else seconds / max(total, 1)
         _where[name] = (the_map, min(squares))
         count += _roam(pid, name, the_map, squares, each, stop, label)
         if pid in _died:
@@ -1106,6 +1139,8 @@ def _pieces(grid):
     worked out once a map."""
     key = id(grid[2])
     if key not in _piece_cache:
+        _piece_cache[key] = _from_disk(grid, 'pieces')
+    if _piece_cache[key] is None:
         width, height, walkable = grid[0], grid[1], _pristine.get(_grid_path(grid), grid[2])
         piece = array.array('i', [-1]) * (width * height)
         n = 0
@@ -1124,6 +1159,7 @@ def _pieces(grid):
                         todo.append(j)
             n += 1
         _piece_cache[key] = piece
+        _to_disk(grid, 'pieces', piece)
     piece, width, height = _piece_cache[key], grid[0], grid[1]
 
     def piece_of(cell):                                 # a cell the file marks blocked (where a
@@ -1146,6 +1182,10 @@ def _gaps(grid):
     within GAP_JUMP cells of each other (both ways) - worked out once a map."""
     key = id(grid[2])
     if key in _gap_cache:
+        return _gap_cache[key]
+    saved = _from_disk(grid, 'gaps')
+    if saved is not None:
+        _gap_cache[key] = [(tuple(a), tuple(b)) for a, b in saved]
         return _gap_cache[key]
     _pieces(grid)
     width, height = grid[0], grid[1]
@@ -1176,7 +1216,55 @@ def _gaps(grid):
                     if d <= GAP_JUMP and d < best.get((p, q), (99,))[0]:
                         best[(p, q)] = (d, (x, y), (ox, oy))
     _gap_cache[key] = [(a, b) for _, a, b in best.values()]
+    _to_disk(grid, 'gaps', _gap_cache[key])
     return _gap_cache[key]
+
+
+CACHE_DIR = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'map_cache')
+
+
+def _cache_file(grid, what):
+    """The cache file of `what` for this map - named by its DMap file, its size and time (a map
+    the game updates gets its own)."""
+    path = _grid_path(grid)
+    if not path:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    name = os.path.splitext(os.path.basename(path))[0]
+    return os.path.join(CACHE_DIR, f'{name}-{st.st_size}-{int(st.st_mtime)}.{what}')
+
+
+def _from_disk(grid, what):
+    """`what` (pieces: array of ints; gaps: list) of this map as saved, or None."""
+    path = _cache_file(grid, what)
+    try:
+        with open(path, 'rb') as f:
+            data = f.read()
+    except (OSError, TypeError):
+        return None
+    if what == 'pieces':
+        piece = array.array('i')
+        piece.frombytes(data)
+        return piece if len(piece) == grid[0] * grid[1] else None
+    try:
+        return json.loads(data)
+    except ValueError:
+        return None
+
+
+def _to_disk(grid, what, value):
+    path = _cache_file(grid, what)
+    if not path:
+        return
+    try:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(path, 'wb') as f:
+            f.write(value.tobytes() if what == 'pieces' else json.dumps(value).encode())
+    except OSError:
+        pass
 
 
 def _portals_to(piece_of, links, here, there):
@@ -1194,7 +1282,7 @@ def _portals_to(piece_of, links, here, there):
     return None
 
 
-def _by_portal_last(pid, name, the_map, areas):
+def _by_portal_last(pid, name, the_map, areas, quiet=False):
     """[(squares, piece)] the drawn areas in the order to hunt them: the ones reached on foot from
     here first, then the ones fewer AREA_PORTALS away; the ones nothing reaches left out."""
     grid = load_map(map_file(game_root(pid), the_map))
@@ -1218,7 +1306,8 @@ def _by_portal_last(pid, name, the_map, areas):
         piece = max(pieces, key=pieces.get)
         way = _portals_to(piece_of, links, piece_of(me), piece)
         if way is None:
-            print(f'{name}: [map {the_map}] a drawn area can\'t be reached (no portal known to it) - left out')
+            if not quiet:
+                print(f'{name}: [map {the_map}] a drawn area can\'t be reached (no portal known to it) - left out')
             continue
         out.append((len(way), squares, piece))
     out.sort(key=lambda a: a[0])                        # (stable: the random order kept otherwise)
@@ -1407,12 +1496,14 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
     before its hunt: the Market trip (market_run: arrows bought, worn items repaired, dragonballs
     and scrolls sold)."""
     watch_drops()
+    if not _settle(pid, name, stop):
+        return
     maps = dict(TELEPORTS)
     done = set()                                        # the cities hunted this round
     while not (stop and stop()):
         city = map_id(pid)
-        if city == TWIN_CITY:                           # each time here: the Market trip first
-            try:
+        if city == TWIN_CITY and _market_due(name):     # here: the Market trip first (not again
+            try:                                        # within MARKET_EVERY - a restart too)
                 market_run(pid, name)
             except (OSError, TimeoutError, LookupError) as e:
                 print(f'{name}: the Market trip failed - {type(e).__name__}: {e}')
@@ -1440,8 +1531,28 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
         code = random.choice([c for c in left if maps[c] not in taken] or left)   # a city none
         if maps[code] == map_id(pid):                   # of the others is in, if any; already there
             continue
+        _where[name] = (maps[code], None)               # told the others at once: none picks it too
         print(f'{name}: teleport to {TELEPORT_NAMES[code]} ({len(left) - 1} more cities this round)')
         teleport(pid, name, code)
+
+
+def _settle(pid, name, stop=None):
+    """Once a game: waits for its map to show (logged in), then LOGIN_SETTLE seconds - nothing sent
+    into a game still loading. False if stopped or the game went meanwhile."""
+    if pid in _settled:
+        return True
+    print(f'{name}: waiting for the game to finish loading ({LOGIN_SETTLE}s after its map shows)')
+    while not map_id(pid) or not game_actions.my_pos(pid):
+        if (stop and stop()) or game_memory._name_pid(pid) != name:
+            return False
+        time.sleep(1)
+    end = time.time() + LOGIN_SETTLE
+    while time.time() < end:
+        if (stop and stop()) or game_memory._name_pid(pid) != name:
+            return False
+        time.sleep(1)
+    _settled.add(pid)
+    return True
 
 
 def _hunt_map(pid, name, seconds, stop):
@@ -1692,8 +1803,27 @@ def market_run(pid, name):
             print(f'{name}: Mark.Controller did not take it back - teleport to Twin City')
             teleport(pid, name, TELEPORTS[0][0])
         print(f'{name}: back from the Market')
+        _market_done(name)
     finally:
         done.set()
+
+
+def _market_file(name):
+    return os.path.join(CLAIM_DIR, f'{name.lower()}.market_done')
+
+
+def _market_due(name):
+    """True if `name`'s last Market trip was MARKET_EVERY ago or more (a file: kept across runs)."""
+    try:
+        return time.time() - os.path.getmtime(_market_file(name)) >= MARKET_EVERY
+    except OSError:
+        return True
+
+
+def _market_done(name):
+    os.makedirs(CLAIM_DIR, exist_ok=True)
+    with open(_market_file(name), 'w') as f:
+        f.write(str(time.time()))
 
 
 def _keep_claim(name, done):

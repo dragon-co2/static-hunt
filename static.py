@@ -62,6 +62,8 @@ MAIL_CPS = bool(_S['MAIL_CPS'])          # ...and the CPs, all but CPS_KEEP, wit
 CPS_KEEP = int(_S['CPS_KEEP'])
 F10_EVERY   = 2
 F10_SLOT    = 9                         # F10
+F10_NOT_HUNTING = {8002}                # skills not used with F10 while the auto hunt moves the character
+                                        # (an archer's Fly: its game crashed, jumping / to NPCs flying)
 MAIL_EVERY  = 600                       # seconds between mails of the compose items to MAIL_TO (the
                                         # first right as an account is in the game)
 _mail_sent  = threading.Event()         # set once one of ours mailed MAIL_TO: it claims right away
@@ -511,7 +513,9 @@ class _Account:
             try:
                 if (self.enabled and self.pid and self.name and self.settled()
                         and game_memory._name_pid(self.pid) == self.name
-                        and not game_actions.i_am_dead(self.pid)):
+                        and not game_actions.i_am_dead(self.pid)
+                        and not (travel.claimed(self.name)
+                                 and game_actions.hotkey_id(self.pid, F10_SLOT) in F10_NOT_HUNTING)):
                     game_actions.press_hotkey(self.pid, F10_SLOT)
             except OSError as e:
                 print(f'[F10] {self.name}: {e}')

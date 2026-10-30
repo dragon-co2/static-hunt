@@ -546,6 +546,19 @@ def xp_ready(pid):
         _k32.CloseHandle(handle)
 
 
+def hotkey_id(pid, slot):
+    """The id in hotkey slot `slot` (0 = F1 ... 9 = F10): a skill type / item - 0 if empty."""
+    handle = _k32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return 0
+    try:
+        return game_memory._u32(handle, game_memory._u32(handle, HOTKEY_BAR) + HOTKEY_IDS + 4 * slot)
+    except OSError:
+        return 0
+    finally:
+        _k32.CloseHandle(handle)
+
+
 def press_hotkey(pid, slot):
     """Uses what's in hotkey slot `slot` (0 = F1 ... 9 = F10) exactly like pressing that key, but
     from inside the game - no key, no window in front: the game's own hotkey handler
