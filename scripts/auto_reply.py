@@ -12,6 +12,7 @@ can't answer as a player would (a deal, a party, "are you a bot?") it leaves to 
 Staff ([GM], [PM], [PH]) never get an auto reply.
 (When to send is decided by static.py.)"""
 import collections
+import json
 import random
 import re
 import threading
@@ -26,7 +27,6 @@ DELAY = (2.0, 5.0)              # seconds before the reply, at random between th
 MODELS = {'Haiku 5.5': 'claude-haiku-5-5', 'Sonnet 5.5': 'claude-sonnet-5-5', 'Opus 5.5': 'claude-opus-5-5'}
 HISTORY = 12                    # lines of the talk with a player kept for the AI
 STAFF = re.compile(r'\[(?:GM|PM|PH)\]', re.I)   # in a name: the game's staff - never auto-replied to
-SKIP = 'SKIP'                   # what the AI writes for a message it leaves to the player
 
 _last = {}                      # player (lower) -> when they last got an auto reply (rules)
 _ai_sent = {}                   # player (lower) -> [times of the AI replies to them]
@@ -37,17 +37,28 @@ _client = [None, None]          # [the decrypted key it was made with, anthropic
 SYSTEM = """You write chat replies for the player of the Conquer Online character {name}, who is busy \
 hunting monsters and glances at the chat now and then. Someone wrote to them in the game ({channel}).
 
-Write the one line the player would type back: casual and short (usually 1-6 words), lowercase, \
-simple English, no emojis, no quotes, small typos are fine. If they wrote in another language that uses \
-latin letters, answer in it; otherwise answer in English. Only letters, numbers and plain punctuation - it \
-is typed on a US keyboard.
+Write the one line the player would type back: casual and short (usually 1-6 words), lowercase, no emojis, \
+no quotes, small typos are fine. Only letters, numbers and plain punctuation - it is typed on a US keyboard.
 
-Write exactly {skip} instead - the real player will answer it - when the message asks whether they are a \
-bot, an AI, automated or AFK; asks for anything only the player can decide (a trade, selling or buying, \
-gold, items, a party, a guild, a meeting, PK, account details); is rude enough that ignoring is better; or \
-whenever you are not sure. Never promise or agree to anything.
+Answer in the language they wrote in:
+- English -> casual gamer English ("hi", "ty", "np", "lol yeah").
+- Franco / Arabizi (Egyptian Arabic in latin letters, with 2 = hamza, 3 = ain, 5 = kh, 7 = ha, 8 = gh) \
+-> answer in Franco the same way. Examples: "ezayak" -> "tamam el7amdolelah", "enta feen" -> "bahunt aho", \
+"3amel eh" -> "tamam w enta", "7elw el bow da" -> "tslm", "salam 3aleko" -> "w 3aleko el salam", \
+"fe 7d hena?" -> "aywa".
+- Any other latin-letter language -> answer in it; otherwise English.
+Everyday questions (where are you, what are you doing, how are you, nice gear) get a short vague answer \
+like a busy player's - no exact places, plans or numbers.
+Asked to team / party / hunt together: say no - they won't keep hunting here (e.g. "sry not staying here", \
+"leaving soon sry"; Franco: "msh hakamel tahneet hena", "ana mashy sorry").
 
-Output only the line (or {skip})."""
+Leave it to the real player (skip = true) when the message asks whether they are a bot, an AI, automated \
+or AFK; asks for anything only the player can decide (a trade, selling or buying, gold, items, a guild, a \
+meeting, PK, account details); is rude enough that ignoring is better; or whenever you \
+are not sure. Never promise or agree to anything."""
+
+ANSWER = {'type': 'object', 'additionalProperties': False, 'required': ['skip', 'reply'],
+          'properties': {'skip': {'type': 'boolean'}, 'reply': {'type': 'string'}}}
 
 
 def is_staff(name):
@@ -134,8 +145,8 @@ def _ai(character, player, channel):
         response = _client[1].messages.create(
             model=MODELS.get(_settings()['AI_MODEL'], MODELS['Haiku 5.5']),
             max_tokens=1024,
-            output_config={'effort': 'low'},
-            system=SYSTEM.format(name=character or 'the player', channel=channel, skip=SKIP),
+            output_config={'effort': 'low', 'format': {'type': 'json_schema', 'schema': ANSWER}},
+            system=SYSTEM.format(name=character or 'the player', channel=channel),
             messages=[{'role': 'user', 'content': f'The chat so far (newest last):\n{lines}\n\n'
                                                   f'Your reply to {player}:'}],
         )
@@ -145,11 +156,14 @@ def _ai(character, player, channel):
     except (anthropic.APIStatusError, anthropic.APIConnectionError) as e:
         print(f'[AUTO REPLY] the AI could not be asked ({type(e).__name__}) - the rules answer instead')
         return None
-    if response.stop_reason == 'refusal':
+    if response.stop_reason != 'end_turn':              # a refusal, cut short: left to the player
         return ''
-    text = ' '.join(b.text for b in response.content if b.type == 'text').strip().strip('"\'')
-    text = text.splitlines()[0].strip() if text else ''
-    if not text or text.upper().startswith(SKIP):
+    try:
+        answer = json.loads(''.join(b.text for b in response.content if b.type == 'text'))
+    except ValueError:
+        return ''
+    text = ' '.join(str(answer.get('reply') or '').split()).strip('"\'')
+    if answer.get('skip') or not text:
         print(f'[AUTO REPLY] the AI left {player} to you')
         return ''
     return text[:120]
