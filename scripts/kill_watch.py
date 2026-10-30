@@ -207,8 +207,9 @@ def _on_whisper_line(w, stamp, character=''):
     ours = _names.get(target.lower())
     if not ours and target.lower() == 'all' and (w.group('channel') or '').lower() == 'talk' and character:
         ours = _names.get(character.lower())     # said near one of ours, to everyone around
-    if not ours or sender.lower() in _names or not said:
-        return                                   # not to us, or our own message going out
+    if not ours or sender.lower() == ours[0].lower() or not said:
+        return                                   # not to us, or to itself (one of ours writing to
+                                                 # another counts: static.py skips what it sent itself)
     if stamp and _newest and (_newest - stamp).total_seconds() > STALE_AFTER:
         return                                   # old news
     print(f'[WHISPER] [{channel}] {sender} -> {ours[0]} (desktop {ours[1]}): {said}')

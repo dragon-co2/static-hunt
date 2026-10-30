@@ -66,6 +66,14 @@ def is_staff(name):
     return bool(STAFF.search(name or ''))
 
 
+def sent_by_us(sender, to, text):
+    """True if `sender` (one of ours) sent `text` to `to` itself - an auto reply or a Telegram
+    reply: not answered again (two of ours would answer each other for good)."""
+    with _lock:
+        talk = _history.get((sender.lower(), to.lower()), ())
+        return any(who == 'me' and said.strip() == text.strip() for who, said in list(talk)[-4:])
+
+
 def note(character, player, who, text):
     """Adds a line to the talk between `character` and `player` (who: 'them' / 'me')."""
     with _lock:

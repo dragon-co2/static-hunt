@@ -217,6 +217,8 @@ def _on_kill(character, slot, killer, streak):
 
 def _on_whisper(sender, character, slot, text, channel='Whisper'):
     via = '' if channel.lower() == 'whisper' else f' [{channel}]'
+    if auto_reply.sent_by_us(sender, character, text):  # one of ours answering another of ours:
+        return                                          # what we sent ourselves - no answer to it
     staff = auto_reply.is_staff(sender)                 # the game's staff: you answer, never the bot
     notify.send(('\U0001F6A8 STAFF ' if staff else '\U0001F4E8 ')
                 + f'{sender} → {character} (account {slot}){via}: {text}',   # Talk too
