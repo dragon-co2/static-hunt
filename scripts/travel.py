@@ -143,8 +143,10 @@ PORTAL_WAIT = 10            # seconds for a portal to take the character to the 
 
 CLAIM_DIR   = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'auto_hunt')
 CLAIM_EVERY = 2.0           # seconds between touches of a character's claim file while it tours
-LOGIN_SETTLE = 45           # tour: seconds after a game's map shows before anything is sent into
-                            # it (just logged in, the game and its add-ons still loading: crashes)
+READY_HOLD  = 10            # game_ready: seconds a game must look loaded, without a break, before
+                            # anything is sent into it (one still loading crashes)
+READY_OLD   = 60            # game_ready: a game this old that looks loaded the first time it is
+                            # seen (in the world before this script started) is ready at once
 CLAIM_FRESH = 10.0          # static.py leaves the casting to the tour while the file is this fresh
 
 _maps = {}                  # DMap path -> (width, height, walkable bytearray)
@@ -162,7 +164,8 @@ _durability = {}            # item type -> its most durability x 100 (_most_dura
 _piece_cache = {}           # id of a map's walkable bytes -> its cells' pieces (_pieces)
 _gap_cache = {}             # id of a map's walkable bytes -> its gaps a jump crosses (_gaps)
 _seen = {}                  # game pid -> the monsters read at its last landing (go)
-_settled = set()            # game pids past their LOGIN_SETTLE (_settle)
+_ready_since = {}           # game pid -> when it started looking loaded (game_ready)
+_seen_loading = set()       # game pids once seen not loaded yet (never ready at once)
 _chased = {}                # game pid -> when its last chase of a crowd ended (CHASE_REST)
 _where = {}                 # character -> (map, area) it's hunting now - the characters of this
                             # auto_hunt.py keep apart: a city / an area another holds is left for later
@@ -261,6 +264,58 @@ def map_id(pid):
         return None
     finally:
         ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def loaded(pid):
+    """True if the game looks fully in the world: the hero with its id, the map with its id and the
+    main game UI all there. Reads only - nothing is run in the game (my_pos would be)."""
+    handle = ctypes.windll.kernel32.OpenProcess(0x0410, False, pid)
+    if not handle:
+        return False
+    try:
+        hero = game_memory._u32(handle, game_memory.HERO_PTR)
+        game_map = game_memory._u32(handle, game_memory.GAME_MAP)
+        ui = game_memory._u32(handle, game_actions.MAIN_UI)
+        return bool(hero and game_memory._u32(handle, hero + game_actions.HERO_ID)
+                    and game_map and game_memory._u32(handle, game_map + MAP_ID)
+                    and ui and game_memory._u32(handle, ui) == game_actions.MAIN_UI_VTABLE)
+    except OSError:
+        return False
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
+def _age(pid):
+    """Seconds since the game process started (0 if it can't be told)."""
+    k32 = ctypes.windll.kernel32
+    handle = k32.OpenProcess(0x1000, False, pid)            # QUERY_LIMITED_INFORMATION
+    if not handle:
+        return 0
+    try:
+        times = [ctypes.wintypes.FILETIME() for _ in range(4)]
+        if not k32.GetProcessTimes(handle, *map(ctypes.byref, times)):
+            return 0
+        start = times[0].dwHighDateTime << 32 | times[0].dwLowDateTime
+        now = ctypes.wintypes.FILETIME()
+        k32.GetSystemTimeAsFileTime(ctypes.byref(now))
+        return max(0, ((now.dwHighDateTime << 32 | now.dwLowDateTime) - start) / 1e7)
+    finally:
+        k32.CloseHandle(handle)
+
+
+def game_ready(pid):
+    """True once anything may be sent into the game: it has looked loaded (loaded()) for
+    READY_HOLD seconds in a row - or at once when it already looked loaded the first time it was
+    seen and is over READY_OLD seconds old (in the world before this script started)."""
+    if not loaded(pid):
+        _ready_since.pop(pid, None)
+        _seen_loading.add(pid)
+        return False
+    now = time.time()
+    if pid not in _ready_since:
+        old = pid not in _seen_loading and _age(pid) >= READY_OLD
+        _ready_since[pid] = now - READY_HOLD if old else now
+    return now - _ready_since[pid] >= READY_HOLD
 
 
 def map_file(root, the_map):
@@ -1537,21 +1592,16 @@ def tour(pid, name, seconds=AREA_SECONDS, stop=None):
 
 
 def _settle(pid, name, stop=None):
-    """Once a game: waits for its map to show (logged in), then LOGIN_SETTLE seconds - nothing sent
-    into a game still loading. False if stopped or the game went meanwhile."""
-    if pid in _settled:
+    """Waits until the game is loaded (game_ready) - nothing sent into a game still loading.
+    False if stopped or the game went meanwhile."""
+    if game_ready(pid):
         return True
-    print(f'{name}: waiting for the game to finish loading ({LOGIN_SETTLE}s after its map shows)')
-    while not map_id(pid) or not game_actions.my_pos(pid):
+    print(f'{name}: waiting for the game to finish loading')
+    while not game_ready(pid):
         if (stop and stop()) or game_memory._name_pid(pid) != name:
             return False
         time.sleep(1)
-    end = time.time() + LOGIN_SETTLE
-    while time.time() < end:
-        if (stop and stop()) or game_memory._name_pid(pid) != name:
-            return False
-        time.sleep(1)
-    _settled.add(pid)
+    print(f'{name}: the game is loaded')
     return True
 
 

@@ -75,8 +75,6 @@ MAX_REVIVE_WAIT = _R['MAX_REVIVE_WAIT']  # ...up to this
 PLAYER_IDS = 1000000                     # role ids from here up are players, below are monsters / NPCs
 
 SERVICE_EVERY   = 10     # seconds between looks at the bag (+ items) and the equipped arrows
-LOGIN_SETTLE    = 45     # seconds after a game is found before anything is sent into it (deposits,
-                         # mail, F10...): the add-ons (compose, mail) right after a login crash the game
 LAUNCH_COOLDOWN = 10     # seconds before a failed login is tried again
 ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" alert again
 REPLY_TRIES     = 3      # failed whispers to one player before giving up
@@ -312,8 +310,6 @@ class _Account:
         return self._got(pid)
 
     def _got(self, pid):
-        if pid != self.pid:                             # a new game: let it settle before using it
-            self.settle_until = time.time() + LOGIN_SETTLE
         self.pid = pid
         name = game_memory._name_pid(pid)
         if name and name != self.name:
@@ -469,8 +465,9 @@ class _Account:
 
     # -- the bag, arrows, F10
     def settled(self):
-        """False for LOGIN_SETTLE seconds after its game was found (just logged in)."""
-        return time.time() >= getattr(self, 'settle_until', 0)
+        """False while its game is still loading (travel.game_ready): nothing is sent into it
+        (deposits, mail, F10, Scatter...) - one still loading crashes."""
+        return bool(self.pid) and travel.game_ready(self.pid)
 
     def service(self):
         if time.time() - self.last_service < SERVICE_EVERY or not self.settled():
@@ -542,7 +539,7 @@ class _Account:
                     time.sleep(2)
                     continue
                 if not self.settled():          # just logged in: no Scatter / whispers / service yet
-                    self.say(f'logged in - hunting in {_fmt(self.settle_until - time.time())}')
+                    self.say('logged in - waiting for the game to finish loading')
                     time.sleep(1)
                     continue
                 self.send_whispers()
