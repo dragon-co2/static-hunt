@@ -205,14 +205,17 @@ def prepare(account):
     return path
 
 
-def login_retry(account, tries=LOGIN_TRIES, others=()):
-    """login(), again when it fails - the client sometimes crashes in version.dll as it starts."""
+def login_retry(account, tries=LOGIN_TRIES, others=(), failed=None):
+    """login(), again when it fails - the client sometimes crashes in version.dll as it starts.
+    failed(): called after each failed attempt."""
     for n in range(1, tries + 1):
         close_left_behind()
         pid = login(account, others=others)
         if pid:
             close_left_behind(keep=[pid])
             return pid
+        if failed:
+            failed()
         print(f'[BG LOGIN] {account.username}: attempt {n}/{tries} failed' + (' - trying again' if n < tries else ''))
     return None
 

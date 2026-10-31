@@ -77,6 +77,7 @@ PLAYER_IDS = 1000000                     # role ids from here up are players, be
 
 SERVICE_EVERY   = 10     # seconds between looks at the bag (+ items) and the equipped arrows
 LAUNCH_COOLDOWN = 10     # seconds before a failed login is tried again
+LOGIN_ALERT     = 5      # failed login attempts in a row before Telegram is told (once)
 ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" alert again
 REPLY_TRIES     = 3      # failed whispers to one player before giving up
 AUTO_REPLY_PAUSE = 8     # seconds the auto hunt holds still at most while an auto reply goes out
@@ -285,6 +286,7 @@ class _Account:
         self.enabled = acc is not None    # manual mode: the window's toggle
         self.in_game_once = False
         self.down = None              # [what happened, failure already reported] while it's out
+        self.login_fails = 0          # failed login attempts in a row
         self.last_launch = 0.0
         self.dead_since = None
         self.revive_wait = None
@@ -327,14 +329,19 @@ class _Account:
         """Logs this account in (auto-login mode) - called by _login_loop, one account at a time."""
         self.say('logging in...')
         self.last_launch = time.time()
-        pid = bg_login.login_retry(self.acc, others=_others(self.acc.username))
-        if not pid:
-            if self.down and not self.down[1]:
+        pid = bg_login.login_retry(self.acc, others=_others(self.acc.username),
+                                   failed=self._login_failed)
+        return bool(pid) and self._got(pid)
+
+    def _login_failed(self):
+        """One login attempt failed - a crash and reopen is not reported, only LOGIN_ALERT in a row."""
+        self.login_fails += 1
+        if self.login_fails == LOGIN_ALERT:
+            what = f'{self.down[0]} — ' if self.down else ''
+            notify.send(f'⚠️ {self.who()}: {what}could not get into the game {LOGIN_ALERT} times '
+                        f'in a row — still retrying every {LAUNCH_COOLDOWN}s')
+            if self.down:
                 self.down[1] = True
-                notify.send(f'⚠️ {self.who()}: {self.down[0]} — could not get back in yet, '
-                            f'retrying every {LAUNCH_COOLDOWN}s')
-            return False
-        return self._got(pid)
 
     def _got(self, pid):
         name = game_memory._name_pid(pid)
@@ -349,9 +356,10 @@ class _Account:
             _save_name(self.acc.username, self.name)
         kill_watch.set_character(self.name, self.slot)
         self.in_game_once = True
-        if self.down:
-            notify.send(f'♻️ {self.who()}: {self.down[0]} — reopened and back in game')
-            self.down = None
+        if self.login_fails >= LOGIN_ALERT:     # told it could not get in: tell it's back
+            notify.send(f'♻️ {self.who()}: back in game after {self.login_fails} failed attempts')
+        self.login_fails = 0
+        self.down = None
         return True
 
     # -- death

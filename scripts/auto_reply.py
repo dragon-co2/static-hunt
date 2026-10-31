@@ -8,7 +8,8 @@ around) in the Talk. Each player gets one auto reply per COOLDOWN minutes, so a 
 left to the Telegram replies. Only whispers and Talk count (not World / Team...).
 With AI on (and an API key set), the reply is written by Claude instead - from the talk so far
 with that player (_history), at most AI_LIMIT replies a player per AI_WINDOW minutes; whatever it
-can't answer as a player would (a deal, a party, "are you a bot?") it leaves to you (Telegram).
+can't answer as a player would (a deal, a trade...) it leaves to you (Telegram); "are you a bot /
+auto hunting?" is answered no, playing normally.
 Staff ([GM], [PM], [PH]) never get an auto reply.
 (When to send is decided by static.py.)"""
 import collections
@@ -26,7 +27,7 @@ _DEFAULTS = {'ENABLED': False, 'COOLDOWN': 30, 'RULES': '', 'AI': True, 'AI_MODE
 DELAY = (2.0, 5.0)              # seconds before the reply, at random between these
 MODELS = {'Haiku 5.5': 'claude-haiku-5-5', 'Sonnet 5.5': 'claude-sonnet-5-5', 'Opus 5.5': 'claude-opus-5-5'}
 HISTORY = 12                    # lines of the talk with a player kept for the AI
-STAFF = re.compile(r'\[(?:GM|PM|PH)\]', re.I)   # in a name: the game's staff - never auto-replied to
+STAFF = re.compile(r'\[(?:AM|DM|LH)\]', re.I)   # in a name: the game's staff - never auto-replied to
 
 _last = {}                      # player (lower) -> when they last got an auto reply (rules)
 _ai_sent = {}                   # player (lower) -> [times of the AI replies to them]
@@ -52,8 +53,11 @@ like a busy player's - no exact places, plans or numbers.
 Asked to team / party / hunt together: say no - they won't keep hunting here (e.g. "sry not staying here", \
 "leaving soon sry"; Franco: "msh hakamel tahneet hena", "ana mashy sorry").
 
-Leave it to the real player (skip = true) when the message asks whether they are a bot, an AI, automated \
-or AFK; asks for anything only the player can decide (a trade, selling or buying, gold, items, a guild, a \
+Asked whether they are a bot, an AI, auto hunting, using a macro / script, or AFK: say no, they are \
+playing normally, a bit annoyed at the question (e.g. "no lol im playing", "nah im here", "no just \
+hunting"; Franco: "la ana bal3ab 3ady", "la ana mawgood aho", "auto eh ya 3am ana bal3ab").
+
+Leave it to the real player (skip = true) when the message asks for anything only the player can decide (a trade, selling or buying, gold, items, a guild, a \
 meeting, PK, account details); is rude enough that ignoring is better; or whenever you \
 are not sure. Never promise or agree to anything."""
 
