@@ -56,12 +56,29 @@ def load():
 
 
 def game_path():
-    """The game launcher chosen in the settings ('' if not set or the file isn't there)."""
-    path = (get_settings('accounts', _DEFAULTS)['GAME_PATH'] or '').strip().strip('"')
+    """The game launcher chosen in the settings (General; before, Accounts) - '' if not set or the
+    file isn't there."""
+    path = (get_settings('static', {'GAME_PATH': ''})['GAME_PATH']
+            or get_settings('accounts', _DEFAULTS)['GAME_PATH'] or '').strip().strip('"')
     if path and not os.path.isfile(path):
         print(f'[ACCOUNTS] game launcher not found: {path}')
         return ''
     return path
+
+
+def move_game_path():
+    """The game path set before under Accounts goes to General (once)."""
+    import json
+    from dragon_settings import _load_json, override_path
+    overrides = _load_json(override_path())
+    old = overrides.get('accounts', {}).get('GAME_PATH')
+    if not old or overrides.get('static', {}).get('GAME_PATH'):
+        return
+    overrides.setdefault('static', {})['GAME_PATH'] = old
+    tmp = override_path() + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(overrides, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, override_path())
 
 
 def sync_desktops(count):

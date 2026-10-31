@@ -3,7 +3,10 @@ own file (walkable cells light, walls dark), its Path Finding hunting areas (red
 characters (blue) on it. Left mouse paints the zone, right mouse rubs it out; Save keeps it in
 ~/Documents/DragonCO2/hunt_zones.json. In a map with a zone, the auto hunt goes there and roams it
 whatever the monsters in sight, with a Scatter every few seconds.
-    python hunt_zones.py"""
+With a character: its own drawings (hunt_zones/<name>.json) - a map it hasn't drawn shows the one
+it uses now (this PC's / the default); Use default drops its own drawing of the map.
+    python hunt_zones.py [character]"""
+import sys
 import os
 import tkinter as tk
 from tkinter import ttk
@@ -45,16 +48,18 @@ def _characters():
 
 
 class Editor:
-    def __init__(self, root_dir):
-        self.root_dir = root_dir
+    def __init__(self, root_dir, name=None):
+        self.root_dir, self.name = root_dir, name
         self.win = tk.Tk()
-        self.win.title('Hunt zones')
+        self.win.title(f'Hunt zones - {name}' if name else 'Hunt zones')
         self.win.resizable(False, False)
         bar = tk.Frame(self.win)
         bar.pack(fill='x', padx=8, pady=6)
         maps = sorted(set(MAP_NAMES) | {m for m, _ in _characters().values() if m})
         self.labels = {f'{m} {MAP_NAMES.get(m, "")}'.strip(): m for m in maps}
-        self.choice = tk.StringVar(value=next(iter(self.labels)))
+        here = _characters().get(name, (None,))[0] if name else None   # its map first
+        self.choice = tk.StringVar(value=next((l for l, m in self.labels.items() if m == here),
+                                              next(iter(self.labels))))
         ttk.Combobox(bar, textvariable=self.choice, values=list(self.labels), state='readonly',
                      width=22).pack(side='left')
         self.choice.trace_add('write', lambda *_: self.load())
@@ -68,6 +73,8 @@ class Editor:
                  showvalue=True).pack(side='left')
         tk.Button(bar, text='Save', width=8, command=self.save).pack(side='left', padx=6)
         tk.Button(bar, text='Clear', width=8, command=self.clear).pack(side='left')
+        if name:
+            tk.Button(bar, text='Use default', width=10, command=self.use_default).pack(side='left', padx=(6, 0))
         self.info = tk.Label(bar, text='', font=('Consolas', 9), anchor='w', width=40)
         self.info.pack(side='left', padx=8)
         self.canvas = tk.Canvas(self.win, width=VIEW, height=VIEW, bg='black', highlightthickness=0)
@@ -96,7 +103,7 @@ class Editor:
                                         for c in range(3)])
         self.size = (round(self.width * self.scale), round(self.height * self.scale))
         self.base_view = self.base.resize(self.size, Image.NEAREST)
-        self.squares = travel.zone(self.the_map)
+        self.squares = travel.zone(self.the_map, self.name)
         self.areas = travel.hunting_areas(self.root_dir, self.the_map)
         self.saved = set(self.squares)
         self.draw()
@@ -159,16 +166,25 @@ class Editor:
 
     def state(self):
         changed = ' - not saved' if self.squares != self.saved else ''
-        return f'{len(self.squares)} squares{changed}'
+        whose = ''
+        if self.name:
+            whose = ' - its own' if travel.own_zone(self.the_map, self.name) else ' - the default'
+        return f'{len(self.squares)} squares{whose}{changed}'
 
     def status(self):
         self.info.config(text=self.state())
 
     def save(self):
-        travel.save_zone(self.the_map, self.squares)
+        travel.save_zone(self.the_map, self.squares, self.name)
         self.saved = set(self.squares)
         self.status()
-        print(f'map {self.the_map}: zone saved ({len(self.squares)} squares)')
+        print(f'map {self.the_map}: zone saved ({len(self.squares)} squares)'
+              + (f' - {self.name}\'s own' if self.name else ''))
+
+    def use_default(self):
+        travel.save_zone(self.the_map, None, self.name)
+        print(f'map {self.the_map}: {self.name} uses the default zone')
+        self.load()
 
     def clear(self):
         self.squares = set()
@@ -179,7 +195,7 @@ def main():
     root_dir = _root()
     if not root_dir:
         raise SystemExit('no game running and no launcher in the settings - cannot find the maps')
-    Editor(root_dir).win.mainloop()
+    Editor(root_dir, sys.argv[1] if len(sys.argv) > 1 else None).win.mainloop()
 
 
 if __name__ == '__main__':

@@ -1,10 +1,16 @@
 {
   "static": {
     "__title__": "General",
+    "GAME_PATH": {
+      "type": "file",
+      "default": "",
+      "filter": "Programs (*.exe)|*.exe",
+      "desc": "The game's launcher (e.g. Play.exe) - used to open a character's game when it logs in by itself (its Auto login in the panel), at Log in and after a crash."
+    },
     "FIRST_RUN_REPAIR": {
       "type": "bool",
       "default": false,
-      "desc": "Repair gear on each desktop's first visit after static.py starts. Turn off to skip it; repair still runs every REPAIR_INTERVAL seconds."
+      "desc": "Repair each character's gear as soon as it's in the game. Off: the first repair waits REPAIR_INTERVAL seconds too."
     },
     "REPAIR_INTERVAL": {
       "type": "int",
@@ -13,30 +19,7 @@
       "step": 10,
       "unit": "s",
       "default": 8000,
-      "desc": "Seconds between repair passes. When it runs out, every desktop runs the repair the next time the loop reaches it."
-    },
-    "VISIT_WAIT": {
-      "type": "float",
-      "min": 0.0,
-      "max": 120,
-      "step": 0.1,
-      "unit": "s",
-      "default": 15,
-      "desc": "Pause at the end of each desktop visit before switching to the next one. 0 moves on straight away."
-    },
-    "SERVICE_INTERVAL": {
-      "type": "int",
-      "min": 30,
-      "max": 3600,
-      "step": 10,
-      "unit": "s",
-      "default": 180,
-      "desc": "Per desktop: how often to do a service round (the deposits) - press Alt+P (bank + inventory), turn 10 dragonballs into a scroll and stash it, deposit +N items through VIP > Compose, then close the inventory, bank and VIP menu. Arrows aren't part of it: whenever a desktop is visited with fewer than ARROWS_MIN equipped, a pack is taken from the bank right then."
-    },
-    "F10_CYCLONE": {
-      "type": "bool",
-      "default": false,
-      "desc": "While hunting, press F10 (Cyclone) every 2 seconds on each game, steadily (in the background, whatever else the script is doing) - not while the character is dead."
+      "desc": "Seconds between repairs (VIP Repair All) of each character's gear while Static runs."
     },
     "ARROWS_MIN": {
       "type": "int",
@@ -45,104 +28,7 @@
       "step": 10,
       "default": 100,
       "label": "Arrows minimum",
-      "desc": "On every visit to a desktop, the equipped arrows are read from the game's memory; when fewer than this, a new pack is taken from the bank right away - going through the bank tabs one by one, any pack, full or not - and equipped. No need to wait for the service round."
-    },
-    "MAIL_COMPOSE": {
-      "type": "bool",
-      "default": false,
-      "label": "Mail compose items",
-      "desc": "Every 10 minutes, each account takes its VIP compose warehouse's items out (highest plus first) and mails them, 5 a mail, to the receiving character below. The receiving character itself, if it runs too, claims its mail (Claim All) and deposits the items into its own compose warehouse."
-    },
-    "MAIL_TO": {
-      "type": "text",
-      "default": "",
-      "label": "Receiving character",
-      "desc": "The character name that gets the compose items by mail (as the mail's Search finds it). Leave empty to not mail anything."
-    },
-    "MAIL_CPS": {
-      "type": "bool",
-      "default": true,
-      "label": "Mail the CPs too",
-      "desc": "Each time an account mails its compose items to the receiving character, the first mail also carries its CPs - all but the amount below. Every account static.py runs does it (the receiving character itself never)."
-    },
-    "CPS_KEEP": {
-      "type": "int",
-      "min": 0,
-      "max": 1000000,
-      "step": 1000,
-      "default": 5000,
-      "label": "CPs kept",
-      "desc": "The CPs each account keeps when it mails the rest (Mail the CPs too)."
-    }
-  },
-  "accounts": {
-    "__title__": "Accounts",
-    "ENABLED": {
-      "type": "bool",
-      "default": false,
-      "desc": "Off (default): a window lists the games you opened yourself - tick the ones to run. On: the script logs these accounts in by itself, one after another, through the launcher (updates included) and logs them back in after a crash or disconnect. Everything runs in the background, on one desktop. Passwords are stored encrypted for this Windows user only."
-    },
-    "GAME_PATH": {
-      "type": "file",
-      "default": "",
-      "filter": "Programs (*.exe)|*.exe",
-      "desc": "The game's launcher (e.g. Play.exe). Used to open an account's game when its desktop has none running — at start and after a crash."
-    },
-    "ACCOUNT_1_USER": {
-      "type": "text",
-      "default": "",
-      "group": "Account 1",
-      "label": "Username",
-      "desc": "Game login username. This account runs on desktop 1. Leave empty to not use this slot."
-    },
-    "ACCOUNT_1_PASS": {
-      "type": "password",
-      "default": "",
-      "group": "Account 1",
-      "label": "Password",
-      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
-    },
-    "ACCOUNT_2_USER": {
-      "type": "text",
-      "default": "",
-      "group": "Account 2",
-      "label": "Username",
-      "desc": "Game login username. This account runs on desktop 2. Leave empty to not use this slot."
-    },
-    "ACCOUNT_2_PASS": {
-      "type": "password",
-      "default": "",
-      "group": "Account 2",
-      "label": "Password",
-      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
-    },
-    "ACCOUNT_3_USER": {
-      "type": "text",
-      "default": "",
-      "group": "Account 3",
-      "label": "Username",
-      "desc": "Game login username. This account runs on desktop 3. Leave empty to not use this slot."
-    },
-    "ACCOUNT_3_PASS": {
-      "type": "password",
-      "default": "",
-      "group": "Account 3",
-      "label": "Password",
-      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
-    },
-    "ACCOUNT_4_USER": {
-      "type": "text",
-      "default": "",
-      "group": "Account 4",
-      "label": "Username",
-      "desc": "Game login username. This account runs on desktop 4. Leave empty to not use this slot."
-    },
-    "ACCOUNT_4_PASS": {
-      "type": "password",
-      "default": "",
-      "group": "Account 4",
-      "label": "Password",
-      "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
+      "desc": "The equipped arrows are read from the game's memory; when fewer than this, a pack is taken from the bag or the bank tabs (any pack, full or not) and equipped."
     }
   },
   "revive": {

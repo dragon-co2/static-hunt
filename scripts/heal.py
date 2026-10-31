@@ -145,6 +145,7 @@ BUFFS = {            # skill type -> (name, its bit in the status flags) - kept 
 BUFF_DELAY  = 0.1      # seconds a buff stays off (its icon gone) before it's cast again
 BUFF_RETRY  = 5      # seconds before casting a buff again when the last cast didn't take (no mana...)
 SKILLS_EVERY = 30    # seconds between re-reads of which skills each character has
+ONLY_TICKED = False  # True (static.py's panel): the buffs too only for the ticked (Auto heal) accounts
 
 CHECKED_PATH = os.path.join(override_dir(), 'heal_accounts.json')   # the ticks, kept across runs
 _checked = set()     # characters ticked in the window - only these are healed
@@ -239,7 +240,7 @@ def _heal_loop():
                 with _lock:
                     _seen[name] = v
                     ticked = name in _checked
-                if not v or v['hp'] <= 0:                 # not readable / dead
+                if not v or v['hp'] <= 0 or ONLY_TICKED and not ticked:   # not readable / dead
                     continue
                 _keep_buffs(pid, name, v)
                 if not ticked:

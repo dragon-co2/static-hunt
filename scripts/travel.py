@@ -79,6 +79,8 @@ AREA_RADIUS = 40           # tour: an area's monsters are the ones this close to
 TOUR_SECONDS = 500           # tour: time on each map before the teleport to the next city
 EXPLORE_NEAR, EXPLORE_FAR = 60, 150   # explore: how far the random spots are
 ZONES_PATH  = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'hunt_zones.json')
+ZONES_EACH  = os.path.join(os.path.expanduser('~'), 'Documents', 'DragonCO2', 'hunt_zones')   # a
+                            # character's own drawings: <name>.json (before this PC's and the default)
 ZONES_DEFAULT = os.path.join(_paths.scripts_dir(), 'hunt_zones.json')   # the zones that come with
                             # the program - for the maps this PC hasn't drawn (ZONES_PATH)
 ZONE_CELLS  = 10           # zones: drawn in squares this big (hunt_zones.py)
@@ -127,6 +129,9 @@ SIDE_MAPS   = {                                     # tour: after a city, these 
     1000: [([('vip', 24, (500, 650)),                   # a VIP teleport (code) to near this cell,
              ('npc', 'Conductress', (478, 631), [2], (80, 320)),   # an NPC's options to near a cell,
              ('portal', (77, 319))], 1001, 'Mystic Castle')],      # onto a portal (the map file's)
+}
+PLACES      = {                                     # the panel's Go to, beside the cities: the
+    'mystic': SIDE_MAPS[1000][0],                   # steps (side_trip) to the map, its title
 }
 ARRIVE_CELLS = 15           # this close to a step's cell counts as there
 GAP_JUMP    = 14            # zones: two pieces of a map no way on foot joins (a river between) this
@@ -1053,26 +1058,40 @@ def _load_json(path):
         return {}
 
 
-def zone(the_map):
-    """The ZONE_CELLS squares drawn on this map as where to hunt: {(square x, square y)} - this
-    PC's drawing (ZONES_PATH) if it has one for the map, else the one that comes with the program
-    (ZONES_DEFAULT); empty if neither."""
-    for path in (ZONES_PATH, ZONES_DEFAULT):
+def _zones_of(name):
+    return os.path.join(ZONES_EACH, f'{name.lower()}.json')
+
+
+def zone(the_map, name=None):
+    """The ZONE_CELLS squares drawn on this map as where to hunt: {(square x, square y)} - the
+    character's own drawing of it (ZONES_EACH) if it has one, else this PC's (ZONES_PATH), else the
+    one that comes with the program (ZONES_DEFAULT); empty if none."""
+    for path in ([_zones_of(name)] if name else []) + [ZONES_PATH, ZONES_DEFAULT]:
         squares = _load_json(path).get(str(the_map))
         if squares is not None:
             return {tuple(sq) for sq in squares}
     return set()
 
 
-def save_zone(the_map, squares):
-    """Saves this PC's drawing of the map (none drawn: an empty one, which also turns the default
-    zone off for it)."""
-    data = _load_json(ZONES_PATH)
-    data[str(the_map)] = sorted([list(sq) for sq in squares])
-    os.makedirs(os.path.dirname(ZONES_PATH), exist_ok=True)
-    with open(ZONES_PATH + '.tmp', 'w', encoding='utf-8') as f:
+def own_zone(the_map, name):
+    """True if `name` has its own drawing of this map."""
+    return str(the_map) in _load_json(_zones_of(name))
+
+
+def save_zone(the_map, squares, name=None):
+    """Saves the drawing of the map - `name`'s own, else this PC's (none drawn: an empty one,
+    which also turns the zone under it off). squares None: `name`'s own drawing of it removed
+    (back to this PC's / the default one)."""
+    path = _zones_of(name) if name else ZONES_PATH
+    data = _load_json(path)
+    if squares is None:
+        data.pop(str(the_map), None)
+    else:
+        data[str(the_map)] = sorted([list(sq) for sq in squares])
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + '.tmp', 'w', encoding='utf-8') as f:
         json.dump(data, f)
-    os.replace(ZONES_PATH + '.tmp', ZONES_PATH)
+    os.replace(path + '.tmp', path)
 
 
 
@@ -1165,7 +1184,7 @@ def patrol(pid, name, seconds, stop=None):
     (static.py - in town, since it's auto hunting) and leaves the map (_died). Returns how many
     jumps."""
     the_map = map_id(pid)
-    left = _clusters(zone(the_map))
+    left = _clusters(zone(the_map, name))
     random.shuffle(left)
     total = len(_by_portal_last(pid, name, the_map, left))   # the ones it can reach (told once)
     count, n = 0, 0
@@ -1614,7 +1633,7 @@ def _hunt_map(pid, name, seconds, stop):
     (`seconds` each), else explore. Returns how many jumps."""
     city, me = map_id(pid), game_actions.my_pos(pid)
     count = 0
-    if zone(city):
+    if zone(city, name):
         count = patrol(pid, name, TOUR_SECONDS * random.uniform(1 - TOUR_SPREAD, 1 + TOUR_SPREAD), stop)
         areas = None
     else:

@@ -95,6 +95,17 @@ def _protect_passwords(overrides, schema, previous):
     return overrides
 
 
+def _keep_unlisted(overrides, schema, previous):
+    """Saved values the page doesn't show (no longer in the schema, e.g. the old Accounts) are
+    kept as they were - a save never drops them."""
+    for script, fields in previous.items():
+        shown = schema.get(script, {})
+        for name, value in fields.items():
+            if not isinstance(shown.get(name), dict):
+                overrides.setdefault(script, {})[name] = value
+    return overrides
+
+
 def pick_file(filter_spec='All files (*.*)|*.*', start=''):
     """Shows Windows' own Open File dialog (via PowerShell, so it doesn't care which thread the
     request arrives on) and returns the chosen path, or '' if cancelled."""
@@ -206,8 +217,10 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json_body()
             values = body.get('values', {})
             schema = load_schema()
+            previous = load_overrides()
             overrides = compute_overrides(values, schema)
-            overrides = _protect_passwords(overrides, schema, load_overrides())
+            overrides = _protect_passwords(overrides, schema, previous)
+            overrides = _keep_unlisted(overrides, schema, previous)
             save_overrides(overrides)
             self._send_json({'ok': True, 'overrides': masked_overrides(overrides, schema)})
             return
@@ -309,6 +322,8 @@ def try_get_webview():
 
 
 def main():
+    import accounts
+    accounts.move_game_path()
     server, url = start_server()
 
     print('Dragon CO2 settings app')
