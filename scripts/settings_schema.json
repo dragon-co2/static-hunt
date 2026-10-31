@@ -1,0 +1,281 @@
+{
+  "static": {
+    "__title__": "General",
+    "GAME_PATH": {
+      "type": "file",
+      "default": "",
+      "filter": "Programs (*.exe)|*.exe",
+      "desc": "The game's launcher (e.g. Play.exe) - used to open a character's game when it logs in by itself (its Auto login in the panel), at Log in and after a crash."
+    },
+    "FIRST_RUN_REPAIR": {
+      "type": "bool",
+      "default": false,
+      "desc": "Repair each character's gear as soon as it's in the game. Off: the first repair waits REPAIR_INTERVAL seconds too."
+    },
+    "REPAIR_INTERVAL": {
+      "type": "int",
+      "min": 10,
+      "max": 20000,
+      "step": 10,
+      "unit": "s",
+      "default": 8000,
+      "desc": "Seconds between repairs (VIP Repair All) of each character's gear while Static runs."
+    },
+    "ARROWS_MIN": {
+      "type": "int",
+      "min": 0,
+      "max": 10000,
+      "step": 10,
+      "default": 100,
+      "label": "Arrows minimum",
+      "desc": "The equipped arrows are read from the game's memory; when fewer than this, a pack is taken from the bag or the bank tabs (any pack, full or not) and equipped."
+    }
+  },
+  "revive": {
+    "__title__": "Revive",
+    "REVIVE_DELAY": {
+      "type": "int",
+      "min": 0,
+      "max": 3600,
+      "step": 10,
+      "unit": "s",
+      "default": 360,
+      "desc": "Per desktop: once an account is seen dead, wait this long before clicking Revive. Until then that desktop is skipped and the other desktops carry on as usual."
+    },
+    "REVIVE_TIME_MULTIPLIER": {
+      "type": "float",
+      "min": 1.0,
+      "max": 5.0,
+      "step": 0.1,
+      "unit": "x",
+      "default": 2,
+      "label": "Revive time multiplier",
+      "desc": "When the same player kills an account again (several times in a row), the wait before reviving is multiplied by this each time: with 2 it's REVIVE_DELAY, then 2x, 4x... up to MAX_REVIVE_WAIT. 1 = the wait never grows. A kill by a different player starts over at REVIVE_DELAY. Needs the account's character name (Accounts tab)."
+    },
+    "MAX_REVIVE_WAIT": {
+      "type": "int",
+      "min": 60,
+      "max": 7200,
+      "step": 60,
+      "unit": "s",
+      "default": 1800,
+      "desc": "The longest the multiplied revive wait can get (1800 = 30 minutes). Killed by a monster (told apart from players by the game's memory): revive right away, no message, no notification. See REVIVE_TIME_MULTIPLIER."
+    }
+  },
+  "kill_reply": {
+    "__title__": "Kill reply",
+    "SEND_ONCE_EVERYDAY": {
+      "type": "bool",
+      "default": true,
+      "label": "Send once every day",
+      "desc": "On: each killer gets one message per 24 hours, whichever of your accounts they kill; more kills only make the revive wait grow. Off: they get a message after every revive. Who was messaged is kept in messaged_killers.json next to the settings file (survives restarts)."
+    },
+    "FORGET_KILLERS": {
+      "type": "action",
+      "action": "forget_killers",
+      "label": "Forget killers",
+      "button": "Forget killers",
+      "confirm": "Forget every killer that already got a message? They can all get one again.",
+      "desc": "Empties the list of killers who already got a message (messaged_killers.json), so each of them can get a message again. Works right away, even while the script is running."
+    },
+    "MESSAGES": {
+      "type": "lines",
+      "default": "plz stop\nenough plz\nwtf\nwhy killing me?!\nbro im just hunting\n:|\n:/\nplz let me hunt in peace\nstop that!\ndude chill\n????\nleave me alone plz\nstop\nnot cool man\nreally?\nstop wasting ur time\nleave me alone :D\nleave me alone\nyou only good at killing archer?\nyou are so good, play at wars!\nhey stop killing me",
+      "desc": "One message per line — each reply picks one line at random. English letters, numbers and symbols only (it is typed on a US keyboard)."
+    }
+  },
+  "auto_reply": {
+    "__title__": "Auto reply",
+    "AI": {
+      "type": "bool",
+      "default": true,
+      "label": "Answer with AI",
+      "desc": "Claude writes each reply from the talk so far with that player - short, like a player would type. Whatever only you should answer (a trade, a party, a guild, \"are you a bot?\", anything it isn't sure of) it leaves to you on Telegram. Staff ([GM], [PM], [PH]) never get an auto reply - they come to Telegram marked STAFF. Off, or with no API key: the rules below."
+    },
+    "AI_MODEL": {
+      "type": "choice",
+      "default": "Haiku 5.5",
+      "options": [
+        "Haiku 5.5",
+        "Sonnet 5.5",
+        "Opus 5.5"
+      ],
+      "label": "AI model",
+      "desc": "Haiku 5.5: fast and very cheap (about $0.00004 a reply) - enough for short chat. Sonnet 5.5 (about $0.0008) and Opus 5.5 (about $0.0016) write more carefully."
+    },
+    "API_KEY": {
+      "type": "password",
+      "default": "",
+      "label": "API key",
+      "desc": "Your Anthropic API key (console.anthropic.com > Settings > API Keys; billing needs credit). Saved encrypted for this Windows user only - never shown again; paste a new one to change it."
+    },
+    "AI_LIMIT": {
+      "type": "int",
+      "min": 1,
+      "max": 20,
+      "step": 1,
+      "default": 3,
+      "label": "AI replies a player",
+      "desc": "At most this many AI replies to one player within the minutes below - then the talk is left to you on Telegram."
+    },
+    "AI_WINDOW": {
+      "type": "int",
+      "min": 1,
+      "max": 120,
+      "step": 1,
+      "unit": "min",
+      "default": 10,
+      "label": "...within",
+      "desc": "The minutes the limit above counts."
+    },
+    "COOLDOWN": {
+      "type": "int",
+      "min": 1,
+      "max": 1440,
+      "step": 1,
+      "unit": "min",
+      "default": 30,
+      "label": "Once per player",
+      "desc": "Minutes before the same player can get another auto reply."
+    },
+    "RULES": {
+      "type": "lines",
+      "default": "hi, hii, hey, hello, helo, yo, hola, salam, slm, hala, heya => what? | hi? | yes? | ? | hey?\nbro, dude, man, sir, mate => what? | ? | yes?\nsup, wassup, whats up, wsup => nm | nothing u? | ?\nhow are you, how r u, hru, how are u => fine | good u? | ok\n? => ?",
+      "desc": "One rule a line: the words a message starts with, then =>, then the replies split by | (one picked at random). Case, punctuation and drawn-out letters are ignored (\"HEYYY!!\" is \"hey\"). English letters, numbers and symbols only."
+    }
+  },
+  "telegram": {
+    "__title__": "Notifications",
+    "ENABLED": {
+      "type": "bool",
+      "default": false,
+      "desc": "Send Telegram messages to your phone: when one of your accounts is killed, when the script starts, and if it stops with an error. Set up once: in Telegram talk to @BotFather, send /newbot, pick a name, and paste the token it gives you below. Then open your new bot and send it any message (or add it to a group and write there) — that chat gets the notifications. Kills need the accounts' character names (Accounts tab)."
+    },
+    "BOT_TOKEN": {
+      "type": "password",
+      "default": "",
+      "label": "Bot token",
+      "desc": "The token @BotFather gave you (looks like 1234567890:AAH...). Saved encrypted — never shown again; paste a new one to change it."
+    },
+    "NOTIFY": {
+      "type": "choice",
+      "default": "Every kill",
+      "options": [
+        "Every kill",
+        "Same killer again",
+        "3+ kills in 30 min"
+      ],
+      "label": "Notify on",
+      "desc": "Which kills send a message: every kill; only when the same player kills an account again in a row; or only when an account dies 3 or more times within 30 minutes."
+    }
+  },
+  "overlay": {
+    "__title__": "On-screen Console",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Shows the last few console lines on top of the game while static.py runs. Turn off to hide the on-screen console. Clicks always pass through it to the game."
+    },
+    "POSITION": {
+      "type": "choice",
+      "options": [
+        "top-left",
+        "top-center",
+        "top-right",
+        "center",
+        "bottom-left",
+        "bottom-center",
+        "bottom-right"
+      ],
+      "default": "top-center",
+      "desc": "Where on the primary screen the on-screen console sits. Move it if it covers a part of the game the scripts need to see."
+    },
+    "LINES": {
+      "type": "int",
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "unit": "lines",
+      "default": 5,
+      "desc": "How many of the most recent console lines are shown at once."
+    },
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the on-screen console."
+    },
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the on-screen console."
+    },
+    "SHADOW": {
+      "type": "bool",
+      "default": true,
+      "desc": "Draw a black drop shadow behind the text, so it stays readable over light parts of the game."
+    },
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the on-screen console and the edge of the screen."
+    }
+  },
+  "overlay_timers": {
+    "__title__": "On-screen Timers",
+    "ENABLED": {
+      "type": "bool",
+      "default": true,
+      "desc": "Keeps the grab-arrows and repair countdowns on screen while static.py runs. Turn off to hide them."
+    },
+    "POSITION": {
+      "type": "choice",
+      "options": [
+        "top-left",
+        "top-center",
+        "top-right",
+        "center",
+        "bottom-left",
+        "bottom-center",
+        "bottom-right"
+      ],
+      "default": "top-right",
+      "desc": "Where on the primary screen the countdowns sit. Keep it away from the on-screen console and from anything the scripts need to see."
+    },
+    "FONT_SIZE": {
+      "type": "int",
+      "min": 8,
+      "max": 48,
+      "step": 1,
+      "unit": "pt",
+      "default": 14,
+      "desc": "Text size of the countdowns."
+    },
+    "COLOR": {
+      "type": "color",
+      "default": "#00ff00",
+      "desc": "Text color of the countdowns."
+    },
+    "SHADOW": {
+      "type": "bool",
+      "default": true,
+      "desc": "Draw a black drop shadow behind the text, so it stays readable over light parts of the game."
+    },
+    "MARGIN": {
+      "type": "int",
+      "min": 0,
+      "max": 300,
+      "step": 1,
+      "unit": "px",
+      "default": 10,
+      "desc": "Gap in pixels between the countdowns and the edge of the screen."
+    }
+  }
+}

@@ -1,0 +1,933 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dragon CO2</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --border: #e3e5e9;
+    --text: #1c1e21;
+    --muted: #6b7280;
+    --accent: #2563eb;
+    --accent-soft: #eaf1ff;
+    --ok: #16a34a;
+    --warn: #ea580c;
+    --danger: #dc2626;
+    --danger-soft: #fdeaea;
+    --radius: 12px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181d;
+      --panel: #1e2127;
+      --border: #2c3038;
+      --text: #e7e9ec;
+      --muted: #9aa0aa;
+      --accent: #5b8def;
+      --accent-soft: #1c2a44;
+      --ok: #4ade80;
+      --warn: #fb923c;
+      --danger: #f87171;
+      --danger-soft: #3a1e1e;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; font-family: var(--font); background: var(--bg); color: var(--text);
+    font-size: 15px; line-height: 1.45; display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 14px 22px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header h1 span { font-weight: 400; color: var(--muted); font-size: 14px; margin-left: 8px; }
+  button {
+    font-family: var(--font); font-size: 15px; padding: 9px 18px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
+  }
+  button:hover:not(:disabled) { filter: brightness(0.96); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: var(--danger-soft); border-color: var(--danger); color: var(--danger); }
+  button:disabled { opacity: 0.45; cursor: default; }
+
+  #layout { flex: 1; display: grid; grid-template-columns: 250px 290px 1fr; min-height: 0; }
+  .col { min-height: 0; overflow-y: auto; padding: 18px; }
+  .col + .col { border-left: 1px solid var(--border); }
+  .col h2 {
+    margin: 0 0 12px; font-size: 13px; font-weight: 600; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--muted);
+  }
+
+  /* accounts */
+  .acct {
+    display: block; width: 100%; text-align: left; border: none; background: transparent;
+    padding: 11px 14px; margin-bottom: 4px; border-radius: 10px;
+  }
+  .acct:hover { background: var(--bg); }
+  .acct.active { background: var(--accent-soft); }
+  .acct .name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .acct.active .name { color: var(--accent); }
+  .acct.closed { opacity: .5; }
+  .acct.closed.active { opacity: .75; }
+  .dot.wait { background: var(--warn); }
+  input[type=text], input[type=password], select {
+    padding: 7px 10px; font-size: 14px; border-radius: 8px; font-family: var(--font);
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  input[type=text], input[type=password] { width: 190px; }
+  .field-row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 8px; margin: 8px 0; }
+  .field-row select { justify-self: start; min-width: 190px; }
+  .sep { border-top: 1px solid var(--border); margin: 12px 0; }
+  .note { font-size: 13px; color: var(--muted); }
+  .acct .sub {
+    display: block; font-size: 12.5px; color: var(--muted); margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); flex: none; }
+  .dot.on { background: var(--ok); }
+  .empty { color: var(--muted); font-size: 14px; }
+
+  /* modes */
+  .mode {
+    display: flex; align-items: flex-start; gap: 12px; padding: 14px; margin-bottom: 10px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); cursor: pointer;
+  }
+  .mode.sub { margin-left: 26px; }
+  .mode.checked { border-color: var(--accent); background: var(--accent-soft); }
+  .mode.disabled { opacity: .45; cursor: default; }
+  .mode input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); cursor: inherit; flex: none; }
+  .mode b { display: block; font-weight: 600; }
+  .mode small { display: block; color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+
+  /* right: tabs */
+  #right { display: flex; flex-direction: column; padding: 0; }
+  .tabs { display: flex; gap: 8px; padding: 18px 18px 0; }
+  .tabs button { flex: 1; border-bottom: 3px solid transparent; font-weight: 600; }
+  .tabs button.active { background: var(--accent-soft); color: var(--accent); border-bottom-color: var(--accent); }
+  .pane { flex: 1; min-height: 0; overflow-y: auto; padding: 18px; display: none; }
+  .pane.active { display: block; }
+  #logPane.active { display: flex; flex-direction: column; }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; margin-bottom: 12px;
+  }
+  .card h3 { margin: 0 0 10px; font-size: 15px; }
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; }
+  .muted { color: var(--muted); }
+  .mono { font-family: var(--mono); font-size: 13.5px; }
+  .status { font-family: var(--mono); font-size: 13.5px; word-break: break-word; }
+  .center { text-align: center; padding: 40px 10px; }
+  label.check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+  label.check input { width: 17px; height: 17px; accent-color: var(--accent); }
+  label.check.off { opacity: .45; cursor: default; }
+  input[type=number] {
+    width: 64px; padding: 6px 8px; font-size: 14px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  }
+  .pill {
+    display: inline-block; padding: 2px 10px; border-radius: 99px; font-size: 12.5px;
+    background: var(--bg); border: 1px solid var(--border);
+  }
+  .pill.on { color: var(--ok); border-color: var(--ok); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+  .stats div { background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+  .stats small { display: block; font-size: 12px; color: var(--muted); }
+  .stats b { font-size: 17px; font-variant-numeric: tabular-nums; }
+  .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 14px; }
+
+  .players { display: flex; gap: 12px; align-items: flex-start; }
+  .plist {
+    flex: 1; min-height: 150px; max-height: 220px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
+  }
+  .plist div { padding: 7px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .plist div:last-child { border-bottom: none; }
+  .plist div.sel { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .plist div.target::after { content: ' • target'; color: var(--ok); font-weight: 400; font-size: 12px; }
+  .plist .none { color: var(--muted); cursor: default; }
+  .side { display: flex; flex-direction: column; gap: 8px; }
+
+  /* log */
+  .logbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  #log {
+    flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 12px 14px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    font-family: var(--mono); font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+  }
+
+  dialog {
+    border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel);
+    color: var(--text); padding: 22px; max-width: 360px;
+  }
+
+  /* the hunt zones editor */
+  #zones {
+    position: fixed; inset: 0; z-index: 50; background: var(--bg); display: none;
+    flex-direction: column;
+  }
+  #zones.open { display: flex; }
+  #zones .bar {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 18px;
+    background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  #zones .bar h3 { margin: 0 8px 0 0; font-size: 16px; }
+  #zones .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  #zones .seg button { border: none; border-radius: 0; padding: 8px 14px; }
+  #zones .seg button.on { background: var(--accent); color: #fff; }
+  #zones .stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 12px; }
+  #zCanvas { cursor: crosshair; border-radius: 8px; box-shadow: 0 0 0 1px var(--border); }
+  #zInfo { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  #zInfo b { color: var(--warn); font-weight: 600; }
+
+  button.go { background: var(--ok); border-color: var(--ok); color: #fff; font-weight: 600; }
+  #access .err { color: var(--danger); font-size: 14px; min-height: 20px; margin-top: 8px; }
+  #access input { width: 100%; }
+  .lock { font-size: 12.5px; color: var(--warn); }
+
+  /* the Users window (users.py) */
+  #users { position: fixed; inset: 0; z-index: 50; background: var(--bg); display: none; flex-direction: column; }
+  #users.open { display: flex; }
+  #users .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 12px 18px;
+                background: var(--panel); border-bottom: 1px solid var(--border); }
+  #users .bar h3 { margin: 0 8px 0 0; font-size: 16px; }
+  #users .body { flex: 1; overflow-y: auto; padding: 18px; }
+  #uTable { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border);
+            border-radius: var(--radius); overflow: hidden; font-size: 14px; }
+  #uTable th { text-align: left; font-size: 12.5px; color: var(--muted); font-weight: 600; padding: 10px 12px;
+               border-bottom: 1px solid var(--border); }
+  #uTable td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
+  #uTable tr:last-child td { border-bottom: none; }
+  #uTable td.acts { text-align: right; white-space: nowrap; }
+  #uTable td.acts button { padding: 6px 11px; font-size: 13px; margin-left: 4px; }
+  #uTable input.until { padding: 5px 8px; font-size: 13px; border-radius: 8px; color-scheme: light dark;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: var(--font); }
+  #uTable button.mini { padding: 3px 8px; font-size: 12px; margin-left: 6px; }
+  #uTable .off { color: var(--danger); } #uTable .gone { color: var(--warn); }
+  #uNew { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius);
+          padding: 12px 16px; margin-bottom: 14px; display: none; }
+  #uNew code { font-family: var(--mono); font-size: 16px; font-weight: 600; }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog .row { justify-content: flex-end; margin-top: 18px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dragon CO2 <span id="loginMode"></span></h1>
+  <div class="row" style="margin:0">
+    <button id="accessBtn" class="go">Activate Auto Features</button>
+    <button id="adminBtn" style="display:none">Users</button>
+    <button id="settingsTop">Global Settings</button>
+    <button id="restart" title="Start again - settings changes take effect">Restart</button>
+  </div>
+</header>
+
+<div id="layout">
+  <div class="col" id="accounts"><h2>Characters</h2><div id="acctList"></div></div>
+  <div class="col" id="modes"><h2>Mode</h2><div id="modeList"></div></div>
+  <div class="col" id="right">
+    <div class="tabs">
+      <button data-tab="optPane" class="active">Options</button>
+      <button data-tab="logPane">Log</button>
+    </div>
+    <div class="pane active" id="optPane"></div>
+    <div class="pane" id="logPane">
+      <div class="logbar">
+        <label class="check"><input type="checkbox" id="logMine" checked> This account only</label>
+        <span class="muted mono" id="logCount"></span>
+      </div>
+      <pre id="log"></pre>
+    </div>
+  </div>
+</div>
+
+
+<div id="zones">
+  <div class="bar">
+    <h3 id="zTitle">Hunt zones</h3>
+    <select id="zMap"></select>
+    <span class="seg"><button id="zPaint" class="on">Paint</button><button id="zErase">Erase</button></span>
+    <label class="check">Brush <input type="range" id="zBrush" min="1" max="6" value="2" style="width:90px"> <span id="zBrushN">2</span></label>
+    <button class="primary" id="zSave">Save</button>
+    <button id="zClear">Clear</button>
+    <button id="zDefault" title="Its own drawing of this map removed - the default one is used">Use default</button>
+    <span id="zInfo"></span>
+    <button id="zClose" style="margin-left:auto">Close</button>
+  </div>
+  <div class="stage" id="zStage"><canvas id="zCanvas"></canvas></div>
+</div>
+
+<dialog id="access">
+  <h3 style="margin:0 0 6px">Activate Auto Features</h3>
+  <div class="note" id="accNote">Auto hunt, Monk / Troj / Warr, Auto heal and Mail &amp; Bank Compose.</div>
+  <div id="accForm">
+    <div class="field-row"><span>Username</span><input type="text" id="accUser" autocomplete="off"></div>
+    <div class="field-row"><span>Password</span><input type="password" id="accPass" autocomplete="off"></div>
+  </div>
+  <div class="err" id="accErr"></div>
+  <div class="row">
+    <button id="accOut" class="danger" style="margin-right:auto">Sign out</button>
+    <button id="accNo">Close</button>
+    <button id="accGo" class="go">Activate</button>
+  </div>
+</dialog>
+
+<div id="users">
+  <div class="bar">
+    <h3>Users</h3>
+    <input type="text" id="uName" placeholder="username" autocomplete="off" style="width:170px">
+    <input type="number" id="uDays" value="30" min="1" style="width:70px"> <span>days</span>
+    <button class="go" id="uAdd">Add user</button>
+    <button id="uRefresh">Refresh</button>
+    <span class="note" id="uSaid"></span>
+    <button id="uClose" style="margin-left:auto">Close</button>
+  </div>
+  <div class="body">
+    <div id="uNew"></div>
+    <table id="uTable"><thead><tr><th>User</th><th>Password</th><th>Until</th><th>PC</th><th>Last seen</th><th>State</th><th></th></tr></thead>
+      <tbody id="uRows"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody></table>
+    <div class="note" style="margin-top:10px">PC: the first PC that activated it - Reset PC lets it move to another.
+      A new user may take up to a minute to show in the list (Cloudflare).</div>
+  </div>
+</div>
+<dialog id="confirm">
+  <div id="confirmText"></div>
+  <div class="row">
+    <button value="no" id="confirmNo">Cancel</button>
+    <button value="yes" id="confirmYes" class="danger">Clear</button>
+  </div>
+</dialog>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let state = {accounts: [], modes: {}};
+let selected = null;
+try { selected = localStorage.getItem('panel.selected'); } catch (e) {}
+let openOnStart = '';      // #zones:<key> - straight to that character's hunt zones
+if (location.hash.startsWith('#zones:')) openOnStart = selected = decodeURIComponent(location.hash.slice(7));
+else if (location.hash) selected = decodeURIComponent(location.hash.slice(1));
+
+async function api(body) {
+  const r = await fetch('/api/do', {method: 'POST', headers: {'Content-Type': 'application/json'},
+                                     body: JSON.stringify(body)});
+  const out = await r.json();
+  if (!out.ok && out.message) alert(out.message);
+  await refresh();
+  return out;
+}
+
+function current() { return state.accounts.find(a => a.key === selected) || null; }
+function label(a) { return a.name || a.user || ('Account ' + a.slot); }
+
+/* ---------------- accounts */
+function renderAccounts() {
+  const list = $('#acctList');
+  if (!state.accounts.length) {
+    list.innerHTML = '<div class="empty">Open a game and log in - the character shows up here.</div>';
+    list.dataset.html = '';
+    return;
+  }
+  const html = state.accounts.map(a => `
+    <button class="acct ${a.key === selected ? 'active' : ''} ${a.running ? '' : 'closed'}" data-key="${esc(a.key)}">
+      <span class="name"><span class="dot ${a.running ? 'on' : a.logging_in ? 'wait' : ''}"></span>${esc(label(a))}</span>
+      <span class="sub">${a.running ? esc(state.modes[a.mode] || a.mode) : a.logging_in ? 'logging in...' : 'closed'}</span>
+    </button>`).join('');
+  if (html !== list.dataset.html) { list.innerHTML = html; list.dataset.html = html; }
+}
+$('#acctList').addEventListener('click', e => {
+  const b = e.target.closest('.acct');
+  if (!b) return;
+  selected = b.dataset.key;
+  try { localStorage.setItem('panel.selected', selected); } catch (e) {}
+  shape = ''; render(); renderLog(true);
+});
+
+/* ---------------- modes: Static / Auto / Monk / Heal - one at a time */
+const MODE_ROWS = [
+  {id: 'static', title: 'Static Hunt', note: 'Scatters where it stands - deposits, bank, revive, replies'},
+  {id: 'auto', title: 'Auto Hunt', note: 'Tours the hunting areas and cities - deposits, bank, revive, replies'},
+  {id: 'monk', title: 'Monk / Troj / Warr Hunt', note: 'Jumps to each monster and hits it'},
+  {id: 'heal', title: 'Auto Heal / Attack', note: 'Potions, buffs, the players list and the shortcut'},
+];
+function modeChecked(id, mode) { return mode === id; }
+function modeEnabled(id, mode) {
+  if ((state.locked || []).includes(id) && !(state.access || {}).active) return false;
+  return mode === 'off' || mode === id;
+}
+function renderModes() {
+  const a = current();
+  if (!a) { $('#modeList').innerHTML = '<div class="empty">Pick an account.</div>'; $('#modeList').dataset.html = ''; return; }
+  const html = (a.running ? '' : '<div class="note" style="margin-bottom:10px">Not in game - log it in first.</div>')
+    + MODE_ROWS.map(m => {
+    const on = modeChecked(m.id, a.mode), enabled = a.running && modeEnabled(m.id, a.mode);
+    return `<label class="mode ${m.sub ? 'sub' : ''} ${on ? 'checked' : ''} ${enabled ? '' : 'disabled'}">
+      <input type="checkbox" data-mode="${m.id}" ${on ? 'checked' : ''} ${enabled ? '' : 'disabled'}>
+      <span><b>${m.title}</b><small>${m.note}</small>${(state.locked || []).includes(m.id)
+        && !(state.access || {}).active ? '<span class="lock">🔒 Activate Auto Features</span>' : ''}</span></label>`;
+  }).join('');
+  const box = $('#modeList');
+  if (html !== box.dataset.html) { box.innerHTML = html; box.dataset.html = html; }
+}
+$('#modeList').addEventListener('change', e => {
+  const a = current(), id = e.target.dataset.mode;
+  if (!a || !id) return;
+  let mode;
+  mode = e.target.checked ? id : 'off';
+  api({action: 'mode', key: a.key, mode});
+});
+
+/* ---------------- options: what the mode has */
+let shape = '';
+function renderOptions() {
+  const a = current(), pane = $('#optPane');
+  if (!a) { pane.innerHTML = ''; shape = ''; return; }
+  const h = state.heal || {};
+  const key = [a.key, a.mode, a.running, !!a.heal, a.heal && a.heal.buffs.map(b => b.has).join(),
+               (h.players || []).join('|'), a.profile.auto_login, a.profile.user, a.profile.has_pass,
+               state.accounts.map(x => x.name).join('|'), (state.access || {}).active].join('/');
+  if (key !== shape) {                    // build it once; afterwards only the values change
+    shape = key;
+    pane.innerHTML = optionsHtml(a);
+  }
+  fillOptions(a);
+}
+
+function characterHtml(a) {
+  const p = a.profile;
+  return `
+    <div class="card"><h3>${esc(label(a))}</h3>
+      <div class="status" id="oStatus"></div>
+      <div class="sep"></div>
+      <label class="check"><input type="checkbox" id="pAuto" ${p.auto_login ? 'checked' : ''}> Auto login</label>
+      <div class="note">Logged in by the script - and again after a crash or disconnect.</div>
+      ${p.auto_login ? `
+        <div class="field-row"><span>Username</span><input type="text" id="pUser" value="${esc(p.user)}" autocomplete="off"></div>
+        <div class="field-row"><span>Password</span><input type="password" id="pPass"
+             placeholder="${p.has_pass ? 'saved - type to change' : ''}" autocomplete="new-password"></div>
+        <div class="row"><button id="pSave">Save login</button>
+          ${a.running ? '' : (p.user && p.has_pass ? '<button class="primary" id="pLogin"></button>' : '')}</div>` : ''}
+      <div class="sep"></div>
+      <label class="check"><input type="checkbox" id="pF10" ${p.f10 ? 'checked' : ''}> F10 XP skill</label>
+      <div class="note">The F10 hotkey every 2 s while Static / Auto hunt runs.</div>
+      <div class="sep"></div>
+      <label class="check"><input type="checkbox" id="pKill" ${p.kill_reply ? 'checked' : ''}> Kill reply</label>
+      <div class="note">Whispers its killer once revived (the messages: Global Settings).</div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="pReply" ${p.auto_reply ? 'checked' : ''}> Auto reply</label>
+      <div class="note">Answers a player who whispers / talks to it (rules or AI: Global Settings).</div>
+      ${a.running ? '' : '<div class="sep"></div><button class="danger" id="pForget">Forget this character</button>'}
+    </div>`;
+}
+
+function cpsHtml(a) {
+  return `<div class="row"><label class="check"><input type="checkbox" id="pCps" ${a.profile.mail_cps ? 'checked' : ''}>
+      Send the CPs too, keeping</label>
+    <input type="number" id="pKeep" min="0" step="1000" value="${a.profile.cps_keep}" style="width:100px"></div>`;
+}
+
+function mailToHtml(a) {
+  const p = a.profile;
+  const others = state.accounts.map(x => x.name).filter(n => n && n !== a.name);
+  if (p.mail_to && !others.includes(p.mail_to)) others.push(p.mail_to);
+  return `<div class="sep"></div>
+    <div class="field-row"><span>Mail items to</span><select id="pMailTo">
+      <option value="">- nobody -</option>
+      ${others.map(n => `<option value="${esc(n)}" ${n === p.mail_to ? 'selected' : ''}>${esc(n)}</option>`).join('')}
+    </select></div>
+    <div class="note">Its compose items every 10 min while it hunts; the receiver claims them.</div>
+    ${cpsHtml(a)}`;
+}
+
+function mailHtml(a) {
+  return `
+    <div class="card"><h3>Mail &amp; Bank Compose</h3>
+      <div class="status" id="mSaid"></div>
+      <div class="sep"></div>
+      <div class="field-row"><span>Send to</span>
+        <div class="row" style="margin:0"><input type="text" id="mTo" list="mNames" value="${esc(a.profile.send_to)}" autocomplete="off">
+          <button class="primary mjob" data-job="send">Send</button></div></div>
+      <datalist id="mNames">${state.accounts.map(x => x.name).filter(n => n && n !== a.name)
+        .map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <div class="note">Its compose warehouse's items, by mail.</div>
+      ${cpsHtml(a)}
+      <div class="sep"></div>
+      <div class="row">
+        <button class="mjob" data-job="claim">Receive to bag</button>
+        <button class="mjob" data-job="receive">Receive to bank</button>
+        <button class="mjob" data-job="withdraw" style="margin-left:auto">Export from bank</button>
+      </div>
+      <div class="note">Receive: Claim All in the mail - into the bag, or on into the compose warehouse.
+        Export: the compose warehouse's items into the bag (till it's full). With Static on, its bank
+        round waits while a button runs - after, it deposits + items in the bag as usual.</div>
+    </div>`;
+}
+
+function optionsHtml(a) {
+  const head = characterHtml(a);
+  const mail = (state.access || {}).active ? mailHtml(a)
+    : '<div class="card"><h3>Mail &amp; Bank Compose</h3><span class="lock">🔒 Activate Auto Features</span></div>';
+  return a.running ? head + modeHtml(a) + mail : head;     // Mail & Bank Compose: always
+}
+
+function modeHtml(a) {
+  const head = '';
+  if (!a.running || a.mode === 'off') return head;
+  if (a.mode === 'static') return head + `
+      <div class="card"><h3>Static hunt</h3>
+        <div class="stats">
+          <div><small>Map</small><b id="aMap">-</b></div>
+          <div><small>Kills today</small><b id="aToday">-</b></div>
+          <div><small>Kills in all</small><b id="aTotal">-</b></div>
+          <div><small>Arrows</small><b id="aArrows">-</b></div>
+        </div>
+      </div>`;
+  if (a.mode === 'auto') return head + `
+      <div class="card"><h3>Auto hunt</h3>
+        <div class="stats">
+          <div><small>Map</small><b id="aMap">-</b></div>
+          <div><small>Kills today</small><b id="aToday">-</b></div>
+          <div><small>Kills in all</small><b id="aTotal">-</b></div>
+          <div><small>Arrows</small><b id="aArrows">-</b></div>
+        </div>
+        <div class="status" id="oHunt"></div>
+        <div class="status" id="aSaid" style="color:var(--accent)"></div>
+        <div class="sep"></div>
+        <div class="row"><span>Go to</span>
+          <select id="aCity">${(state.cities || []).map(([c, t]) => `<option value="${c}">${esc(t)}</option>`).join('')}</select>
+          <button class="primary" id="aGo">Teleport</button>
+          <button id="aZones" style="margin-left:auto">Edit its hunt zones</button></div>
+        <div class="note">Teleport: the hunt stops, the VIP teleport, then it hunts there.
+          Hunt zones: where it plays on each map - its own drawing, else the default.</div>
+        ${mailToHtml(a)}</div>`;
+  if (a.mode === 'monk') return head + `
+      <div class="card"><h3>Monk hunt</h3><div class="status" id="oHunt"></div></div>`;
+  if (!a.heal) return head + `<div class="center muted">Starting Auto heal...</div>`;
+  const h = state.heal || {};
+  return head + `
+    <div class="card"><h3>Auto heal</h3>
+      <div class="grid2 mono" id="oVitals"></div>
+      <div class="row" style="margin-top:12px">${a.heal.buffs.map(b => `
+        <label class="check ${b.has ? '' : 'off'}" title="${b.has ? 'kept up on itself' : 'it does not have this skill'}">
+          <input type="checkbox" data-buff="${b.skill}" ${b.has ? '' : 'disabled'}> ${esc(b.name)}
+          <span class="pill" data-buffon="${b.skill}"></span></label>`).join('')}
+      </div></div>
+    <div class="card"><h3>Shortcut</h3>
+      <div class="row"><span>Target:</span><b id="oTarget"></b></div>
+      <div class="row"><button id="oKey" data-act="heal_hotkey"></button></div>
+      <div class="row"><label class="check"><input type="checkbox" id="oSkip"> Run, don't jump, if the target is within</label>
+        <input type="number" id="oNear" min="1" max="16"> <span>cells</span></div>
+      <div class="row"><label class="check"><input type="checkbox" id="oPath"> Path find (round walls, far targets)</label></div>
+    </div>
+    <div class="card"><h3>Players list</h3>
+      <div class="row"><label class="check"><input type="checkbox" id="oListOn"> On - attacked / killed players are added, the shortcut goes for them</label></div>
+      <div class="players">
+        <div class="plist" id="oPlayers">${(h.players || []).length ? h.players.map(p =>
+          `<div data-player="${esc(p)}">${esc(p)}</div>`).join('') : '<div class="none">No players yet</div>'}</div>
+        <div class="side">
+          <label class="check"><input type="checkbox" id="oLock"> Lock player</label>
+          <button id="oRemove">Remove</button>
+          <button class="danger" id="oClear">Clear</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+let picked = '';          // the player clicked in the list
+function setIf(el, prop, v) { if (el && document.activeElement !== el && el[prop] !== v) el[prop] = v; }
+function fillOptions(a) {
+  setIf($('#oStatus'), 'textContent', a.running ? (a.status || '-') : a.logging_in ? 'logging in...' : 'closed');
+  setIf($('#oHunt'), 'textContent', a.hunt || 'starting...');
+  if (a.auto) {                                   // Static / Auto hunt: the numbers
+    setIf($('#aMap'), 'textContent', a.auto.map);
+    setIf($('#aToday'), 'textContent', a.auto.kills_today.toLocaleString());
+    setIf($('#aTotal'), 'textContent', a.auto.kills_total.toLocaleString());
+    setIf($('#aArrows'), 'textContent', a.auto.arrows == null ? '-' : a.auto.arrows.toLocaleString());
+    setIf($('#aSaid'), 'textContent', (a.job || {}).said || '');
+  }
+  if (a.job) {
+    setIf($('#mSaid'), 'textContent', a.job.busy ? a.job.busy + '...' : (a.job.said || 'Pick what to do.'));
+    document.querySelectorAll('.mjob').forEach(b => b.disabled = !!a.job.busy);
+  }
+  const login = $('#pLogin');
+  if (login) { login.textContent = a.logging_in ? 'Stop logging in' : 'Log in now'; login.className = a.logging_in ? '' : 'primary'; }
+  setIf($('#pF10'), 'checked', a.profile.f10);
+  setIf($('#pKill'), 'checked', a.profile.kill_reply);
+  setIf($('#pReply'), 'checked', a.profile.auto_reply);
+  setIf($('#pCps'), 'checked', a.profile.mail_cps);
+  setIf($('#pKeep'), 'value', String(a.profile.cps_keep));
+  setIf($('#pMailTo'), 'value', a.profile.mail_to);
+  if (a.mode !== 'heal' || !a.heal) return;
+  const h = state.heal || {}, v = a.heal.vitals;
+  const vit = $('#oVitals');
+  if (vit) vit.innerHTML = v ? `<span>HP</span><span>${v.hp} / ${v.max_hp}</span><span>MP</span><span>${v.mp}</span>
+      <span>Ointments</span><span>${v.potions['7StarOintment']} + ${v.potions['7StarPouch']} pouches</span>
+      <span>Pills</span><span>${v.potions['SerenityPill']} + ${v.potions['SerenityPouch']} pouches</span>`
+    : '<span class="muted">not in game</span><span></span>';
+  for (const b of a.heal.buffs) {
+    setIf(document.querySelector(`[data-buff="${b.skill}"]`), 'checked', b.on);
+    const p = document.querySelector(`[data-buffon="${b.skill}"]`);
+    if (p) { p.textContent = b.active ? 'on' : 'off'; p.className = 'pill ' + (b.active ? 'on' : ''); }
+  }
+  setIf($('#oTarget'), 'textContent', h.target || '-');
+  const k = $('#oKey');
+  k.textContent = h.capturing ? 'Press the new shortcut... (Esc: keep)' : 'Shortcut: ' + h.hotkey;
+  k.className = h.capturing ? 'primary' : '';
+  setIf($('#oSkip'), 'checked', h.skip_near);
+  setIf($('#oNear'), 'value', String(h.near_cells));
+  setIf($('#oPath'), 'checked', h.path_find);
+  setIf($('#oListOn'), 'checked', h.list_on);
+  setIf($('#oLock'), 'checked', !!h.lock);
+  const show = h.lock || picked || h.target || (h.players || [])[0] || '';
+  document.querySelectorAll('#oPlayers [data-player]').forEach(d => {
+    d.classList.toggle('sel', d.dataset.player === show);
+    d.classList.toggle('target', d.dataset.player === h.target);
+    d.textContent = d.dataset.player + (d.dataset.player === h.lock ? ' (locked)' : '');
+  });
+}
+
+$('#optPane').addEventListener('click', e => {
+  const a = current(), t = e.target;
+  const act = t.closest('[data-act]');
+  if (act) return api({action: act.dataset.act, key: a && a.key});
+  const p = t.closest('[data-player]');
+  if (p) {
+    picked = p.dataset.player;
+    if (!(state.heal || {}).lock) api({action: 'heal_pick', name: picked});
+    else fillOptions(a);
+    return;
+  }
+  if (t.id === 'aGo') {
+    const v = $('#aCity').value;
+    return api({action: 'teleport', key: a.key, code: /^\d+$/.test(v) ? +v : v});
+  }
+  if (t.id === 'aZones') return openZones(a);
+  const job = t.closest('.mjob');
+  if (job) return api({action: 'mail_job', key: a.key, job: job.dataset.job, to: ($('#mTo') || {}).value || ''});
+  if (t.id === 'pSave') return api({action: 'login_save', key: a.key, user: $('#pUser').value, password: $('#pPass').value});
+  if (t.id === 'pLogin') return api({action: a.logging_in ? 'login_stop' : 'login_now', key: a.key});
+  if (t.id === 'pForget') {
+    if (confirm(`Forget ${label(a)}? Its options and saved login are removed.`)) api({action: 'forget', key: a.key});
+    return;
+  }
+  if (t.id === 'oRemove' && picked) { api({action: 'heal_remove', name: picked}); picked = ''; }
+  if (t.id === 'oClear') {
+    const n = ((state.heal || {}).players || []).length;
+    if (!n) return;
+    $('#confirmText').textContent = `Remove all ${n} players from the list?`;
+    $('#confirm').showModal();
+  }
+});
+$('#confirm').addEventListener('click', e => {
+  if (e.target.id === 'confirmYes') api({action: 'heal_clear'});
+  if (e.target.id === 'confirmYes' || e.target.id === 'confirmNo' || e.target === $('#confirm')) $('#confirm').close();
+});
+$('#optPane').addEventListener('change', e => {
+  const a = current(), t = e.target;
+  const prof = (field, value) => api({action: 'profile', key: a.key, field, value});
+  if (t.id === 'pAuto') return prof('auto_login', t.checked);
+  if (t.id === 'pF10') return prof('f10', t.checked);
+  if (t.id === 'pKill') return prof('kill_reply', t.checked);
+  if (t.id === 'pReply') return prof('auto_reply', t.checked);
+  if (t.id === 'pMailTo') return prof('mail_to', t.value);
+  if (t.id === 'pCps') return prof('mail_cps', t.checked);
+  if (t.id === 'pKeep') return prof('cps_keep', +t.value);
+  if (t.id === 'pUser' || t.id === 'pPass') return;
+  if (t.id === 'mTo') return prof('send_to', t.value);
+  if (t.dataset.buff) return api({action: 'heal_buff', key: a.key, skill: +t.dataset.buff, on: t.checked});
+  if (t.id === 'oSkip') return api({action: 'heal_skip_near', on: t.checked});
+  if (t.id === 'oNear') return api({action: 'heal_near_cells', cells: +t.value});
+  if (t.id === 'oPath') return api({action: 'heal_path_find', on: t.checked});
+  if (t.id === 'oListOn') return api({action: 'heal_list_on', on: t.checked});
+  if (t.id === 'oLock') {
+    const name = t.checked ? (picked || (state.heal || {}).target || ((state.heal || {}).players || [])[0] || '') : '';
+    if (t.checked && !name) { t.checked = false; return; }
+    return api({action: 'heal_lock', name});
+  }
+});
+
+/* ---------------- tabs, header */
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('active', x === b));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('active', p.id === b.dataset.tab));
+  if (b.dataset.tab === 'logPane') renderLog(true);
+}));
+$('#settingsTop').onclick = () => api({action: 'settings'});
+$('#restart').onclick = () => {
+  $('#restart').disabled = true;
+  fetch('/api/do', {method: 'POST', body: JSON.stringify({action: 'restart'})}).catch(() => {});
+};
+
+/* ---------------- log */
+let logLines = [], logLast = 0;
+async function pullLog() {
+  try {
+    const r = await (await fetch('/api/log?since=' + logLast)).json();
+    if (r.lines.length) {
+      logLines = logLines.concat(r.lines).slice(-4000);
+      logLast = r.last;
+      renderLog(false);
+    }
+  } catch (e) {}
+}
+function renderLog(force) {
+  if (!$('#logPane').classList.contains('active')) return;
+  const box = $('#log'), atEnd = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+  const a = current();
+  const words = $('#logMine').checked && a ? [a.name, a.user].filter(Boolean).map(w => w.toLowerCase()) : [];
+  const shown = words.length ? logLines.filter(([, t]) => words.some(w => t.toLowerCase().includes(w))) : logLines;
+  box.textContent = shown.map(([, t]) => t).join('\n');
+  $('#logCount').textContent = `${shown.length} lines`;
+  if (atEnd || force) box.scrollTop = box.scrollHeight;
+}
+$('#logMine').addEventListener('change', () => renderLog(true));
+
+
+/* ---------------- the hunt zones editor: left paints (or the tool picked), right erases */
+const Z = {key: '', name: '', info: null, squares: new Set(), saved: '', img: null, scale: 1,
+           paint: true, down: 0, timer: null};
+const zKey = (x, y) => x + ',' + y;
+async function openZones(a, map) {
+  Z.key = a.key; Z.name = a.name;
+  $('#zTitle').textContent = 'Hunt zones - ' + a.name;
+  $('#zones').classList.add('open');
+  await loadZone(map);
+  clearInterval(Z.timer);
+  Z.timer = setInterval(refreshChars, 2000);
+}
+async function loadZone(map) {
+  const r = await (await fetch(`/api/zone?key=${encodeURIComponent(Z.key)}` + (map ? `&map=${map}` : ''))).json();
+  if (r.error) { alert(r.error); return closeZones(); }
+  Z.info = r;
+  Z.squares = new Set(r.squares.map(([x, y]) => zKey(x, y)));
+  Z.saved = [...Z.squares].sort().join(';');
+  $('#zMap').innerHTML = r.maps.map(([m, t]) =>
+    `<option value="${m}" ${m === r.map ? 'selected' : ''}>${esc(t)}${m === r.here ? ' (here)' : ''}</option>`).join('');
+  Z.img = new Image();
+  Z.img.onload = () => { fitZone(); drawZone(); };
+  Z.img.src = `/api/map.png?map=${r.map}`;
+}
+function closeZones() {
+  if (zChanged() && !confirm('Close without saving the drawing?')) return;
+  clearInterval(Z.timer);
+  $('#zones').classList.remove('open');
+}
+function zChanged() { return Z.info && [...Z.squares].sort().join(';') !== Z.saved; }
+function fitZone() {
+  const st = $('#zStage'), i = Z.info;
+  Z.scale = Math.min((st.clientWidth - 24) / i.width, (st.clientHeight - 24) / i.height);
+  const c = $('#zCanvas');
+  c.width = Math.round(i.width * Z.scale); c.height = Math.round(i.height * Z.scale);
+}
+function drawZone() {
+  const c = $('#zCanvas'), g = c.getContext('2d'), i = Z.info, z = i.cells * Z.scale;
+  if (!Z.img || !Z.img.complete) return;
+  g.imageSmoothingEnabled = false;
+  g.drawImage(Z.img, 0, 0, c.width, c.height);
+  g.fillStyle = 'rgba(60, 200, 80, 0.55)';
+  for (const k of Z.squares) {
+    const [x, y] = k.split(',').map(Number);
+    g.fillRect(x * z, y * z, Math.ceil(z), Math.ceil(z));
+  }
+  g.font = '11px Segoe UI'; g.lineWidth = 2;
+  for (const [t, x, y] of i.areas) {
+    g.strokeStyle = g.fillStyle = '#ef4444';
+    g.beginPath(); g.arc(x * Z.scale, y * Z.scale, 5, 0, 7); g.stroke();
+    g.fillText(t, x * Z.scale + 8, y * Z.scale + 4);
+  }
+  g.font = 'bold 12px Segoe UI';
+  for (const [n, x, y] of i.chars) {
+    g.fillStyle = '#3b82f6'; g.strokeStyle = '#fff';
+    g.beginPath(); g.arc(x * Z.scale, y * Z.scale, 5, 0, 7); g.fill(); g.stroke();
+    g.fillText(n, x * Z.scale + 8, y * Z.scale - 6);
+  }
+  zStatus();
+}
+function zStatus(cell) {
+  const whose = Z.info.own ? 'its own' : 'the default';
+  $('#zInfo').innerHTML = (cell ? `cell (${cell[0]}, ${cell[1]}) &nbsp; ` : '') +
+    `${Z.squares.size} squares - ${whose}` + (zChanged() ? ' - <b>not saved</b>' : '');
+}
+async function refreshChars() {
+  if (!Z.info) return;
+  try {
+    const r = await (await fetch(`/api/zone?key=${encodeURIComponent(Z.key)}&map=${Z.info.map}&chars=1`)).json();
+    if (r.chars) { Z.info.chars = r.chars; drawZone(); }
+  } catch (e) {}
+}
+function zCell(e) {
+  const b = $('#zCanvas').getBoundingClientRect();
+  return [Math.floor((e.clientX - b.left) / Z.scale), Math.floor((e.clientY - b.top) / Z.scale)];
+}
+function zBrushAt(e, add) {
+  const [x, y] = zCell(e), r = +$('#zBrush').value - 1, n = Z.info.cells;
+  const sx = Math.floor(x / n), sy = Math.floor(y / n);
+  for (let dx = -r; dx <= r; dx++)
+    for (let dy = -r; dy <= r; dy++)
+      add ? Z.squares.add(zKey(sx + dx, sy + dy)) : Z.squares.delete(zKey(sx + dx, sy + dy));
+  drawZone();
+}
+const zc = $('#zCanvas');
+zc.addEventListener('contextmenu', e => e.preventDefault());
+zc.addEventListener('mousedown', e => { Z.down = e.button === 2 ? 2 : 1; zBrushAt(e, Z.down === 1 && Z.paint); });
+zc.addEventListener('mousemove', e => {
+  if (Z.down) zBrushAt(e, Z.down === 1 && Z.paint);
+  zStatus(zCell(e));
+});
+window.addEventListener('mouseup', () => { Z.down = 0; });
+$('#zPaint').onclick = () => { Z.paint = true; $('#zPaint').classList.add('on'); $('#zErase').classList.remove('on'); };
+$('#zErase').onclick = () => { Z.paint = false; $('#zErase').classList.add('on'); $('#zPaint').classList.remove('on'); };
+$('#zBrush').oninput = () => { $('#zBrushN').textContent = $('#zBrush').value; };
+$('#zClear').onclick = () => { Z.squares.clear(); drawZone(); };
+$('#zSave').onclick = async () => {
+  const squares = [...Z.squares].map(k => k.split(',').map(Number));
+  await api({action: 'zone_save', key: Z.key, map: Z.info.map, squares});
+  await loadZone(Z.info.map);
+};
+$('#zDefault').onclick = async () => {
+  if (!confirm(`Remove ${Z.name}'s own drawing of this map and use the default one?`)) return;
+  await api({action: 'zone_save', key: Z.key, map: Z.info.map, default: true});
+  await loadZone(Z.info.map);
+};
+$('#zMap').onchange = () => {
+  if (zChanged() && !confirm('Leave this map without saving the drawing?')) { $('#zMap').value = Z.info.map; return; }
+  loadZone(+$('#zMap').value);
+};
+$('#zClose').onclick = closeZones;
+window.addEventListener('resize', () => { if ($('#zones').classList.contains('open') && Z.info) { fitZone(); drawZone(); } });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('#zones').classList.contains('open')) closeZones(); });
+
+
+/* ---------------- Activate Auto Features (access.py) */
+function renderAccess() {
+  const s = state.access || {}, b = $('#accessBtn');
+  b.textContent = s.active ? `✓ ${s.user} · until ${s.expires}` : 'Activate Auto Features';
+  b.className = s.active ? '' : 'go';
+  b.title = s.message || '';
+  $('#adminBtn').style.display = state.admin ? '' : 'none';
+}
+$('#accessBtn').onclick = () => {
+  const s = state.access || {};
+  $('#accForm').style.display = s.active ? 'none' : '';
+  $('#accGo').style.display = s.active ? 'none' : '';
+  $('#accOut').style.display = s.active ? '' : 'none';
+  $('#accNote').textContent = s.active ? `Active for ${s.user} until ${s.expires}.`
+    : 'Auto hunt, Monk / Troj / Warr, Auto heal and Mail & Bank Compose.';
+  $('#accErr').textContent = s.active ? '' : (s.message || '');
+  $('#access').showModal();
+  if (!s.active) $('#accUser').focus();
+};
+$('#accNo').onclick = () => $('#access').close();
+$('#accOut').onclick = async () => { await api({action: 'sign_out'}); $('#access').close(); };
+async function doActivate() {
+  $('#accGo').disabled = true; $('#accErr').textContent = 'checking...';
+  const r = await fetch('/api/do', {method: 'POST', body: JSON.stringify(
+    {action: 'activate', user: $('#accUser').value, password: $('#accPass').value})});
+  const out = await r.json();
+  $('#accGo').disabled = false;
+  if (out.ok) { $('#accPass').value = ''; $('#access').close(); shape = ''; await refresh(); }
+  else $('#accErr').textContent = out.message || 'refused';
+}
+$('#accGo').onclick = doActivate;
+$('#accPass').addEventListener('keydown', e => { if (e.key === 'Enter') doActivate(); });
+
+
+/* ---------------- the Users window (users.py, on a PC with the ADMIN_KEY) */
+async function uOp(op, user = '', days = 30, password = '', date = '') {
+  $('#uSaid').textContent = op + '...';
+  const r = await (await fetch('/api/do', {method: 'POST', body: JSON.stringify({action: 'users', op, user, days, password, date})})).json();
+  $('#uSaid').textContent = r.ok ? '' : (r.message || r.error || 'refused');
+  return r;
+}
+async function uLoad() {
+  const r = await uOp('list');
+  if (!r.ok) return;
+  const today = new Date().toISOString().slice(0, 10);
+  $('#uRows').innerHTML = r.users.length ? r.users.sort((a, b) => a.user.localeCompare(b.user)).map(u => `
+    <tr data-user="${esc(u.user)}">
+      <td><b>${esc(u.user)}</b></td>
+      <td class="mono">${u.password ? `<span class="pw" data-pw="${esc(u.password)}">••••••••</span>
+        <button class="mini" data-op="show">Show</button><button class="mini" data-op="copy">Copy</button>`
+        : '<span class="muted">- (set a new one)</span>'}</td>
+      <td><input type="date" class="until" value="${esc(u.expires)}" title="Works through this day"></td><td class="mono">${esc(u.device || '-')}</td>
+      <td class="mono">${esc(u.last_seen || '-')}</td>
+      <td>${u.disabled ? '<span class="off">off</span>' : u.expires < today ? '<span class="gone">expired</span>' : 'on'}</td>
+      <td class="acts"><button data-op="password">New password</button><button data-op="extend">+30 days</button><button data-op="reset" ${u.device ? '' : 'disabled'}>Reset PC</button>
+        <button data-op="${u.disabled ? 'enable' : 'disable'}">${u.disabled ? 'Enable' : 'Disable'}</button>
+        <button data-op="remove" class="danger">Remove</button></td>
+    </tr>`).join('') : '<tr><td colspan="7" class="muted">No users yet</td></tr>';
+}
+$('#adminBtn').onclick = () => { $('#users').classList.add('open'); $('#uNew').style.display = 'none'; uLoad(); };
+$('#uClose').onclick = () => $('#users').classList.remove('open');
+$('#uRefresh').onclick = uLoad;
+$('#uAdd').onclick = async () => {
+  const name = $('#uName').value.trim();
+  if (!name) return $('#uName').focus();
+  const r = await uOp('add', name, +$('#uDays').value || 30);
+  if (!r.ok) return;
+  $('#uName').value = '';
+  $('#uNew').style.display = 'block';
+  $('#uNew').innerHTML = `New user <b>${esc(r.user)}</b> until ${esc(r.expires)} - username <code>${esc(r.user)}</code>
+    password <code id="uPass">${esc(r.password)}</code> <button id="uCopy">Copy</button>
+    <div class="note">The password is shown only now - give it to them.</div>`;
+  $('#uCopy').onclick = () => {
+    navigator.clipboard.writeText(`username: ${r.user}\npassword: ${r.password}`).then(() => $('#uCopy').textContent = 'Copied');
+  };
+  uLoad();
+};
+$('#uRows').addEventListener('change', async e => {
+  if (!e.target.classList.contains('until') || !e.target.value) return;
+  const user = e.target.closest('tr').dataset.user;
+  const r = await uOp('until', user, 30, '', e.target.value);
+  if (r.ok) { $('#uSaid').textContent = `${user}: until ${r.expires}`; uLoad(); }
+});
+$('#uRows').addEventListener('click', async e => {
+  const b = e.target.closest('button[data-op]');
+  if (!b) return;
+  const row = b.closest('tr'), user = row.dataset.user, op = b.dataset.op, pw = row.querySelector('.pw');
+  if (op === 'show') { pw.textContent = pw.textContent.startsWith('•') ? pw.dataset.pw : '••••••••';
+                       b.textContent = pw.textContent.startsWith('•') ? 'Show' : 'Hide'; return; }
+  if (op === 'copy') {
+    navigator.clipboard.writeText(`username: ${user}\npassword: ${pw.dataset.pw}`).then(() => b.textContent = 'Copied');
+    return;
+  }
+  let password = '';
+  if (op === 'password') {
+    password = prompt(`New password for ${user} (6 or more - empty: made up).\nThe old one stops at its next check.`, '');
+    if (password === null) return;
+    if (password && password.length < 6) return alert('6 or more');
+  }
+  if (op === 'remove' && !confirm(`Remove ${user}? Their Auto features stop at their next check.`)) return;
+  const r = await uOp(op, user, 30, password);
+  if (r.ok && op === 'password') {
+    $('#uNew').style.display = 'block';
+    $('#uNew').innerHTML = `New password for <b>${esc(user)}</b>: <code>${esc(r.password)}</code>`;
+  }
+  if (r.ok) uLoad();
+});
+
+/* ---------------- loop */
+function render() { renderAccess(); renderAccounts(); renderModes(); renderOptions(); }
+async function refresh() {
+  try {
+    state = await (await fetch('/api/state')).json();
+  } catch (e) { return; }
+  if (!current() && state.accounts.length) selected = state.accounts[0].key;
+  const n = state.accounts.filter(a => a.running).length;
+  $('#loginMode').textContent = `${n} in game`;
+  render();
+}
+refresh().then(() => { const a = openOnStart && current(); if (a) openZones(a);
+  if (location.hash === '#users' && state.admin) $('#adminBtn').click(); }); pullLog();
+setInterval(refresh, 1000);
+setInterval(pullLog, 1000);
+</script>
+</body>
+</html>
