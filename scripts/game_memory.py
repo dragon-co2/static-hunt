@@ -333,6 +333,79 @@ def game_pids():
     return pids
 
 
+def _processes():
+    """[(pid, parent pid, exe lower case)] of every process running."""
+    _kernel32.CreateToolhelp32Snapshot.restype = ctypes.wintypes.HANDLE
+    snap = _kernel32.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
+    if not snap or snap == ctypes.wintypes.HANDLE(-1).value:
+        return []
+    out = []
+    try:
+        entry = _PROCESSENTRY32W()
+        entry.dwSize = ctypes.sizeof(entry)
+        ok = _kernel32.Process32FirstW(snap, ctypes.byref(entry))
+        while ok:
+            out.append((entry.th32ProcessID, entry.th32ParentProcessID, entry.szExeFile.lower()))
+            ok = _kernel32.Process32NextW(snap, ctypes.byref(entry))
+    finally:
+        _kernel32.CloseHandle(snap)
+    return out
+
+
+HUNG_SECONDS = 60       # a game whose window hasn't answered Windows this long has crashed
+_hung_since = {}        # pid -> when its window was first seen not answering
+
+
+def _windows_hung(pid):
+    """True if `pid` has visible windows and every one is "Not Responding"; None if it has none."""
+    user32 = ctypes.windll.user32
+    found = []
+    cb = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+
+    def _each(hwnd, _):
+        owner = ctypes.wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if owner.value == pid and user32.IsWindowVisible(hwnd):
+            found.append(bool(user32.IsHungAppWindow(hwnd)))
+        return True
+
+    user32.EnumWindows(cb(_each), 0)
+    return all(found) if found else None
+
+
+def crashed(pid):
+    """Why game `pid` has crashed though its process is still there - its "has stopped working"
+    report (a WerFault.exe it started) is up, or its window has been Not Responding HUNG_SECONDS -
+    or '' if it hasn't."""
+    if any(parent == pid and exe == 'werfault.exe' for _, parent, exe in _processes()):
+        return 'it crashed (its "stopped working" report is up)'
+    if _windows_hung(pid):
+        since = _hung_since.setdefault(pid, time.time())
+        if time.time() - since >= HUNG_SECONDS:
+            return f'its window has not responded for {int(time.time() - since)}s'
+    else:
+        _hung_since.pop(pid, None)
+    return ''
+
+
+def close_game(pid):
+    """Ends game `pid` and its crash report (WerFault.exe) - so it can be logged in again."""
+    for child, parent, exe in _processes():
+        if parent == pid and exe == 'werfault.exe':
+            _terminate(child)
+    _terminate(pid)
+    _hung_since.pop(pid, None)
+
+
+def _terminate(pid):
+    handle = _kernel32.OpenProcess(0x0001, False, pid)          # PROCESS_TERMINATE
+    if handle:
+        try:
+            _kernel32.TerminateProcess(handle, 1)
+        finally:
+            _kernel32.CloseHandle(handle)
+
+
 def all_games():
     """{character name: equipped arrows (None if unreadable)} for every running, logged-in game -
     read straight from each process, so it works for games on any desktop."""

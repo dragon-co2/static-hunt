@@ -21,7 +21,7 @@ injection, game_memory.py reads):
 
 The control panel (panel.py) is the window: the characters - the games open now, and the ones
 known from before (characters.py) greyed out. Nothing runs till you pick: each one's mode - off,
-Static, Static + Auto hunt (auto_hunt.py), Monk hunt (monk_hunt.py) or Auto heal (heal.py), one at
+Static, Auto hunt (auto_hunt.py - Static's work too, on the move), Monk hunt (monk_hunt.py) or Auto heal (heal.py), one at
 a time - its own options (Auto login, F10, Mail to) and the log (the console is hidden). One thread
 per character. Closing the window or Ctrl+Shift+C stops everything."""
 import json
@@ -89,7 +89,7 @@ ARROWS_ALERT_EVERY = 3600   # seconds before the same account's "out of arrows" 
 REPLY_TRIES     = 3      # failed whispers to one player before giving up
 AUTO_REPLY_PAUSE = 8     # seconds the auto hunt holds still at most while an auto reply goes out
 NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character
-MODES = {'off': 'off', 'static': 'Static', 'auto': 'Static + Auto hunt', 'monk': 'Monk hunt',
+MODES = {'off': 'off', 'static': 'Static', 'auto': 'Auto hunt', 'monk': 'Monk hunt',
          'heal': 'Auto heal'}
 MAIL_JOBS = {'send': 'Send', 'claim': 'Receive to bag', 'receive': 'Receive to bank',
              'withdraw': 'Export from bank'}
@@ -339,9 +339,18 @@ class _Account:
 
     # -- in the game?
     def in_game(self):
-        """True while this character is in a game (finds it again in a new game)."""
+        """True while this character is in a game (finds it again in a new game). A game that
+        crashed but stays open (its "stopped working" report up, or frozen) is closed here - so
+        it's logged in again (Auto login)."""
         if self.pid and self.name and game_memory._name_pid(self.pid) == self.name:
-            return True
+            why = game_memory.crashed(self.pid)
+            if not why:
+                return True
+            print(f'[ACCOUNTS] {self.who()}: {why} - its game closed')
+            notify.send(f'💥 {self.who()}: {why} - game closed'
+                        + (', logging in again' if self.keep_in and self.profile()['auto_login'] else ''))
+            game_memory.close_game(self.pid)
+            time.sleep(1)
         pid = _find_game(self.name)
         if pid:
             return self._got(pid)
@@ -821,7 +830,7 @@ def _state():
         row['job'] = {'busy': MAIL_JOBS[busy[0]] if busy and busy[1].is_alive() else '',
                       'said': _job_said.get(w.key, '')}
         row['profile']['send_to'] = p['send_to']
-        if w.mode == 'auto' and row['running']:
+        if w.mode in ('static', 'auto') and row['running']:
             row['auto'] = _auto_info(w)
         if w.mode == 'heal' and _heal_on[0]:
             with heal._lock:
@@ -882,8 +891,8 @@ def _act(body):
         else:
             return {'ok': False, 'message': f'unknown option {field}'}
         characters.update(w.key, **{field: value})
-        if field == 'auto_login' and not value:
-            w.keep_in = False
+        if field == 'auto_login':
+            w.keep_in = bool(value) and _running(w)     # in the game now: logged in again if it drops
         print(f'[PANEL] {w.who()}: {field} = {value}')
     elif action == 'login_save':                    # the Auto login's username / password
         w = _row(body.get('key'))

@@ -287,21 +287,15 @@ $('#acctList').addEventListener('click', e => {
   shape = ''; render(); renderLog(true);
 });
 
-/* ---------------- modes: Static (+ Auto hunt) / Monk / Heal - one at a time */
+/* ---------------- modes: Static / Auto / Monk / Heal - one at a time */
 const MODE_ROWS = [
-  {id: 'static', title: 'Static Hunt', note: 'Scatter around, deposits, bank, mail, revive, replies'},
-  {id: 'auto', title: 'Auto Hunt', note: 'Tours the hunting areas and cities - with Static', sub: true},
+  {id: 'static', title: 'Static Hunt', note: 'Scatters where it stands - deposits, bank, revive, replies'},
+  {id: 'auto', title: 'Auto Hunt', note: 'Tours the hunting areas and cities - deposits, bank, revive, replies'},
   {id: 'monk', title: 'Monk / Troj / Warr Hunt', note: 'Jumps to each monster and hits it'},
   {id: 'heal', title: 'Auto Heal / Attack', note: 'Potions, buffs, the players list and the shortcut'},
 ];
-function modeChecked(id, mode) {
-  return id === 'static' ? (mode === 'static' || mode === 'auto') : mode === id;
-}
-function modeEnabled(id, mode) {
-  if (id === 'auto') return mode === 'static' || mode === 'auto';
-  if (id === 'static') return mode === 'off' || mode === 'static' || mode === 'auto';
-  return mode === 'off' || mode === id;
-}
+function modeChecked(id, mode) { return mode === id; }
+function modeEnabled(id, mode) { return mode === 'off' || mode === id; }
 function renderModes() {
   const a = current();
   if (!a) { $('#modeList').innerHTML = '<div class="empty">Pick an account.</div>'; $('#modeList').dataset.html = ''; return; }
@@ -319,9 +313,7 @@ $('#modeList').addEventListener('change', e => {
   const a = current(), id = e.target.dataset.mode;
   if (!a || !id) return;
   let mode;
-  if (id === 'static') mode = e.target.checked ? 'static' : 'off';
-  else if (id === 'auto') mode = e.target.checked ? 'auto' : 'static';
-  else mode = e.target.checked ? id : 'off';
+  mode = e.target.checked ? id : 'off';
   api({action: 'mode', key: a.key, mode});
 });
 
@@ -417,7 +409,16 @@ function optionsHtml(a) {
 
 function modeHtml(a) {
   const head = '';
-  if (!a.running || a.mode === 'off' || a.mode === 'static') return head;
+  if (!a.running || a.mode === 'off') return head;
+  if (a.mode === 'static') return head + `
+      <div class="card"><h3>Static hunt</h3>
+        <div class="stats">
+          <div><small>Map</small><b id="aMap">-</b></div>
+          <div><small>Kills today</small><b id="aToday">-</b></div>
+          <div><small>Kills in all</small><b id="aTotal">-</b></div>
+          <div><small>Arrows</small><b id="aArrows">-</b></div>
+        </div>
+      </div>`;
   if (a.mode === 'auto') return head + `
       <div class="card"><h3>Auto hunt</h3>
         <div class="stats">
@@ -474,7 +475,7 @@ function setIf(el, prop, v) { if (el && document.activeElement !== el && el[prop
 function fillOptions(a) {
   setIf($('#oStatus'), 'textContent', a.running ? (a.status || '-') : a.logging_in ? 'logging in...' : 'closed');
   setIf($('#oHunt'), 'textContent', a.hunt || 'starting...');
-  if (a.auto) {
+  if (a.auto) {                                   // Static / Auto hunt: the numbers
     setIf($('#aMap'), 'textContent', a.auto.map);
     setIf($('#aToday'), 'textContent', a.auto.kills_today.toLocaleString());
     setIf($('#aTotal'), 'textContent', a.auto.kills_total.toLocaleString());
