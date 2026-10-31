@@ -12,7 +12,9 @@ character - Mail > Write: Search the name, the items in the boxes, Send. Until t
     python mail_compose.py <character> --receive    Claim All, Deposit, every mail marked read
     python mail_compose.py <character> --claim      Claim All, every mail marked read - no Deposit
     python mail_compose.py <character> --withdraw   everything out of its compose warehouse into
-                                                    its bag (till the bag is full)"""
+                                                    its bag (till the bag is full)
+<from character> can be * : every character logged in here (but the receiving one), one after
+another - each one's mails all sent before the next starts.  python mail_compose.py * --send GhostArrow"""
 import ctypes
 import sys
 import time
@@ -261,7 +263,20 @@ def mark_read(pid, name):
 def main():
     flags = ('--once', '--receive', '--claim', '--send', '--send-scrolls', '--withdraw', '--send-cps')
     args = [a for a in sys.argv[1:] if a not in flags]
-    accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids()}
+    accounts = {game_memory._name_pid(p): p for p in game_memory.game_pids() if game_memory._name_pid(p)}
+    if args and args[0] == '*':                         # every one here, one after another
+        to = args[1].lower() if len(args) > 1 else ''
+        senders = [n for n in sorted(accounts, key=str.lower) if n.lower() != to]
+        print(f'{len(senders)} character(s), one after another: {", ".join(senders)}')
+        for name in senders:
+            print(f'--- {name}')
+            sys.argv = [sys.argv[0], name] + sys.argv[2:]
+            try:
+                main()
+            except SystemExit as e:
+                if e.code:
+                    print(e.code)
+        return
     if args and args[0] not in accounts:
         sys.exit(f'{args[0]} is not logged in')
     if '--withdraw' in sys.argv and len(args) == 1:

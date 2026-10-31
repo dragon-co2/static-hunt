@@ -66,6 +66,7 @@ F10_NOT_HUNTING = {8002}                # skills not used with F10 while the aut
                                         # (an archer's Fly: its game crashed, jumping / to NPCs flying)
 MAIL_EVERY  = 600                       # seconds between mails of the compose items to MAIL_TO (the
                                         # first right as an account is in the game)
+_mail_lock  = threading.Lock()          # the accounts mail MAIL_TO one after another, not together
 _mail_sent  = threading.Event()         # set once one of ours mailed MAIL_TO: it claims right away
 
 _R = get_settings('revive', {'REVIVE_DELAY': 360, 'REVIVE_TIME_MULTIPLIER': 2, 'MAX_REVIVE_WAIT': 1800})
@@ -510,8 +511,10 @@ class _Account:
                 mail_compose.receive(self.pid, self.name)      # Claim All, Deposit, mark read
         elif MAIL_TO and time.time() - self.last_mail >= MAIL_EVERY:
             self.last_mail = time.time()
-            if mail_compose.transfer(self.pid, self.name, MAIL_TO,   # its CPs in the first mail
-                                     cps_keep=CPS_KEEP if MAIL_CPS else None):
+            with _mail_lock:                            # one account mailing at a time
+                sent = mail_compose.transfer(self.pid, self.name, MAIL_TO,   # its CPs in the first mail
+                                             cps_keep=CPS_KEEP if MAIL_CPS else None)
+            if sent:
                 _mail_sent.set()
         armed = background_hunt.ensure_arrows(self.pid, self.name)   # None: no pack in any tab
         if not armed:
