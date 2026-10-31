@@ -39,6 +39,7 @@ else:
 
 from pynput import keyboard as pynput_kb
 
+import access
 import accounts
 import auto_hunt
 import background_hunt
@@ -91,6 +92,7 @@ AUTO_REPLY_PAUSE = 8     # seconds the auto hunt holds still at most while an au
 NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character
 MODES = {'off': 'off', 'static': 'Static', 'auto': 'Auto hunt', 'monk': 'Monk hunt',
          'heal': 'Auto heal'}
+LOCKED = {'auto', 'monk', 'heal'}       # modes for the users only (access.py) - Static is for all
 MAIL_JOBS = {'send': 'Send', 'claim': 'Receive to bag', 'receive': 'Receive to bank',
              'withdraw': 'Export from bank'}
 
@@ -786,6 +788,11 @@ def _control():
     while True:
         try:
             _discover()
+            if not access.active():                     # no access (any more): its modes off
+                for w in _rows:
+                    if w.mode in LOCKED:
+                        print(f'[ACCESS] {w.who()}: {MODES[w.mode]} off - Auto features not active')
+                        w.mode = 'off'
             for w in list(_rows):
                 if w.name and not w.gone:
                     _steer(w)
@@ -844,7 +851,8 @@ def _state():
                            'active': bool(v and v['status'] & bit)}
                           for s, (label, bit) in heal.BUFFS.items()]}
         rows.append(row)
-    out = {'accounts': rows, 'modes': MODES,
+    out = {'accounts': rows, 'modes': MODES, 'access': access.state(), 'locked': sorted(LOCKED),
+           'admin': os.path.exists(os.path.join(override_dir(), 'users_admin.json')),
            'cities': [[code, title] for code, title in travel.TELEPORT_NAMES.items()]
            + [[place, way[2]] for place, way in travel.PLACES.items()]}
     if _heal_on[0]:
@@ -874,6 +882,8 @@ def _act(body):
             return {'ok': False, 'message': f'unknown mode {mode}'}
         if mode != 'off' and not _running(w):
             return {'ok': False, 'message': f'{w.who()} is not in the game'}
+        if mode in LOCKED and not access.active():
+            return {'ok': False, 'message': 'Activate Auto Features first'}
         if mode == 'heal':
             _heal_start()
         w.mode = mode
@@ -923,6 +933,21 @@ def _act(body):
         w.gone, w.keep_in, w.mode = True, False, 'off'
         characters.forget(w.key)
         print(f'[PANEL] {w.who()}: forgotten')
+    elif action == 'activate':
+        ok, message = access.activate(body.get('user') or '', body.get('password') or '')
+        return {'ok': ok, 'message': message}
+    elif action == 'sign_out':
+        access.sign_out()
+    elif action == 'users':                         # the Users window (users.py) - with the ADMIN_KEY
+        import users
+        if not users.saved_key():
+            return {'ok': False, 'message': 'No ADMIN_KEY on this PC'}
+        try:
+            return users.admin(body.get('op'), body.get('user') or '', body.get('days') or 30)
+        except OSError as e:
+            return {'ok': False, 'message': str(e)}
+    elif action in ('mail_job', 'teleport', 'zone_save') and not access.active():
+        return {'ok': False, 'message': 'Activate Auto Features first'}
     elif action == 'mail_job':
         return _mail_job(_row(body.get('key')), body.get('job'), (body.get('to') or '').strip())
     elif action == 'teleport':
@@ -1164,6 +1189,7 @@ def _main():
           + ', '.join(f'{w.who()} ({"in game" if _find_game(w.name) else "closed"})' for w in _rows)
           + ' - nothing runs till you pick it in the panel')
     _watch_chat(_rows)
+    access.keep_checking()
     threading.Thread(target=_login_loop, args=(_rows,), daemon=True, name='logins').start()
     threading.Thread(target=_control, daemon=True, name='control').start()
     panel.run(_state, _act, _get)
