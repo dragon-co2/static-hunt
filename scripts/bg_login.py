@@ -35,6 +35,7 @@ SERVER         = 0                 # Server= (every account saved by the overlay
 FOLDER         = os.path.join(os.environ.get('LOCALAPPDATA', ''), 'DragonConquer')
 WAIT_IN_GAME   = 120               # seconds for the new client to be in the game
 LOGIN_TRIES    = 3                 # login_retry: attempts per account
+ORPHAN_AGE     = 60                # close_left_behind: a game this old with no character is left over
 LOGIN_ERROR    = os.path.join('CLAuto', 'LoginError.txt')   # next to the launcher: why the server
                                                             # refused a sign-in (e.g. a 5th account)
 
@@ -158,8 +159,10 @@ def prepare(account):
 def login_retry(account, tries=LOGIN_TRIES, others=()):
     """login(), again when it fails - the client sometimes crashes in version.dll as it starts."""
     for n in range(1, tries + 1):
+        close_left_behind()
         pid = login(account, others=others)
         if pid:
+            close_left_behind(keep=[pid])
             return pid
         print(f'[BG LOGIN] {account.username}: attempt {n}/{tries} failed' + (' - trying again' if n < tries else ''))
     return None
@@ -177,6 +180,23 @@ def _login_error(since):
     except OSError:
         pass
     return ' (crashed while loading?)'
+
+
+def close_left_behind(keep=()):
+    """Closes the games left on the login screen (no character, over ORPHAN_AGE seconds old) - one
+    whose character dropped out reopens itself there, and stays there once the account is logged in
+    from a new launcher: only RAM. Called between logins (one at a time), so none of these is a
+    login in progress."""
+    import travel
+    left = [p for p in set(game_memory.game_pids()) - set(keep)
+            if not game_memory._name_pid(p) and travel._age(p) > ORPHAN_AGE]
+    if not left:
+        return
+    time.sleep(5)                         # still no character: not just a map change
+    for pid in left:
+        if pid in game_memory.game_pids() and not game_memory._name_pid(pid):
+            subprocess.run(['taskkill', '/PID', str(pid), '/F'], capture_output=True)
+            print(f'[BG LOGIN] closed game {pid} - left on the login screen')
 
 
 def _discard(path):
