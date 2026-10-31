@@ -90,7 +90,7 @@ REPLY_TRIES     = 3      # failed whispers to one player before giving up
 AUTO_REPLY_PAUSE = 8     # seconds the auto hunt holds still at most while an auto reply goes out
 NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character
 MODES = {'off': 'off', 'static': 'Static', 'auto': 'Static + Auto hunt', 'monk': 'Monk hunt',
-         'heal': 'Auto heal', 'mail': 'Mail & Bank Compose'}
+         'heal': 'Auto heal'}
 MAIL_JOBS = {'send': 'Send', 'claim': 'Receive to bag', 'receive': 'Receive to bank',
              'withdraw': 'Export from bank'}
 
@@ -226,9 +226,14 @@ def _find_game(character):
 
 # ---------------------------------------------------------------- Telegram / chat listeners
 
+def _option(character, option):
+    """The character's own option (characters.py) - e.g. kill_reply, auto_reply."""
+    return bool(characters.get(characters.key_of(character))[option])
+
+
 def _on_kill(character, slot, killer, streak):
-    """kill_watch: a player killed one of ours - who replies, and Telegram."""
-    if kill_reply.enabled():
+    """kill_watch: a player killed one of ours - who replies (its Kill reply on), and Telegram."""
+    if _option(character, 'kill_reply'):
         with _reply_lock:
             first = next((s for s, due in _reply_due.items() if killer.lower() in (k.lower() for k in due)), None)
             if kill_reply.already_messaged(killer):
@@ -250,6 +255,8 @@ def _on_whisper(sender, character, slot, text, channel='Whisper'):
     auto_reply.note(character, sender, 'them', text)
     if staff:
         print(f'[AUTO REPLY] {sender} is staff - no auto reply, told on Telegram')
+        return
+    if not _option(character, 'auto_reply'):            # its Auto reply off: Telegram only
         return
     threading.Thread(target=_auto_answer, args=(sender, character, slot, channel, via),
                      daemon=True).start()               # the AI takes a second or two
@@ -555,6 +562,9 @@ class _Account:
             return
         if travel.in_market_trip(self.name):            # auto hunt's Market trip: its dragonballs
             return                                      # are for sale, not for scrolls and the bank
+        busy = _jobs.get(self.key)
+        if busy and busy[1].is_alive():                 # a Mail & Bank Compose button at work
+            return
         self.last_service = time.time()
         if time.time() - self.last_repair >= REPAIR_INTERVAL:
             self.last_repair = time.time()
@@ -624,7 +634,7 @@ class _Account:
                     continue
                 hunt_stats.watch(self.pid, self.name)   # the daily counts (hunt_stats.py)
                 self.handle_kills()
-                if self.mode in ('monk', 'heal', 'mail'):   # its own thread / buttons - none of static's
+                if self.mode in ('monk', 'heal'):       # its own thread does it - none of static's
                     self.say(MODES[self.mode])          # (no Scatter, bank, mail, revive...)
                     time.sleep(1)
                     continue
@@ -805,7 +815,8 @@ def _state():
                'hunt': monk_hunt._status.get(name, '') if thread and thread.is_alive() else '',
                'profile': {'user': p['user'], 'has_pass': bool(p['pass']), 'auto_login': p['auto_login'],
                            'f10': p['f10'], 'mail_to': p['mail_to'], 'mail_cps': p['mail_cps'],
-                           'cps_keep': p['cps_keep']}}
+                           'cps_keep': p['cps_keep'], 'kill_reply': p['kill_reply'],
+                           'auto_reply': p['auto_reply']}}
         busy = _jobs.get(w.key)
         row['job'] = {'busy': MAIL_JOBS[busy[0]] if busy and busy[1].is_alive() else '',
                       'said': _job_said.get(w.key, '')}
@@ -866,7 +877,7 @@ def _act(body):
             value = (value or '').strip()
         elif field == 'send_to':
             value = (value or '').strip()
-        elif field in ('f10', 'mail_cps', 'auto_login'):
+        elif field in ('f10', 'mail_cps', 'auto_login', 'kill_reply', 'auto_reply'):
             value = bool(value)
         else:
             return {'ok': False, 'message': f'unknown option {field}'}
@@ -929,8 +940,8 @@ def _mail_job(w, job, to):
     """A Mail & Bank Compose button (mail_compose.py), on a thread of its own - one at a time."""
     if job not in MAIL_JOBS:
         return {'ok': False, 'message': f'unknown job {job}'}
-    if w.mode != 'mail' or not _running(w):
-        return {'ok': False, 'message': f'{w.who()} is not in the game on Mail & Bank Compose'}
+    if not _running(w):
+        return {'ok': False, 'message': f'{w.who()} is not in the game'}
     busy = _jobs.get(w.key)
     if busy and busy[1].is_alive():
         return {'ok': False, 'message': f'{w.who()} is still on {MAIL_JOBS[busy[0]]}'}

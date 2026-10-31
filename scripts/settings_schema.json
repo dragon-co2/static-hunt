@@ -64,11 +64,6 @@
   },
   "kill_reply": {
     "__title__": "Kill reply",
-    "ENABLED": {
-      "type": "bool",
-      "default": false,
-      "desc": "When one of your accounts is killed, whisper the killer one chat message, right after that account is revived: click Talk, pick Whisper, type their name in the chat bar's left box and a message in the right box, then Enter. How often a killer gets one: see Send once every day. Kills are read from the game's chat (read-only); needs the account's character name (Accounts tab)."
-    },
     "SEND_ONCE_EVERYDAY": {
       "type": "bool",
       "default": true,
@@ -91,11 +86,6 @@
   },
   "auto_reply": {
     "__title__": "Auto reply",
-    "ENABLED": {
-      "type": "bool",
-      "default": false,
-      "desc": "When a player whispers one of your accounts to start talking (hi, hey, yo...), whisper back a short line after a few seconds, like a person would. Only whispers (not World / Team / Guild). Each player gets one auto reply per Once per player; a talk that goes on is yours to answer from Telegram. Whispers are read from the game's chat (read-only)."
-    },
     "AI": {
       "type": "bool",
       "default": true,

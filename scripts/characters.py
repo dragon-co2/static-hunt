@@ -7,6 +7,8 @@ Documents\\DragonCO2\\characters.json:
     mail_to     the character its compose items are mailed to ('' - none)
     mail_cps    ...and its CPs with them, all but cps_keep
     send_to     the Mail & Bank Compose mode's Send to
+    kill_reply  its killer gets a whisper once it's revived (kill_reply.py - the messages: settings)
+    auto_reply  a player who talks to it gets an answer (auto_reply.py - the rules / AI: settings)
 The first time, it's filled from the old settings (Accounts, F10, Mail compose items)."""
 import json
 import os
@@ -18,7 +20,10 @@ from dragon_settings import _load_json, override_dir, override_path
 PATH = os.path.join(override_dir(), 'characters.json')
 NAMES_PATH = os.path.join(override_dir(), 'account_characters.json')   # username -> character (old)
 DEFAULT = {'name': '', 'user': '', 'pass': '', 'auto_login': False, 'f10': False,
-           'mail_to': '', 'mail_cps': True, 'cps_keep': 5000, 'send_to': ''}
+           'mail_to': '', 'mail_cps': True, 'cps_keep': 5000, 'send_to': '',
+           'kill_reply': False, 'auto_reply': False}
+SETTINGS_ON = {'kill_reply': 'kill_reply', 'auto_reply': 'auto_reply'}   # option -> the settings
+                                    # section whose old ENABLED a profile without it starts from
 
 _lock = threading.RLock()
 _data = None        # key -> profile
@@ -37,7 +42,11 @@ def _load():
     else:
         raw = _from_old_settings()
     _data = {}
+    overrides = _load_json(override_path())
     for p in raw.values() if isinstance(raw, dict) else []:
+        for option, section in SETTINGS_ON.items():     # new options: as the old settings had them
+            if option not in p:
+                p[option] = bool(overrides.get(section, {}).get('ENABLED'))
         p = {**DEFAULT, **p}
         if p['name'] or p['user']:
             _data[key_of(p['name'], p['user'])] = p
@@ -98,7 +107,9 @@ def ensure(name):
     with _lock:
         data, key = _load(), key_of(name)
         if key not in data:
-            data[key] = {**DEFAULT, 'name': name}
+            overrides = _load_json(override_path())
+            data[key] = {**DEFAULT, 'name': name,
+                         **{o: bool(overrides.get(s, {}).get('ENABLED')) for o, s in SETTINGS_ON.items()}}
             _save()
         return key
 

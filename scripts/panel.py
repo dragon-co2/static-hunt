@@ -12,6 +12,7 @@ import json
 import os
 import socket
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote
@@ -24,6 +25,8 @@ TITLE = 'Dragon CO2'
 SIZE = (1180, 760)
 MIN_SIZE = (900, 600)
 LOG_LINES = 4000                        # lines the page can scroll back through
+ICON = os.path.join(os.path.dirname(_BASE), 'app_icon.ico')   # the window's and the taskbar's icon
+APP_ID = 'DragonCO2.Panel'              # its own taskbar button (not python's) - with ICON on it
 
 _log = collections.deque(maxlen=LOG_LINES)   # (number, text)
 _log_n = [0]
@@ -115,6 +118,32 @@ def hide_console(hide=True):
         ctypes.windll.user32.ShowWindow(hwnd, 0 if hide else 5)
 
 
+def _set_icon(timeout=15):
+    """ICON on the panel's window (title bar, Alt+Tab, taskbar) - once it's there."""
+    if not os.path.exists(ICON):
+        return
+    user32 = ctypes.windll.user32
+    user32.FindWindowW.restype = ctypes.c_void_p
+    user32.LoadImageW.restype = ctypes.c_void_p
+    user32.SendMessageW.argtypes = (ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
+    end = time.time() + timeout
+    while time.time() < end:
+        hwnd = user32.FindWindowW(None, TITLE)
+        if hwnd:
+            for which, size in ((0, 16), (1, 32)):              # ICON_SMALL, ICON_BIG
+                icon = user32.LoadImageW(None, ICON, 1, size, size, 0x10)   # IMAGE_ICON, LR_LOADFROMFILE
+                if icon:
+                    user32.SendMessageW(hwnd, 0x80, which, icon)           # WM_SETICON
+            return
+        time.sleep(0.2)
+
+
+def _shown():
+    """Runs once the window is up: its icon, and no console."""
+    _set_icon()
+    hide_console()
+
+
 def run(state, act, get=None):
     """Serves the page and shows it in its own window; returns once that window is closed. No
     pywebview: the page opens in the browser and this never returns (Ctrl+Shift+C stops)."""
@@ -129,9 +158,13 @@ def run(state, act, get=None):
         webbrowser.open(url)
         threading.Event().wait()
         return
+    try:                                                # a taskbar button of its own, not python's
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    except (AttributeError, OSError):
+        pass
     webview.create_window(TITLE, url, width=SIZE[0], height=SIZE[1], min_size=MIN_SIZE)
     try:
-        webview.start(hide_console)                     # once the window is up: no console
+        webview.start(_shown, icon=ICON if os.path.exists(ICON) else None)
     finally:
         hide_console(False)
         server.shutdown()

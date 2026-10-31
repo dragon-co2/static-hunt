@@ -121,7 +121,8 @@ def reply_for(player, text, channel='Whisper', character=''):
     starts it, or they got one less than COOLDOWN minutes ago) - or None for staff and for
     channels other than Whisper / Talk. Counts as sent. The AI takes a second or two: call it off
     the chat reader's thread."""
-    if not enabled() or channel.lower() not in ('whisper', 'talk') or is_staff(player):
+    if channel.lower() not in ('whisper', 'talk') or is_staff(player):   # (on or off: the
+                                                                          # character's own option)
         return None
     s = _settings()
     if s['AI'] and _key():

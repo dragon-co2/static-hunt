@@ -293,7 +293,6 @@ const MODE_ROWS = [
   {id: 'auto', title: 'Auto Hunt', note: 'Tours the hunting areas and cities - with Static', sub: true},
   {id: 'monk', title: 'Monk / Troj / Warr Hunt', note: 'Jumps to each monster and hits it'},
   {id: 'heal', title: 'Auto Heal / Attack', note: 'Potions, buffs, the players list and the shortcut'},
-  {id: 'mail', title: 'Mail & Bank Compose', note: 'Send the compose items, receive them, take them out'},
 ];
 function modeChecked(id, mode) {
   return id === 'static' ? (mode === 'static' || mode === 'auto') : mode === id;
@@ -359,6 +358,11 @@ function characterHtml(a) {
       <div class="sep"></div>
       <label class="check"><input type="checkbox" id="pF10" ${p.f10 ? 'checked' : ''}> F10 XP skill</label>
       <div class="note">The F10 hotkey every 2 s while Static / Auto hunt runs.</div>
+      <div class="sep"></div>
+      <label class="check"><input type="checkbox" id="pKill" ${p.kill_reply ? 'checked' : ''}> Kill reply</label>
+      <div class="note">Whispers its killer once revived (the messages: Global Settings).</div>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="pReply" ${p.auto_reply ? 'checked' : ''}> Auto reply</label>
+      <div class="note">Answers a player who whispers / talks to it (rules or AI: Global Settings).</div>
       ${a.running ? '' : '<div class="sep"></div><button class="danger" id="pForget">Forget this character</button>'}
     </div>`;
 }
@@ -382,8 +386,37 @@ function mailToHtml(a) {
     ${cpsHtml(a)}`;
 }
 
+function mailHtml(a) {
+  return `
+    <div class="card"><h3>Mail &amp; Bank Compose</h3>
+      <div class="status" id="mSaid"></div>
+      <div class="sep"></div>
+      <div class="field-row"><span>Send to</span>
+        <div class="row" style="margin:0"><input type="text" id="mTo" list="mNames" value="${esc(a.profile.send_to)}" autocomplete="off">
+          <button class="primary mjob" data-job="send">Send</button></div></div>
+      <datalist id="mNames">${state.accounts.map(x => x.name).filter(n => n && n !== a.name)
+        .map(n => `<option value="${esc(n)}">`).join('')}</datalist>
+      <div class="note">Its compose warehouse's items, by mail.</div>
+      ${cpsHtml(a)}
+      <div class="sep"></div>
+      <div class="row">
+        <button class="mjob" data-job="claim">Receive to bag</button>
+        <button class="mjob" data-job="receive">Receive to bank</button>
+        <button class="mjob" data-job="withdraw" style="margin-left:auto">Export from bank</button>
+      </div>
+      <div class="note">Receive: Claim All in the mail - into the bag, or on into the compose warehouse.
+        Export: the compose warehouse's items into the bag (till it's full). With Static on, its bank
+        round waits while a button runs - after, it deposits + items in the bag as usual.</div>
+    </div>`;
+}
+
 function optionsHtml(a) {
   const head = characterHtml(a);
+  return a.running ? head + modeHtml(a) + mailHtml(a) : head;     // Mail & Bank Compose: always
+}
+
+function modeHtml(a) {
+  const head = '';
   if (!a.running || a.mode === 'off' || a.mode === 'static') return head;
   if (a.mode === 'auto') return head + `
       <div class="card"><h3>Auto hunt</h3>
@@ -405,26 +438,6 @@ function optionsHtml(a) {
         ${mailToHtml(a)}</div>`;
   if (a.mode === 'monk') return head + `
       <div class="card"><h3>Monk hunt</h3><div class="status" id="oHunt"></div></div>`;
-  if (a.mode === 'mail') return `
-    <div class="card"><h3>Mail &amp; Bank Compose</h3>
-      <div class="status" id="mSaid"></div>
-      <div class="sep"></div>
-      <div class="field-row"><span>Send to</span>
-        <div class="row" style="margin:0"><input type="text" id="mTo" list="mNames" value="${esc(a.profile.send_to)}" autocomplete="off">
-          <button class="primary mjob" data-job="send">Send</button></div></div>
-      <datalist id="mNames">${state.accounts.map(x => x.name).filter(n => n && n !== a.name)
-        .map(n => `<option value="${esc(n)}">`).join('')}</datalist>
-      <div class="note">Its compose warehouse's items, by mail.</div>
-      ${cpsHtml(a)}
-      <div class="sep"></div>
-      <div class="row">
-        <button class="mjob" data-job="claim">Receive to bag</button>
-        <button class="mjob" data-job="receive">Receive to bank</button>
-        <button class="mjob" data-job="withdraw" style="margin-left:auto">Export from bank</button>
-      </div>
-      <div class="note">Receive: Claim All in the mail - into the bag, or on into the compose warehouse.
-        Export: the compose warehouse's items into the bag (till it's full).</div>
-    </div>`;
   if (!a.heal) return head + `<div class="center muted">Starting Auto heal...</div>`;
   const h = state.heal || {};
   return head + `
@@ -475,6 +488,8 @@ function fillOptions(a) {
   const login = $('#pLogin');
   if (login) { login.textContent = a.logging_in ? 'Stop logging in' : 'Log in now'; login.className = a.logging_in ? '' : 'primary'; }
   setIf($('#pF10'), 'checked', a.profile.f10);
+  setIf($('#pKill'), 'checked', a.profile.kill_reply);
+  setIf($('#pReply'), 'checked', a.profile.auto_reply);
   setIf($('#pCps'), 'checked', a.profile.mail_cps);
   setIf($('#pKeep'), 'value', String(a.profile.cps_keep));
   setIf($('#pMailTo'), 'value', a.profile.mail_to);
@@ -548,6 +563,8 @@ $('#optPane').addEventListener('change', e => {
   const prof = (field, value) => api({action: 'profile', key: a.key, field, value});
   if (t.id === 'pAuto') return prof('auto_login', t.checked);
   if (t.id === 'pF10') return prof('f10', t.checked);
+  if (t.id === 'pKill') return prof('kill_reply', t.checked);
+  if (t.id === 'pReply') return prof('auto_reply', t.checked);
   if (t.id === 'pMailTo') return prof('mail_to', t.value);
   if (t.id === 'pCps') return prof('mail_cps', t.checked);
   if (t.id === 'pKeep') return prof('cps_keep', +t.value);
