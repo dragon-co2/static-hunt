@@ -155,10 +155,10 @@ def prepare(account):
     return path
 
 
-def login_retry(account, tries=LOGIN_TRIES):
+def login_retry(account, tries=LOGIN_TRIES, others=()):
     """login(), again when it fails - the client sometimes crashes in version.dll as it starts."""
     for n in range(1, tries + 1):
-        pid = login(account)
+        pid = login(account, others=others)
         if pid:
             return pid
         print(f'[BG LOGIN] {account.username}: attempt {n}/{tries} failed' + (' - trying again' if n < tries else ''))
@@ -179,22 +179,33 @@ def _login_error(since):
     return ' (crashed while loading?)'
 
 
-def login(account, start=True):
+def _discard(path):
+    """Deletes the auto-login file - if the client hasn't claimed (and deleted) it meanwhile."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def login(account, start=True, others=()):
     """Gets a client to sign `account` in on its own: writes its auto-login file, starts the
     launcher (start=True; it checks for updates, then PLAY opens the game) and waits for a new
-    client's character to be in the game. Returns that game's pid, or None."""
+    client's character to be in the game. A new game whose character is in `others` (the other
+    accounts' characters) is another account's, opened meanwhile - never taken for this one.
+    Returns that game's pid, or None."""
+    others = {o.lower() for o in others if o}
     path = prepare(account)
     before = set(game_memory.game_pids())
     if start:
         launcher = accounts.game_path()
         if not launcher:
             print('[BG LOGIN] GAME_PATH is not set - cannot start the launcher')
-            os.remove(path)
+            _discard(path)
             return None
         proc = subprocess.Popen([launcher], cwd=os.path.dirname(launcher))
         print(f'[BG LOGIN] {account.username}: launcher started - pressing PLAY when it shows')
         if not press_play(proc.pid):
-            os.remove(path)
+            _discard(path)
             return None
     started = time.time()
     end = started + WAIT_IN_GAME
@@ -202,11 +213,16 @@ def login(account, start=True):
     try:
         while time.time() < end:
             new = set(game_memory.game_pids()) - before
-            for pid in new:
+            for pid in sorted(new):
                 name = game_memory._name_pid(pid)
-                if name:
+                if name and name.lower() in others:
+                    print(f'[BG LOGIN] {account.username}: the new game {pid} is {name} - '
+                          f"another account's, not this one")
+                    before.add(pid)
+                elif name:
                     print(f'[BG LOGIN] {account.username}: in the game as {name} (pid {pid})')
                     return pid
+            new -= before
             seen |= new
             if seen and not new:          # its client opened and is gone: crashed or refused -
                 time.sleep(1)             # no point waiting the rest of WAIT_IN_GAME
@@ -217,10 +233,13 @@ def login(account, start=True):
             time.sleep(1)
         print(f'[BG LOGIN] {account.username}: not in the game after {WAIT_IN_GAME}s'
               + (' - the client never took the auto-login file' if os.path.exists(path) else ''))
+        for pid in set(game_memory.game_pids()) - before:  # its client, stuck before the world:
+            if not game_memory._name_pid(pid):              # closed, or it would take the next
+                subprocess.run(['taskkill', '/PID', str(pid), '/F'], capture_output=True)   # try's file
+                print(f'[BG LOGIN] {account.username}: closed its stuck game {pid}')
         return None
     finally:
-        if os.path.exists(path):          # not claimed: don't leave the password lying around
-            os.remove(path)
+        _discard(path)                    # not claimed: don't leave the password lying around
 
 
 if __name__ == '__main__':

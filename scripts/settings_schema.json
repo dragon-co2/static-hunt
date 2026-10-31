@@ -102,13 +102,6 @@
       "label": "Password",
       "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
     },
-    "ACCOUNT_1_NAME": {
-      "type": "text",
-      "default": "",
-      "group": "Account 1",
-      "label": "Character name",
-      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
-    },
     "ACCOUNT_2_USER": {
       "type": "text",
       "default": "",
@@ -122,13 +115,6 @@
       "group": "Account 2",
       "label": "Password",
       "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
-    },
-    "ACCOUNT_2_NAME": {
-      "type": "text",
-      "default": "",
-      "group": "Account 2",
-      "label": "Character name",
-      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
     },
     "ACCOUNT_3_USER": {
       "type": "text",
@@ -144,13 +130,6 @@
       "label": "Password",
       "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
     },
-    "ACCOUNT_3_NAME": {
-      "type": "text",
-      "default": "",
-      "group": "Account 3",
-      "label": "Character name",
-      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
-    },
     "ACCOUNT_4_USER": {
       "type": "text",
       "default": "",
@@ -164,13 +143,6 @@
       "group": "Account 4",
       "label": "Password",
       "desc": "Game login password. Saved encrypted — it is never shown again; type a new one to change it."
-    },
-    "ACCOUNT_4_NAME": {
-      "type": "text",
-      "default": "",
-      "group": "Account 4",
-      "label": "Character name",
-      "desc": "Optional - the character's name is read from the game by itself once the account is logged in. Fill it in only to have it known before that (it's how kill messages are matched to this account); if the game shows a different name, the game's name is used."
     }
   },
   "revive": {

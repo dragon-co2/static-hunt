@@ -191,6 +191,12 @@ def _save_name(username, character):
         pass
 
 
+def _others(username):
+    """The characters of the other accounts (as read from their games) - never this one's."""
+    names = {u: n for u, n in _load_names().items() if n}
+    return {n for u, n in names.items() if u != username} - {names.get(username)}
+
+
 def _find_game(character):
     """pid of the running game whose logged-in character is `character`, or None."""
     if not character:
@@ -274,7 +280,7 @@ class _Account:
 
     def __init__(self, slot, acc=None, pid=None, name=''):
         self.acc, self.slot = acc, slot
-        self.name = name or (acc and (acc.name or _load_names().get(acc.username, ''))) or ''
+        self.name = name or (acc and _load_names().get(acc.username, '')) or ''
         self.pid = pid
         self.enabled = acc is not None    # manual mode: the window's toggle
         self.in_game_once = False
@@ -321,7 +327,7 @@ class _Account:
         """Logs this account in (auto-login mode) - called by _login_loop, one account at a time."""
         self.say('logging in...')
         self.last_launch = time.time()
-        pid = bg_login.login_retry(self.acc)
+        pid = bg_login.login_retry(self.acc, others=_others(self.acc.username))
         if not pid:
             if self.down and not self.down[1]:
                 self.down[1] = True
@@ -331,8 +337,11 @@ class _Account:
         return self._got(pid)
 
     def _got(self, pid):
-        self.pid = pid
         name = game_memory._name_pid(pid)
+        if self.acc and name and name in _others(self.acc.username):
+            print(f"[ACCOUNTS] {self.who()}: game {pid} is {name} - another account's, not taken")
+            return False
+        self.pid = pid
         if name and name != self.name:
             print(f'[ACCOUNTS] {self.who()}: character {name}')
             self.name = name
