@@ -4,10 +4,12 @@
 //   POST /check  {user, password, device}   -> {ok, user, expires} | {ok: false, error}
 //        the first PC a username is used on is kept: another PC is refused (admin: reset)
 //   POST /admin  {op, ...}  with  Authorization: Bearer <ADMIN_KEY>
-//        add {user, password, days}   remove {user}   extend {user, days}   reset {user}
-//        disable {user}   enable {user}   list {}
+//        add {user, password, days}   password {user, password}   remove {user}
+//        extend {user, days}   until {user, date: 'YYYY-MM-DD' - the last day it works}
+//        reset {user}   disable {user}   enable {user}   list {}
 //
-// Passwords are never stored: PBKDF2-SHA256 with a salt of their own.
+// Checked against PBKDF2-SHA256 with a salt of their own; kept too AES-GCM-encrypted with a key
+// made from ADMIN_KEY - so the admin's list shows them, and only the admin's.
 
 const ITERATIONS = 100000;          // the most Workers' PBKDF2 allows
 const LOCK_AFTER = 8;               // wrong passwords in a row...
@@ -25,6 +27,32 @@ async function hash(password, salt) {
   const bits = await crypto.subtle.deriveBits(
     {name: 'PBKDF2', salt: enc(salt), iterations: ITERATIONS, hash: 'SHA-256'}, key, 256);
   return hex(bits);
+}
+
+async function sealKey(env) {
+  const raw = await crypto.subtle.digest('SHA-256', enc('dragon-co2 passwords|' + env.ADMIN_KEY));
+  return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+async function seal(env, password) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({name: 'AES-GCM', iv}, await sealKey(env), enc(password));
+  return hex(iv) + ':' + hex(data);
+}
+
+async function unseal(env, sealed) {
+  if (!sealed) return '';
+  try {
+    const [iv, data] = sealed.split(':').map(h => new Uint8Array(h.match(/../g).map(b => parseInt(b, 16))));
+    return new TextDecoder().decode(await crypto.subtle.decrypt({name: 'AES-GCM', iv}, await sealKey(env), data));
+  } catch (e) { return ''; }
+}
+
+async function setPassword(env, rec, password) {
+  rec.salt = crypto.randomUUID();
+  rec.hash = await hash(password, rec.salt);
+  rec.sealed = await seal(env, password);
+  rec.fails = 0; rec.locked_until = 0;
 }
 
 function same(a, b) {                // compared in constant time
@@ -72,7 +100,7 @@ async function admin(env, body) {
     const out = [];
     for (const k of (await env.USERS.list({prefix: 'user:'})).keys) {
       const r = JSON.parse(await env.USERS.get(k.name) || 'null');
-      if (r) out.push(shown(r));
+      if (r) out.push({...shown(r), password: await unseal(env, r.sealed)});
     }
     return json({ok: true, users: out});
   }
@@ -81,15 +109,23 @@ async function admin(env, body) {
   if (op === 'add') {
     if (rec && !body.force) return json({ok: false, error: 'already there (force to replace)'});
     if (!password || password.length < 6) return json({ok: false, error: 'a password of 6 or more'});
-    const salt = crypto.randomUUID();
-    const r = {user: String(user).trim(), salt, hash: await hash(password, salt),
-               expires: now() + days * day, device: '', created: now()};
+    const r = {user: String(user).trim(), expires: now() + days * day, device: '', created: now()};
+    await setPassword(env, r, password);
     await save(env, user, r);
     return json({ok: true, ...shown(r)});
   }
   if (!rec) return json({ok: false, error: 'no such user'});
   if (op === 'remove') { await env.USERS.delete(keyOf(user)); return json({ok: true}); }
-  if (op === 'extend') rec.expires = Math.max(rec.expires, now()) + days * day;
+  if (op === 'password') {
+    if (!password || password.length < 6) return json({ok: false, error: 'a password of 6 or more'});
+    await setPassword(env, rec, password);
+  }
+  else if (op === 'extend') rec.expires = Math.max(rec.expires, now()) + days * day;
+  else if (op === 'until') {
+    const end = Date.parse(String(body.date || '') + 'T23:59:59Z');      // through that whole day
+    if (isNaN(end)) return json({ok: false, error: 'a date as YYYY-MM-DD'});
+    rec.expires = end;
+  }
   else if (op === 'reset') rec.device = '';
   else if (op === 'disable') rec.disabled = true;
   else if (op === 'enable') rec.disabled = false;

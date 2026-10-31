@@ -5,6 +5,9 @@ needs the server's ADMIN_KEY (asked once, kept DPAPI-encrypted on this PC).
                                           up and shown once: give it to them
     python users.py list                  every user: until when, its PC, last seen
     python users.py extend <user> [days]  more days (from today if it ran out)
+    python users.py until <user> <date>   works through that day (YYYY-MM-DD) - earlier, later
+    python users.py password <user> [new] a new password (made up if none given) - the old one
+                                          stops at its next check
     python users.py reset <user>          its PC forgotten - the next PC it's used on is kept
     python users.py disable <user>        off (enable: on again)
     python users.py remove <user>
@@ -38,21 +41,23 @@ def save_key(key):
         json.dump({'key': secret.protect(key.strip())}, f)
 
 
-def admin(op, user='', days=30):
-    """One admin op on the server -> its answer (an add's made-up password in it as 'password').
-    Raises OSError with no answer; a refused key is forgotten."""
+def admin(op, user='', days=30, password='', date=''):
+    """One admin op on the server -> its answer (an add's / a password's new password in it as
+    'password' - made up if none given). Raises OSError with no answer; a refused key is forgotten."""
     body = {'op': op, 'user': user}
     if op in ('add', 'extend'):
         body['days'] = int(days)
-    if op == 'add':
-        body['password'] = _password()
+    if op in ('add', 'password'):
+        body['password'] = password.strip() or _password()
+    if op == 'until':
+        body['date'] = date
     answer = access.call('/admin', body, saved_key())
     if answer.get('error') == 'not allowed':
         try:
             os.remove(KEY_PATH)                         # a wrong key: asked again next time
         except OSError:
             pass
-    if answer.get('ok') and op == 'add':
+    if answer.get('ok') and op in ('add', 'password'):
         answer['password'] = body['password']
     return answer
 
@@ -72,14 +77,17 @@ def _password():
 
 def main():
     args = sys.argv[1:]
-    if not args or args[0] not in ('add', 'list', 'extend', 'reset', 'disable', 'enable', 'remove'):
+    if not args or args[0] not in ('add', 'list', 'password', 'extend', 'until', 'reset', 'disable',
+                                   'enable', 'remove'):
         sys.exit(__doc__)
     op, user = args[0], args[1] if len(args) > 1 else ''
     body = {'op': op, 'user': user}
     if op in ('add', 'extend'):
         body['days'] = int(args[2]) if len(args) > 2 else 30
-    if op == 'add':
-        body['password'] = _password()
+    if op == 'until':
+        body['date'] = args[2] if len(args) > 2 else ''
+    if op in ('add', 'password'):
+        body['password'] = (args[2] if op == 'password' and len(args) > 2 else '') or _password()
     try:
         answer = access.call('/admin', body, _admin_key())
     except OSError as e:
@@ -89,12 +97,13 @@ def main():
             os.remove(KEY_PATH)                         # a wrong key: asked again next time
         sys.exit(f'refused: {answer.get("error")}')
     if op == 'list':
-        print(f'{"user":16} {"until":11} {"PC":9} {"last seen":17} off')
+        print(f'{"user":16} {"password":12} {"until":11} {"PC":9} {"last seen":17} off')
         for u in sorted(answer['users'], key=lambda u: u['user'].lower()):
-            print(f'{u["user"]:16} {u["expires"]:11} {u["device"] or "-":9} {u["last_seen"] or "-":17} '
+            print(f'{u["user"]:16} {u.get("password") or "-":12} {u["expires"]:11} {u["device"] or "-":9} '
+                  f'{u["last_seen"] or "-":17} '
                   f'{"yes" if u["disabled"] else ""}')
         return
-    if op == 'add':
+    if op in ('add', 'password'):
         print(f'{answer["user"]}: until {answer["expires"]}\n  username: {answer["user"]}\n'
               f'  password: {body["password"]}   (shown only now - give it to them)')
         return

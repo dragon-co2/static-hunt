@@ -943,7 +943,8 @@ def _act(body):
         if not users.saved_key():
             return {'ok': False, 'message': 'No ADMIN_KEY on this PC'}
         try:
-            return users.admin(body.get('op'), body.get('user') or '', body.get('days') or 30)
+            return users.admin(body.get('op'), body.get('user') or '', body.get('days') or 30,
+                               body.get('password') or '', body.get('date') or '')
         except OSError as e:
             return {'ok': False, 'message': str(e)}
     elif action in ('mail_job', 'teleport', 'zone_save') and not access.active():

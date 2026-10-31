@@ -208,6 +208,9 @@
   #uTable tr:last-child td { border-bottom: none; }
   #uTable td.acts { text-align: right; white-space: nowrap; }
   #uTable td.acts button { padding: 6px 11px; font-size: 13px; margin-left: 4px; }
+  #uTable input.until { padding: 5px 8px; font-size: 13px; border-radius: 8px; color-scheme: light dark;
+    border: 1px solid var(--border); background: var(--bg); color: var(--text); font-family: var(--font); }
+  #uTable button.mini { padding: 3px 8px; font-size: 12px; margin-left: 6px; }
   #uTable .off { color: var(--danger); } #uTable .gone { color: var(--warn); }
   #uNew { background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--radius);
           padding: 12px 16px; margin-bottom: 14px; display: none; }
@@ -289,8 +292,8 @@
   </div>
   <div class="body">
     <div id="uNew"></div>
-    <table id="uTable"><thead><tr><th>User</th><th>Until</th><th>PC</th><th>Last seen</th><th>State</th><th></th></tr></thead>
-      <tbody id="uRows"><tr><td colspan="6" class="muted">Loading...</td></tr></tbody></table>
+    <table id="uTable"><thead><tr><th>User</th><th>Password</th><th>Until</th><th>PC</th><th>Last seen</th><th>State</th><th></th></tr></thead>
+      <tbody id="uRows"><tr><td colspan="7" class="muted">Loading...</td></tr></tbody></table>
     <div class="note" style="margin-top:10px">PC: the first PC that activated it - Reset PC lets it move to another.
       A new user may take up to a minute to show in the list (Cloudflare).</div>
   </div>
@@ -837,9 +840,9 @@ $('#accPass').addEventListener('keydown', e => { if (e.key === 'Enter') doActiva
 
 
 /* ---------------- the Users window (users.py, on a PC with the ADMIN_KEY) */
-async function uOp(op, user = '', days = 30) {
+async function uOp(op, user = '', days = 30, password = '', date = '') {
   $('#uSaid').textContent = op + '...';
-  const r = await (await fetch('/api/do', {method: 'POST', body: JSON.stringify({action: 'users', op, user, days})})).json();
+  const r = await (await fetch('/api/do', {method: 'POST', body: JSON.stringify({action: 'users', op, user, days, password, date})})).json();
   $('#uSaid').textContent = r.ok ? '' : (r.message || r.error || 'refused');
   return r;
 }
@@ -849,13 +852,17 @@ async function uLoad() {
   const today = new Date().toISOString().slice(0, 10);
   $('#uRows').innerHTML = r.users.length ? r.users.sort((a, b) => a.user.localeCompare(b.user)).map(u => `
     <tr data-user="${esc(u.user)}">
-      <td><b>${esc(u.user)}</b></td><td>${esc(u.expires)}</td><td class="mono">${esc(u.device || '-')}</td>
+      <td><b>${esc(u.user)}</b></td>
+      <td class="mono">${u.password ? `<span class="pw" data-pw="${esc(u.password)}">••••••••</span>
+        <button class="mini" data-op="show">Show</button><button class="mini" data-op="copy">Copy</button>`
+        : '<span class="muted">- (set a new one)</span>'}</td>
+      <td><input type="date" class="until" value="${esc(u.expires)}" title="Works through this day"></td><td class="mono">${esc(u.device || '-')}</td>
       <td class="mono">${esc(u.last_seen || '-')}</td>
       <td>${u.disabled ? '<span class="off">off</span>' : u.expires < today ? '<span class="gone">expired</span>' : 'on'}</td>
-      <td class="acts"><button data-op="extend">+30 days</button><button data-op="reset" ${u.device ? '' : 'disabled'}>Reset PC</button>
+      <td class="acts"><button data-op="password">New password</button><button data-op="extend">+30 days</button><button data-op="reset" ${u.device ? '' : 'disabled'}>Reset PC</button>
         <button data-op="${u.disabled ? 'enable' : 'disable'}">${u.disabled ? 'Enable' : 'Disable'}</button>
         <button data-op="remove" class="danger">Remove</button></td>
-    </tr>`).join('') : '<tr><td colspan="6" class="muted">No users yet</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="7" class="muted">No users yet</td></tr>';
 }
 $('#adminBtn').onclick = () => { $('#users').classList.add('open'); $('#uNew').style.display = 'none'; uLoad(); };
 $('#uClose').onclick = () => $('#users').classList.remove('open');
@@ -875,12 +882,34 @@ $('#uAdd').onclick = async () => {
   };
   uLoad();
 };
+$('#uRows').addEventListener('change', async e => {
+  if (!e.target.classList.contains('until') || !e.target.value) return;
+  const user = e.target.closest('tr').dataset.user;
+  const r = await uOp('until', user, 30, '', e.target.value);
+  if (r.ok) { $('#uSaid').textContent = `${user}: until ${r.expires}`; uLoad(); }
+});
 $('#uRows').addEventListener('click', async e => {
   const b = e.target.closest('button[data-op]');
   if (!b) return;
-  const user = b.closest('tr').dataset.user, op = b.dataset.op;
+  const row = b.closest('tr'), user = row.dataset.user, op = b.dataset.op, pw = row.querySelector('.pw');
+  if (op === 'show') { pw.textContent = pw.textContent.startsWith('•') ? pw.dataset.pw : '••••••••';
+                       b.textContent = pw.textContent.startsWith('•') ? 'Show' : 'Hide'; return; }
+  if (op === 'copy') {
+    navigator.clipboard.writeText(`username: ${user}\npassword: ${pw.dataset.pw}`).then(() => b.textContent = 'Copied');
+    return;
+  }
+  let password = '';
+  if (op === 'password') {
+    password = prompt(`New password for ${user} (6 or more - empty: made up).\nThe old one stops at its next check.`, '');
+    if (password === null) return;
+    if (password && password.length < 6) return alert('6 or more');
+  }
   if (op === 'remove' && !confirm(`Remove ${user}? Their Auto features stop at their next check.`)) return;
-  const r = await uOp(op, user, 30);
+  const r = await uOp(op, user, 30, password);
+  if (r.ok && op === 'password') {
+    $('#uNew').style.display = 'block';
+    $('#uNew').innerHTML = `New password for <b>${esc(user)}</b>: <code>${esc(r.password)}</code>`;
+  }
   if (r.ok) uLoad();
 });
 
