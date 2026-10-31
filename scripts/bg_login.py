@@ -29,6 +29,8 @@ from _paths import app_root
 
 _PLAY = cv2.imread(os.path.join(app_root(), 'reference_images', 'play.jpg'), cv2.IMREAD_GRAYSCALE)
 CONF_PLAY      = 0.8
+PLAY_SCALES    = (1, .95, .9, .85, .8, .75, .7, 1.1, 1.25, 1.5, 1.75, 2)   # PLAY's sizes tried: the
+                                   # launcher shrinks on a small screen, grows with display scale
 WAIT_PLAY      = 60                # seconds for the launcher's PLAY (it checks for updates first)
 CLIENT_ENTROPY = b'\x8f,Q\xa6\r\xb3t\xe9"\x9bF\xc1X\xea7\xd0'   # version.dll 0x100C672C
 SERVER         = 0                 # Server= (every account saved by the overlay uses 0)
@@ -73,8 +75,23 @@ def _pending_file():
     return os.path.join(FOLDER, f'AutoLogin_{n}.pending')
 
 
-def _windows_of(pid):
-    """Visible top-level windows of process `pid`, biggest first."""
+def _exe_of(pid):
+    """The lower-case file name of process `pid`'s exe, or ''."""
+    k32 = ctypes.windll.kernel32
+    handle = k32.OpenProcess(0x1000, False, pid)        # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ''
+    try:
+        buf, size = ctypes.create_unicode_buffer(520), ctypes.wintypes.DWORD(520)
+        ok = k32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
+        return os.path.basename(buf.value).lower() if ok else ''
+    finally:
+        k32.CloseHandle(handle)
+
+
+def _windows_of(pid, exe=''):
+    """Visible top-level windows of process `pid` - or of any process run from `exe` (a launcher
+    that starts itself again, e.g. as administrator, has another pid) - biggest first."""
     user32 = ctypes.windll.user32
     found = []
     cb = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
@@ -82,7 +99,7 @@ def _windows_of(pid):
     def _each(hwnd, _):
         owner = ctypes.wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid and user32.IsWindowVisible(hwnd):
+        if (owner.value == pid or exe and _exe_of(owner.value) == exe) and user32.IsWindowVisible(hwnd):
             r = ctypes.wintypes.RECT()
             user32.GetClientRect(hwnd, ctypes.byref(r))
             found.append((r.right * r.bottom, hwnd))
@@ -118,30 +135,62 @@ def _capture(hwnd):
         user32.ReleaseDC(hwnd, wdc)
 
 
+def _find_play(gray):
+    """(score, x, y) of the best PLAY match in `gray` (its centre), at the sizes PLAY_SCALES -
+    the launcher is drawn bigger with Windows' display scale above 100%."""
+    best = (0.0, 0, 0)
+    for scale in PLAY_SCALES:
+        tpl = _PLAY if scale == 1 else cv2.resize(_PLAY, None, fx=scale, fy=scale)
+        if gray.shape[0] < tpl.shape[0] or gray.shape[1] < tpl.shape[1]:
+            continue
+        _, score, _, (x, y) = cv2.minMaxLoc(cv2.matchTemplate(gray, tpl, cv2.TM_CCOEFF_NORMED))
+        if score > best[0]:
+            best = (score, x + tpl.shape[1] // 2, y + tpl.shape[0] // 2)
+            if score >= CONF_PLAY:                      # good enough - the other sizes skipped
+                break
+    return best
+
+
 def press_play(launcher_pid, timeout=WAIT_PLAY):
     """Clicks the launcher's PLAY in the background: finds it in a PrintWindow capture of the
     launcher (reference_images/play.jpg) and posts the click to that window - no real mouse, no
     window in front. True once clicked."""
+    exe = _exe_of(launcher_pid)
     end = time.time() + timeout
+    told = time.time()
+    best, windows = 0.0, 0
     while time.time() < end:
-        for hwnd in _windows_of(launcher_pid):
+        hwnds = _windows_of(launcher_pid, exe)
+        windows = len(hwnds)
+        for hwnd in hwnds:
             gray = _capture(hwnd)
-            if gray is None or gray.shape[0] < _PLAY.shape[0] or gray.shape[1] < _PLAY.shape[1]:
+            if gray is None:
                 continue
-            _, score, _, (x, y) = cv2.minMaxLoc(cv2.matchTemplate(gray, _PLAY, cv2.TM_CCOEFF_NORMED))
+            score, cx, cy = _find_play(gray)
+            best = max(best, score)
             if score >= CONF_PLAY:
-                cx, cy = x + _PLAY.shape[1] // 2, y + _PLAY.shape[0] // 2
                 at = cy << 16 | cx
                 post = ctypes.windll.user32.PostMessageW
                 post(hwnd, 0x200, 0, at)                    # WM_MOUSEMOVE (hover first)
                 time.sleep(0.1)
-                post(hwnd, 0x201, 1, at)                    # WM_LBUTTONDOWN
+                down = post(hwnd, 0x201, 1, at)             # WM_LBUTTONDOWN
                 time.sleep(0.05)
                 post(hwnd, 0x202, 0, at)                    # WM_LBUTTONUP
+                if not down:                                # 5: an administrator's window
+                    print(f'[BG LOGIN] PLAY found but the click was refused (error '
+                          f'{ctypes.GetLastError()}) - the launcher runs as administrator: run '
+                          f'this as administrator too, or untick "Run as administrator" on it')
+                    return False
                 print(f'[BG LOGIN] PLAY clicked (match {score:.2f})')
                 return True
+        if time.time() - told >= 15:
+            told = time.time()
+            print(f'[BG LOGIN] waiting for PLAY: {windows} launcher window(s), best match {best:.2f}'
+                  f' (needs {CONF_PLAY})')
         time.sleep(1)
-    print(f'[BG LOGIN] the launcher\'s PLAY button did not show up within {timeout}s')
+    print(f'[BG LOGIN] the launcher\'s PLAY button did not show up within {timeout}s ('
+          + (f'best match {best:.2f}, needs {CONF_PLAY})' if windows else
+             f'no window of the launcher{" " + exe if exe else ""} found)'))
     return False
 
 
